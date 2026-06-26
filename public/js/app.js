@@ -16,6 +16,7 @@ const nameGate = document.getElementById("nameGate");
 const nameForm = document.getElementById("nameForm");
 const nameInput = document.getElementById("nameInput");
 const terminal = document.getElementById("terminal");
+const brandEl = document.getElementById("brand");
 const statusEl = document.getElementById("status");
 const chatInput = document.getElementById("chatInput");
 const sendBtn = document.getElementById("sendBtn");
@@ -25,6 +26,11 @@ function escapeHtml(s) {
 		/[&<>"']/g,
 		(c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])
 	);
+}
+
+function clipText(str, max) {
+	if (!str) return "";
+	return str.length > max ? str.slice(0, max - 3) + "..." : str;
 }
 
 function appendLine(html) {
@@ -52,10 +58,19 @@ function renderEvent(ev) {
 }
 
 function updateStatus() {
-	statusEl.textContent = `RELAYS: ${pool.connectedCount}/${pool.total}`;
+	const connected = pool.connectedCount;
+	const total = pool.total;
+	const left = connected === 0 ? "--" : connected;
+	const right = total === 0 ? "--" : total;
+	statusEl.textContent = `RELAYS: ${left}/${right}`;
+}
+
+function renderBrand() {
+	brandEl.innerHTML = `GLUB.CHAT/@${escapeHtml(clipText(name || "anon", 12))}`;
 }
 
 function openNameGate() {
+	nameInput.value = name || "";
 	nameGate.classList.add("show");
 	setTimeout(() => nameInput.focus(), 0);
 }
@@ -70,6 +85,9 @@ if (name) {
 	openNameGate();
 }
 
+renderBrand();
+brandEl.addEventListener("click", openNameGate);
+
 nameForm.addEventListener("submit", (e) => {
 	e.preventDefault();
 
@@ -77,6 +95,7 @@ nameForm.addEventListener("submit", (e) => {
 	name = value || `anon${Math.floor(1000 + Math.random() * 9000)}`;
 
 	setStoredName(name);
+	renderBrand();
 	closeNameGate();
 });
 

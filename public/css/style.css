@@ -1,14 +1,14 @@
 :root {
-	--bg: #09060a;
-	--fg: #d7d7dc;
-	--muted: #7e7e88;
+	--bg: #000000;
+	--fg: #8fe89c;
+	--muted: #7a828c;
 
-	--geo: #2de2e6;
-	--user: #2de2e6;
-	--accent: #ff2a6d;
+	--geo: #7be488;
+	--user: #8ef29c;
+	--accent: #7be488;
 
-	--chrome-bg: rgba(18, 8, 18, 0.95);
-	--chrome-border: rgba(255, 42, 109, 0.35);
+	--chrome-bg: #000000;
+	--chrome-border: rgba(123, 228, 136, 0.12);
 }
 
 html,
@@ -19,7 +19,7 @@ body {
 	height: 100%;
 	background: var(--bg);
 	color: var(--fg);
-	font-family: "JetBrains Mono", "IBM Plex Mono", Menlo, Consolas, monospace;
+	font-family: "JetBrains Mono", "IBM Plex Mono", "SFMono-Regular", Menlo, Consolas, monospace;
 	overflow: hidden;
 }
 
@@ -40,6 +40,10 @@ body {
 	font-size: 13px;
 	letter-spacing: 0.08em;
 	text-transform: uppercase;
+}
+
+.brand {
+	cursor: pointer;
 }
 
 #terminal {

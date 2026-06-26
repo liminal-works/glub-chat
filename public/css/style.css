@@ -79,7 +79,7 @@ body {
 #inputbar {
 	display: flex;
 	gap: 10px;
-	padding: 10px 12px;
+	padding: 10px 12px calc(10px + env(safe-area-inset-bottom));
 	background: var(--chrome-bg);
 	border-top: 1px solid var(--chrome-border);
 }

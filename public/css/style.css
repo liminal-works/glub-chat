@@ -1,0 +1,166 @@
+:root {
+	--bg: #09060a;
+	--fg: #d7d7dc;
+	--muted: #7e7e88;
+
+	--geo: #2de2e6;
+	--user: #2de2e6;
+	--accent: #ff2a6d;
+
+	--chrome-bg: rgba(18, 8, 18, 0.95);
+	--chrome-border: rgba(255, 42, 109, 0.35);
+}
+
+html,
+body {
+	margin: 0;
+	padding: 0;
+	width: 100%;
+	height: 100%;
+	background: var(--bg);
+	color: var(--fg);
+	font-family: "JetBrains Mono", "IBM Plex Mono", Menlo, Consolas, monospace;
+	overflow: hidden;
+}
+
+#app {
+	height: 100dvh;
+	display: flex;
+	flex-direction: column;
+}
+
+#topbar {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	padding: 10px 12px;
+	background: var(--chrome-bg);
+	border-bottom: 1px solid var(--chrome-border);
+	color: var(--accent);
+	font-size: 13px;
+	letter-spacing: 0.08em;
+	text-transform: uppercase;
+}
+
+#terminal {
+	flex: 1;
+	min-height: 0;
+	overflow-y: auto;
+	padding: 12px 14px;
+	white-space: pre-wrap;
+	word-break: break-word;
+	font-size: 14px;
+}
+
+.line {
+	margin: 0 0 4px 0;
+}
+
+.geo {
+	color: var(--geo);
+}
+
+.user {
+	font-weight: 700;
+}
+
+.msg {
+	color: var(--fg);
+}
+
+.system {
+	color: var(--muted);
+}
+
+#inputbar {
+	display: flex;
+	gap: 10px;
+	padding: 10px 12px;
+	background: var(--chrome-bg);
+	border-top: 1px solid var(--chrome-border);
+}
+
+#chatInput {
+	flex: 1;
+	min-width: 0;
+	border: 1px solid var(--chrome-border);
+	background: rgba(0, 0, 0, 0.18);
+	color: var(--fg);
+	font: inherit;
+	font-size: 15px;
+	outline: 0;
+	padding: 10px 12px;
+}
+
+#sendBtn {
+	border: 1px solid var(--chrome-border);
+	background: transparent;
+	color: var(--accent);
+	font: inherit;
+	font-weight: 700;
+	cursor: pointer;
+	padding: 0 16px;
+}
+
+.gate {
+	position: fixed;
+	inset: 0;
+	z-index: 1000;
+	display: none;
+	align-items: center;
+	justify-content: center;
+	padding: 16px;
+	background: rgba(0, 0, 0, 0.82);
+}
+
+.gate.show {
+	display: flex;
+}
+
+.gateCard {
+	width: min(380px, 100%);
+	border: 1px solid var(--chrome-border);
+	background: var(--chrome-bg);
+	padding: 16px;
+	box-sizing: border-box;
+}
+
+.gateTitle {
+	color: var(--accent);
+	font-size: 16px;
+	font-weight: 700;
+	margin-bottom: 8px;
+}
+
+.gateSub {
+	color: var(--muted);
+	font-size: 13px;
+	line-height: 1.35;
+	margin-bottom: 14px;
+}
+
+#nameForm {
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+}
+
+#nameInput {
+	border: 1px solid var(--chrome-border);
+	background: rgba(0, 0, 0, 0.18);
+	color: var(--fg);
+	font: inherit;
+	font-size: 16px;
+	padding: 10px 12px;
+	outline: 0;
+}
+
+#nameForm button {
+	border: 1px solid var(--chrome-border);
+	background: transparent;
+	color: var(--accent);
+	font: inherit;
+	font-weight: 700;
+	padding: 10px 12px;
+	cursor: pointer;
+}

@@ -62,11 +62,11 @@ function updateStatus() {
 	const total = pool.total;
 	const left = connected === 0 ? "--" : connected;
 	const right = total === 0 ? "--" : total;
-	statusEl.textContent = `RELAYS: ${left}/${right}`;
+	statusEl.innerHTML = `<strong>RELAYS</strong>: ${left}/${right}`;
 }
 
 function renderBrand() {
-	brandEl.innerHTML = `GLUB.CHAT/@${escapeHtml(clipText(name || "anon", 12))}`;
+	brandEl.innerHTML = `<strong>GLUB.CHAT</strong>/@${escapeHtml(clipText(name || "anon", 12))}`;
 }
 
 function openNameGate() {

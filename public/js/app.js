@@ -47,12 +47,13 @@ function appendSystem(text) {
 
 function renderEvent(ev) {
 	const geo = getGeohash(ev) || "?";
-	const who = getName(ev) || ev.pubkey.slice(0, 8);
+	const who = getName(ev) || "anon";
+	const tag = ev.pubkey.slice(-4);
 	const text = String(ev.content || "");
 
 	appendLine(
 		`<span class="geo">#${escapeHtml(geo)}</span> ` +
-			`<span class="user">${escapeHtml(who)}</span> ` +
+			`<span class="user">${escapeHtml(who)}#${escapeHtml(tag)}</span> ` +
 			`<span class="msg">${escapeHtml(text)}</span>`
 	);
 }
@@ -116,11 +117,9 @@ const pool = new RelayPool({
 });
 
 (async function init() {
-	appendSystem("loading relay list...");
-
 	try {
 		allRelays = await fetchRelayList();
-		appendSystem(`found ${allRelays.length} relays, connecting...`);
+		appendSystem(`connecting to ${allRelays.length} relays...`);
 		// no channel focused yet - bootstrap with an arbitrary slice, then
 		// re-sort by distance once the user focuses a real geohash.
 		pool.connectNearest(allRelays.slice(0, BOOT_RELAY_COUNT).map((r) => r.url));

@@ -195,4 +195,13 @@ chatInput.addEventListener("keydown", (e) => {
 	}
 });
 
+// iOS Safari doesn't honor interactive-widget=resizes-content yet, so when the
+// keyboard opens/closes it just scrolls the page instead of resizing it - pull
+// the latest messages back into view whenever the visual viewport changes.
+if (window.visualViewport) {
+	window.visualViewport.addEventListener("resize", () => {
+		terminal.scrollTop = terminal.scrollHeight;
+	});
+}
+
 updatePlaceholder();

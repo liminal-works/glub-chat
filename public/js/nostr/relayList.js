@@ -8,6 +8,7 @@ function normalizeRelayUrl(raw) {
 	return "wss://" + r;
 }
 
+// returns [{ url, lat, lon }], deduped by url
 export async function fetchRelayList(url = DEFAULT_RELAY_CSV_URL) {
 	const res = await fetch(url);
 	if (!res.ok) throw new Error(`relay list fetch failed: HTTP ${res.status}`);
@@ -22,11 +23,16 @@ export async function fetchRelayList(url = DEFAULT_RELAY_CSV_URL) {
 		const line = lines[i].trim();
 		if (!line) continue;
 
-		const relayUrl = normalizeRelayUrl(line.split(",")[0] || "");
-		if (!relayUrl || seen.has(relayUrl)) continue;
+		const [rawUrl, rawLat, rawLon] = line.split(",");
+		const url = normalizeRelayUrl(rawUrl || "");
+		if (!url || seen.has(url)) continue;
 
-		seen.add(relayUrl);
-		relays.push(relayUrl);
+		const lat = Number(rawLat);
+		const lon = Number(rawLon);
+		if (!Number.isFinite(lat) || !Number.isFinite(lon)) continue;
+
+		seen.add(url);
+		relays.push({ url, lat, lon });
 	}
 
 	return relays;

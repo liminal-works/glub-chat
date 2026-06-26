@@ -1,14 +1,16 @@
 import { loadOrCreateIdentity, getStoredName, setStoredName } from "./nostr/identity.js";
 import { fetchRelayList } from "./nostr/relayList.js";
 import { RelayPool } from "./nostr/relayPool.js";
-import { makeChatMessage, getGeohash, getName, CHAT_KIND } from "./nostr/protocol.js";
+import { makeChatMessage, getGeohash, getName, CHAT_KIND, sortRelaysByGeohash } from "./nostr/protocol.js";
 
+const BOOT_RELAY_COUNT = 12;
 const BOOTED_AT = Math.floor(Date.now() / 1000);
 const seen = new Set();
 
 const identity = loadOrCreateIdentity();
 let name = getStoredName();
 let focusedGeo = null;
+let allRelays = []; // [{ url, lat, lon }], populated after the CSV fetch resolves
 
 const nameGate = document.getElementById("nameGate");
 const nameForm = document.getElementById("nameForm");
@@ -98,9 +100,11 @@ const pool = new RelayPool({
 	appendSystem("loading relay list...");
 
 	try {
-		const relays = await fetchRelayList();
-		appendSystem(`found ${relays.length} relays, connecting...`);
-		pool.connectAll(relays);
+		allRelays = await fetchRelayList();
+		appendSystem(`found ${allRelays.length} relays, connecting...`);
+		// no channel focused yet - bootstrap with an arbitrary slice, then
+		// re-sort by distance once the user focuses a real geohash.
+		pool.connectNearest(allRelays.slice(0, BOOT_RELAY_COUNT).map((r) => r.url));
 	} catch (err) {
 		appendSystem(`failed to load relays: ${err.message}`);
 	}
@@ -108,6 +112,21 @@ const pool = new RelayPool({
 
 function updatePlaceholder() {
 	chatInput.placeholder = focusedGeo ? `message -> #${focusedGeo}` : "#channel message";
+}
+
+function focusChannel(geo) {
+	focusedGeo = geo;
+	updatePlaceholder();
+
+	if (!allRelays.length) return;
+
+	try {
+		const sorted = sortRelaysByGeohash(allRelays, geo);
+		appendSystem(`#${geo}: connecting to nearest relays...`);
+		pool.connectNearest(sorted.map((r) => r.url));
+	} catch (err) {
+		appendSystem(`#${geo}: invalid geohash, keeping current relays`);
+	}
 }
 
 function parseDraft(raw) {
@@ -125,8 +144,7 @@ function parseDraft(raw) {
 	const rest = parts.slice(1).join(" ").trim();
 
 	if (!rest) {
-		focusedGeo = first;
-		updatePlaceholder();
+		focusChannel(first);
 		return null;
 	}
 

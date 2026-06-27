@@ -64,13 +64,13 @@ body {
 	margin: 0 0 4px 0;
 }
 
-/* messages that @-mention you: full-bleed accent tint across the terminal's
-   horizontal padding (14px) so the highlight reaches the screen edges. */
+/* messages that @-mention you: full-bleed across the terminal's horizontal
+   padding (14px) so the highlight reaches the screen edges. The tint color is
+   the sender's own color, set inline in JS. */
 .line.mention {
 	margin-left: -14px;
 	margin-right: -14px;
 	padding: 2px 14px;
-	background: color-mix(in srgb, var(--accent) 14%, transparent);
 }
 
 .geo {

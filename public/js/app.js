@@ -93,6 +93,7 @@ function entryVisible(entry) {
 function renderEntryDom(entry) {
 	const div = document.createElement("div");
 	div.className = entry.mention ? "line mention" : "line";
+	if (entry.mentionTint) div.style.background = entry.mentionTint;
 	// the #geo prefix is redundant in a focused channel (every line is that
 	// channel), so only prepend it in global view.
 	div.innerHTML = (focusedGeo ? "" : entry.geoPrefix || "") + entry.html;
@@ -195,15 +196,23 @@ function appendSystem(text) {
 	});
 }
 
-// derives a stable per-user color from their pubkey (like native bitchat),
+// derives a stable per-user hue from their pubkey (like native bitchat),
 // so distinct users are visually distinguishable at a glance.
-function pubkeyColor(pubkey) {
+function pubkeyHue(pubkey) {
 	let hash = 0;
 	for (let i = 0; i < pubkey.length; i++) {
 		hash = (hash * 31 + pubkey.charCodeAt(i)) | 0;
 	}
-	const hue = Math.abs(hash) % 360;
-	return `hsl(${hue}, 65%, 60%)`;
+	return Math.abs(hash) % 360;
+}
+
+function pubkeyColor(pubkey) {
+	return `hsl(${pubkeyHue(pubkey)}, 65%, 60%)`;
+}
+
+// translucent version of the sender's color, for tinting their mention highlight
+function pubkeyTint(pubkey) {
+	return `hsla(${pubkeyHue(pubkey)}, 65%, 60%, 0.16)`;
 }
 
 function renderEvent(ev) {
@@ -222,10 +231,12 @@ function renderEvent(ev) {
 		`<span class="msg" style="color:${color}">${linkify(escapeHtml(text))}</span>` +
 		timeTag(ev.created_at);
 
-	// highlight messages that @-mention us (but not our own messages)
+	// highlight messages that @-mention us (but not our own messages), tinted
+	// with the sender's own color so it stays visually cohesive.
 	const mention = ev.pubkey !== identity.pk && isMention(text, name);
+	const mentionTint = mention ? pubkeyTint(ev.pubkey) : null;
 
-	insertEntry({ ts: ev.created_at, geo, system: false, pubkey: ev.pubkey, geoPrefix, html, mention, el: null });
+	insertEntry({ ts: ev.created_at, geo, system: false, pubkey: ev.pubkey, geoPrefix, html, mention, mentionTint, el: null });
 }
 
 function updateFocusedUserCount() {

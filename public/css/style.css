@@ -66,6 +66,20 @@ body {
 
 .geo {
 	color: var(--geo);
+	cursor: pointer;
+}
+
+.inlineLink,
+.inlineGeo {
+	color: inherit;
+	text-decoration: underline;
+	text-underline-offset: 2px;
+	text-decoration-thickness: 1px;
+	cursor: pointer;
+}
+
+.inlineGeo {
+	font-weight: 700;
 }
 
 .user {

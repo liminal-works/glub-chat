@@ -53,6 +53,21 @@ function timeTag(tsSec) {
 	return ` <span class="ts">[${formatTime(tsSec)}]</span>`;
 }
 
+// turns URLs and inline #geohash tokens in already-escaped text into clickable
+// elements. URLs first, then #geohashes; the geohash match requires the # to
+// follow whitespace/start so it won't grab a URL's #fragment or a name#tag.
+function linkify(safe) {
+	let html = safe.replace(
+		/\bhttps?:\/\/[^\s<]+/gi,
+		(url) => `<a class="inlineLink" href="${url}" target="_blank" rel="noopener noreferrer">${url}</a>`
+	);
+	html = html.replace(
+		/(^|[\s([{"'])#([a-z0-9]{1,12})\b/gi,
+		(m, prefix, geo) => `${prefix}<span class="inlineGeo" data-geo="${geo.toLowerCase()}">#${geo}</span>`
+	);
+	return html;
+}
+
 function entryVisible(entry) {
 	return entry.system || !focusedGeo || entry.geo === focusedGeo;
 }
@@ -182,13 +197,13 @@ function renderEvent(ev) {
 	const text = String(ev.content || "");
 	const color = pubkeyColor(ev.pubkey);
 
-	const geoPrefix = `<span class="geo">#${escapeHtml(geo)}</span> `;
+	const geoPrefix = `<span class="geo" data-geo="${escapeHtml(geo)}">#${escapeHtml(geo)}</span> `;
 	const html =
 		`<span class="bracket" style="color:${color}">&lt;</span>` +
 		`<span class="user" style="color:${color}">@${escapeHtml(who)}</span>` +
 		`<span class="tag" style="color:${color}">#${escapeHtml(tag)}</span>` +
 		`<span class="bracket" style="color:${color}">&gt;</span> ` +
-		`<span class="msg" style="color:${color}">${escapeHtml(text)}</span>` +
+		`<span class="msg" style="color:${color}">${linkify(escapeHtml(text))}</span>` +
 		timeTag(ev.created_at);
 
 	insertEntry({ ts: ev.created_at, geo, system: false, pubkey: ev.pubkey, geoPrefix, html, el: null });
@@ -257,6 +272,15 @@ terminal.addEventListener("scroll", () => {
 });
 
 newMessagesBar.addEventListener("click", jumpToBottom);
+
+// clicking a geohash - either the #geo prefix or an inline #geo in a message -
+// focuses that channel. Links carry no data-geo, so they open normally.
+terminal.addEventListener("click", (e) => {
+	const geoEl = e.target.closest("[data-geo]");
+	if (!geoEl) return;
+	const geo = geoEl.dataset.geo;
+	if (geo) focusChannel(geo);
+});
 
 nameForm.addEventListener("submit", (e) => {
 	e.preventDefault();

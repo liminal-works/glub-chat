@@ -62,7 +62,9 @@ function entryVisible(entry) {
 function renderEntryDom(entry) {
 	const div = document.createElement("div");
 	div.className = "line";
-	div.innerHTML = entry.html;
+	// the #geo prefix is redundant in a focused channel (every line is that
+	// channel), so only prepend it in global view.
+	div.innerHTML = (focusedGeo ? "" : entry.geoPrefix || "") + entry.html;
 	entry.el = div;
 
 	const idx = entries.indexOf(entry);
@@ -180,8 +182,8 @@ function renderEvent(ev) {
 	const text = String(ev.content || "");
 	const color = pubkeyColor(ev.pubkey);
 
+	const geoPrefix = `<span class="geo">#${escapeHtml(geo)}</span> `;
 	const html =
-		`<span class="geo">#${escapeHtml(geo)}</span> ` +
 		`<span class="bracket" style="color:${color}">&lt;</span>` +
 		`<span class="user" style="color:${color}">@${escapeHtml(who)}</span>` +
 		`<span class="tag" style="color:${color}">#${escapeHtml(tag)}</span>` +
@@ -189,7 +191,7 @@ function renderEvent(ev) {
 		`<span class="msg" style="color:${color}">${escapeHtml(text)}</span>` +
 		timeTag(ev.created_at);
 
-	insertEntry({ ts: ev.created_at, geo, system: false, pubkey: ev.pubkey, html, el: null });
+	insertEntry({ ts: ev.created_at, geo, system: false, pubkey: ev.pubkey, geoPrefix, html, el: null });
 }
 
 function updateFocusedUserCount() {

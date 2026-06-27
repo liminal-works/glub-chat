@@ -39,6 +39,22 @@ function clipText(str, max) {
 	return str.length > max ? str.slice(0, max - 3) + "..." : str;
 }
 
+function escapeRegExp(str) {
+	return String(str).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+// true if text @-mentions the current user: "@name" optionally followed by the
+// "#xxxx" pubkey suffix, bounded so "@names" or "@nameother" don't false-match.
+function isMention(text, currentName) {
+	const n = (currentName || "").trim();
+	if (!n) return false;
+	const pattern = new RegExp(
+		`(^|[^a-z0-9_.-])@${escapeRegExp(n)}(?:#[a-z0-9]{4})?(?![a-z0-9_.-])`,
+		"i"
+	);
+	return pattern.test(String(text || ""));
+}
+
 // [hh:mm:ss] in the device's local time, 24-hour. tsSec is in seconds.
 function formatTime(tsSec) {
 	return new Date(tsSec * 1000).toLocaleTimeString([], {
@@ -76,7 +92,7 @@ function entryVisible(entry) {
 // position among the other currently-visible (filter-matching) entries.
 function renderEntryDom(entry) {
 	const div = document.createElement("div");
-	div.className = "line";
+	div.className = entry.mention ? "line mention" : "line";
 	// the #geo prefix is redundant in a focused channel (every line is that
 	// channel), so only prepend it in global view.
 	div.innerHTML = (focusedGeo ? "" : entry.geoPrefix || "") + entry.html;
@@ -206,7 +222,10 @@ function renderEvent(ev) {
 		`<span class="msg" style="color:${color}">${linkify(escapeHtml(text))}</span>` +
 		timeTag(ev.created_at);
 
-	insertEntry({ ts: ev.created_at, geo, system: false, pubkey: ev.pubkey, geoPrefix, html, el: null });
+	// highlight messages that @-mention us (but not our own messages)
+	const mention = ev.pubkey !== identity.pk && isMention(text, name);
+
+	insertEntry({ ts: ev.created_at, geo, system: false, pubkey: ev.pubkey, geoPrefix, html, mention, el: null });
 }
 
 function updateFocusedUserCount() {

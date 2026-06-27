@@ -46,6 +46,10 @@ body {
 	cursor: pointer;
 }
 
+#status.tapExit {
+	cursor: pointer;
+}
+
 #terminal {
 	flex: 1;
 	min-height: 0;

@@ -5,11 +5,12 @@ import { makeChatMessage, getGeohash, getName, CHAT_KIND, sortRelaysByGeohash } 
 
 const MAX_LINES = 600;
 const seen = new Set();
-const lines = []; // [{ ts, el }], kept ascending by ts so history renders in order
+const entries = []; // [{ ts, geo, system, pubkey, html, el }], ascending by ts - all received messages
 
 const identity = loadOrCreateIdentity();
 let name = getStoredName();
 let focusedGeo = null;
+let focusedUserCount = 0;
 let allRelays = []; // [{ url, lat, lon }], populated after the CSV fetch resolves
 
 const nameGate = document.getElementById("nameGate");
@@ -33,35 +34,77 @@ function clipText(str, max) {
 	return str.length > max ? str.slice(0, max - 3) + "..." : str;
 }
 
-// inserts a line in chronological order by ts (relay backlog can arrive
-// out of order), so history replays in the order it actually happened.
-function insertLine(ts, html) {
+function entryVisible(entry) {
+	return entry.system || !focusedGeo || entry.geo === focusedGeo;
+}
+
+// renders one entry's DOM node into the terminal at the correct chronological
+// position among the other currently-visible (filter-matching) entries.
+function renderEntryDom(entry) {
 	const div = document.createElement("div");
 	div.className = "line";
-	div.innerHTML = html;
+	div.innerHTML = entry.html;
+	entry.el = div;
 
-	let lo = 0, hi = lines.length;
-	while (lo < hi) {
-		const mid = (lo + hi) >> 1;
-		if (lines[mid].ts <= ts) lo = mid + 1;
-		else hi = mid;
+	const idx = entries.indexOf(entry);
+	let nextEl = null;
+	for (let i = idx + 1; i < entries.length; i++) {
+		if (entries[i].el) {
+			nextEl = entries[i].el;
+			break;
+		}
 	}
 
-	if (lo === lines.length) terminal.appendChild(div);
-	else terminal.insertBefore(div, lines[lo].el);
-
-	lines.splice(lo, 0, { ts, el: div });
-
-	while (lines.length > MAX_LINES) {
-		const oldest = lines.shift();
-		oldest.el.remove();
-	}
+	if (nextEl) terminal.insertBefore(div, nextEl);
+	else terminal.appendChild(div);
 
 	terminal.scrollTop = terminal.scrollHeight;
 }
 
+// rebuilds the visible terminal from `entries` under the current filter -
+// used when entering/exiting a focused channel.
+function rerenderTerminal() {
+	terminal.innerHTML = "";
+	for (const entry of entries) entry.el = null;
+	for (const entry of entries) {
+		if (entryVisible(entry)) renderEntryDom(entry);
+	}
+}
+
+// inserts a new entry in chronological order by ts (relay backlog can arrive
+// out of order), renders it if it matches the current channel filter, and
+// evicts the oldest entry once the buffer exceeds MAX_LINES.
+function insertEntry(entry) {
+	let lo = 0, hi = entries.length;
+	while (lo < hi) {
+		const mid = (lo + hi) >> 1;
+		if (entries[mid].ts <= entry.ts) lo = mid + 1;
+		else hi = mid;
+	}
+	entries.splice(lo, 0, entry);
+
+	while (entries.length > MAX_LINES) {
+		const oldest = entries.shift();
+		if (oldest.el) oldest.el.remove();
+	}
+
+	if (entryVisible(entry)) renderEntryDom(entry);
+
+	if (focusedGeo && !entry.system && entry.geo === focusedGeo) {
+		updateFocusedUserCount();
+		renderTopbar();
+	}
+}
+
 function appendSystem(text) {
-	insertLine(Date.now() / 1000, `<span class="system">${escapeHtml(text)}</span>`);
+	insertEntry({
+		ts: Date.now() / 1000,
+		geo: null,
+		system: true,
+		pubkey: null,
+		html: `<span class="system">${escapeHtml(text)}</span>`,
+		el: null,
+	});
 }
 
 // derives a stable per-user color from their pubkey (like native bitchat),
@@ -82,27 +125,46 @@ function renderEvent(ev) {
 	const text = String(ev.content || "");
 	const color = pubkeyColor(ev.pubkey);
 
-	insertLine(
-		ev.created_at,
+	const html =
 		`<span class="geo">#${escapeHtml(geo)}</span> ` +
-			`<span class="bracket" style="color:${color}">&lt;</span>` +
-			`<span class="user" style="color:${color}">@${escapeHtml(who)}</span>` +
-			`<span class="tag" style="color:${color}">#${escapeHtml(tag)}</span>` +
-			`<span class="bracket" style="color:${color}">&gt;</span> ` +
-			`<span class="msg" style="color:${color}">${escapeHtml(text)}</span>`
-	);
+		`<span class="bracket" style="color:${color}">&lt;</span>` +
+		`<span class="user" style="color:${color}">@${escapeHtml(who)}</span>` +
+		`<span class="tag" style="color:${color}">#${escapeHtml(tag)}</span>` +
+		`<span class="bracket" style="color:${color}">&gt;</span> ` +
+		`<span class="msg" style="color:${color}">${escapeHtml(text)}</span>`;
+
+	insertEntry({ ts: ev.created_at, geo, system: false, pubkey: ev.pubkey, html, el: null });
 }
 
-function updateStatus() {
-	const connected = pool.connectedCount;
-	const total = pool.total;
-	const left = connected === 0 ? "--" : connected;
-	const right = total === 0 ? "--" : total;
-	statusEl.innerHTML = `<strong>RELAYS</strong>: ${left}/${right}`;
+function updateFocusedUserCount() {
+	if (!focusedGeo) {
+		focusedUserCount = 0;
+		return;
+	}
+	const users = new Set();
+	for (const entry of entries) {
+		if (!entry.system && entry.geo === focusedGeo) users.add(entry.pubkey);
+	}
+	focusedUserCount = users.size;
 }
 
-function renderBrand() {
-	brandEl.innerHTML = `<strong>GLUB.CHAT</strong>/@${escapeHtml(clipText(name || "anon", 12))}`;
+function renderTopbar() {
+	if (focusedGeo) {
+		const clippedGeo = clipText(focusedGeo, 12);
+		brandEl.innerHTML = `#${escapeHtml(clippedGeo)}/@${escapeHtml(clipText(name || "anon", 12))}`;
+
+		statusEl.innerHTML = `${focusedUserCount} USERS &bull; [EXIT]`;
+		statusEl.classList.add("tapExit");
+	} else {
+		brandEl.innerHTML = `<strong>GLUB.CHAT</strong>/@${escapeHtml(clipText(name || "anon", 12))}`;
+
+		const connected = pool.connectedCount;
+		const total = pool.total;
+		const left = connected === 0 ? "--" : connected;
+		const right = total === 0 ? "--" : total;
+		statusEl.innerHTML = `<strong>RELAYS</strong>: ${left}/${right}`;
+		statusEl.classList.remove("tapExit");
+	}
 }
 
 function openNameGate() {
@@ -121,8 +183,13 @@ if (name) {
 	openNameGate();
 }
 
-renderBrand();
+renderTopbar();
 brandEl.addEventListener("click", openNameGate);
+
+statusEl.addEventListener("click", () => {
+	if (!focusedGeo) return;
+	exitFocus();
+});
 
 nameForm.addEventListener("submit", (e) => {
 	e.preventDefault();
@@ -131,12 +198,12 @@ nameForm.addEventListener("submit", (e) => {
 	name = value || `anon${Math.floor(1000 + Math.random() * 9000)}`;
 
 	setStoredName(name);
-	renderBrand();
+	renderTopbar();
 	closeNameGate();
 });
 
 const pool = new RelayPool({
-	onStatusChange: updateStatus,
+	onStatusChange: renderTopbar,
 	onEvent: (ev) => {
 		if (ev.kind !== CHAT_KIND) return;
 		if (!getGeohash(ev)) return;
@@ -167,6 +234,9 @@ function updatePlaceholder() {
 function focusChannel(geo) {
 	focusedGeo = geo;
 	updatePlaceholder();
+	updateFocusedUserCount();
+	renderTopbar();
+	rerenderTerminal();
 
 	if (!allRelays.length) return;
 
@@ -176,6 +246,16 @@ function focusChannel(geo) {
 	} catch (err) {
 		appendSystem(`#${geo}: invalid geohash, keeping current relays`);
 	}
+}
+
+function exitFocus() {
+	focusedGeo = null;
+	updatePlaceholder();
+	updateFocusedUserCount();
+	renderTopbar();
+	rerenderTerminal();
+
+	if (allRelays.length) pool.connectAll(allRelays.map((r) => r.url));
 }
 
 function parseDraft(raw) {

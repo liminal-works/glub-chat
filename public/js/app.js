@@ -227,7 +227,7 @@ function renderTopbar() {
 		brandEl.innerHTML = `<strong>#${escapeHtml(clippedGeo)}</strong>/@${escapeHtml(clipText(name || "anon", 12))}`;
 
 		const userWord = focusedUserCount === 1 ? "USER" : "USERS";
-		statusEl.innerHTML = `${focusedUserCount} ${userWord} <strong>[EXIT]</strong>`;
+		statusEl.innerHTML = `${focusedUserCount} ${userWord} - <strong>[EXIT]</strong>`;
 		statusEl.classList.add("tapExit");
 	} else {
 		brandEl.innerHTML = `<strong>GLUB.CHAT</strong>/@${escapeHtml(clipText(name || "anon", 12))}`;

@@ -231,9 +231,9 @@ function renderEvent(ev) {
 		`<span class="msg" style="color:${color}">${linkify(escapeHtml(text))}</span>` +
 		timeTag(ev.created_at);
 
-	// highlight messages that @-mention us (but not our own messages), tinted
-	// with the sender's own color so it stays visually cohesive.
-	const mention = ev.pubkey !== identity.pk && isMention(text, name);
+	// highlight messages that @-mention us, tinted with the sender's own color
+	// so it stays visually cohesive (includes our own messages @-ing ourselves).
+	const mention = isMention(text, name);
 	const mentionTint = mention ? pubkeyTint(ev.pubkey) : null;
 
 	insertEntry({ ts: ev.created_at, geo, system: false, pubkey: ev.pubkey, geoPrefix, html, mention, mentionTint, el: null });

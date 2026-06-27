@@ -183,7 +183,6 @@ if (name) {
 	openNameGate();
 }
 
-renderTopbar();
 brandEl.addEventListener("click", openNameGate);
 
 statusEl.addEventListener("click", () => {
@@ -215,6 +214,9 @@ const pool = new RelayPool({
 		renderEvent(ev);
 	},
 });
+
+// initial paint - done after `pool` exists since renderTopbar reads its counts
+renderTopbar();
 
 (async function init() {
 	try {

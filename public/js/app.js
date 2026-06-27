@@ -500,16 +500,6 @@ chatInput.addEventListener("keydown", (e) => {
 	}
 });
 
-// while composing, stack messages from the bottom up so the newest sit just
-// above the keyboard instead of the oldest being stranded at the top.
-chatInput.addEventListener("focus", () => {
-	terminal.classList.add("bottomUp");
-	if (autoScroll) scrollToBottom();
-});
-chatInput.addEventListener("blur", () => {
-	terminal.classList.remove("bottomUp");
-});
-
 // iOS Safari doesn't honor interactive-widget=resizes-content yet, so when the
 // keyboard opens/closes it just scrolls the page instead of resizing it - pull
 // the latest messages back into view whenever the visual viewport changes.

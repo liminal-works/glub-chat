@@ -5,8 +5,10 @@ import { finalizeEvent } from "https://esm.sh/nostr-tools@2";
 export const CHAT_KIND = 20000;
 export const PRESENCE_KIND = 20001;
 
-export function subscribeFilter(sinceSec) {
-	return { kinds: [CHAT_KIND, PRESENCE_KIND], since: sinceSec };
+// no `since` - relays are asked for whatever backlog of these ephemeral
+// kinds they're still holding/rebroadcasting, capped by `limit`.
+export function subscribeFilter(limit = 500) {
+	return { kinds: [CHAT_KIND, PRESENCE_KIND], limit };
 }
 
 export function makeChatMessage({ content, geohash, name, sk, pk }) {

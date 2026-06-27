@@ -9,16 +9,17 @@ export class RelayPool {
 		targetCount = 12,
 		maxCandidates = 40,
 		expandAfterMs = 3000,
+		globalMaxCount = 200,
 	} = {}) {
 		this.sockets = new Map(); // url -> WebSocket
 		this.onEvent = onEvent || (() => {});
 		this.onStatusChange = onStatusChange || (() => {});
 		this.subId = "glub-web";
-		this.sinceSec = Math.floor(Date.now() / 1000);
 
 		this.targetCount = targetCount;
 		this.maxCandidates = maxCandidates;
 		this.expandAfterMs = expandAfterMs;
+		this.globalMaxCount = globalMaxCount;
 
 		this.candidates = []; // urls for the current channel, nearest first
 		this.cursor = 0; // candidates already attempted
@@ -48,6 +49,18 @@ export class RelayPool {
 
 		this._expand(this.targetCount);
 		this._scheduleExpandCheck();
+	}
+
+	// urls: relay list for global (unfocused) view - connect to as many as
+	// possible, capped at globalMaxCount so we don't open thousands of sockets.
+	connectAll(urls) {
+		this.gen++;
+		this._closeAll();
+
+		this.candidates = urls.slice(0, this.globalMaxCount);
+		this.cursor = 0;
+
+		this._expand(this.candidates.length);
 	}
 
 	_closeAll() {
@@ -87,7 +100,7 @@ export class RelayPool {
 		this.sockets.set(url, ws);
 
 		ws.addEventListener("open", () => {
-			ws.send(JSON.stringify(["REQ", this.subId, subscribeFilter(this.sinceSec)]));
+			ws.send(JSON.stringify(["REQ", this.subId, subscribeFilter()]));
 			this.onStatusChange();
 		});
 

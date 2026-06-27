@@ -3,9 +3,8 @@ import { fetchRelayList } from "./nostr/relayList.js";
 import { RelayPool } from "./nostr/relayPool.js";
 import { makeChatMessage, getGeohash, getName, CHAT_KIND, sortRelaysByGeohash } from "./nostr/protocol.js";
 
-const BOOT_RELAY_COUNT = 12;
-const BOOTED_AT = Math.floor(Date.now() / 1000);
 const seen = new Set();
+const lines = []; // [{ ts, el }], kept ascending by ts so history renders in order
 
 const identity = loadOrCreateIdentity();
 let name = getStoredName();
@@ -33,16 +32,29 @@ function clipText(str, max) {
 	return str.length > max ? str.slice(0, max - 3) + "..." : str;
 }
 
-function appendLine(html) {
+// inserts a line in chronological order by ts (relay backlog can arrive
+// out of order), so history replays in the order it actually happened.
+function insertLine(ts, html) {
 	const div = document.createElement("div");
 	div.className = "line";
 	div.innerHTML = html;
-	terminal.appendChild(div);
+
+	let lo = 0, hi = lines.length;
+	while (lo < hi) {
+		const mid = (lo + hi) >> 1;
+		if (lines[mid].ts <= ts) lo = mid + 1;
+		else hi = mid;
+	}
+
+	if (lo === lines.length) terminal.appendChild(div);
+	else terminal.insertBefore(div, lines[lo].el);
+
+	lines.splice(lo, 0, { ts, el: div });
 	terminal.scrollTop = terminal.scrollHeight;
 }
 
 function appendSystem(text) {
-	appendLine(`<span class="system">${escapeHtml(text)}</span>`);
+	insertLine(Date.now() / 1000, `<span class="system">${escapeHtml(text)}</span>`);
 }
 
 function renderEvent(ev) {
@@ -51,7 +63,8 @@ function renderEvent(ev) {
 	const tag = ev.pubkey.slice(-4);
 	const text = String(ev.content || "");
 
-	appendLine(
+	insertLine(
+		ev.created_at,
 		`<span class="geo">#${escapeHtml(geo)}</span> ` +
 			`<span class="user">${escapeHtml(who)}#${escapeHtml(tag)}</span> ` +
 			`<span class="msg">${escapeHtml(text)}</span>`
@@ -104,13 +117,10 @@ const pool = new RelayPool({
 	onStatusChange: updateStatus,
 	onEvent: (ev) => {
 		if (ev.kind !== CHAT_KIND) return;
-		if (typeof ev.created_at === "number" && ev.created_at < BOOTED_AT) return;
 
 		if (seen.has(ev.id)) return;
 		seen.add(ev.id);
 		if (seen.size > 5000) seen.clear();
-
-		if (ev.pubkey === identity.pk) return;
 
 		renderEvent(ev);
 	},
@@ -120,9 +130,9 @@ const pool = new RelayPool({
 	try {
 		allRelays = await fetchRelayList();
 		appendSystem(`connecting to ${allRelays.length} relays...`);
-		// no channel focused yet - bootstrap with an arbitrary slice, then
-		// re-sort by distance once the user focuses a real geohash.
-		pool.connectNearest(allRelays.slice(0, BOOT_RELAY_COUNT).map((r) => r.url));
+		// no channel focused yet - cast as wide a net as possible to absorb
+		// whatever backlog/history relays are still rebroadcasting.
+		pool.connectAll(allRelays.map((r) => r.url));
 	} catch (err) {
 		appendSystem(`failed to load relays: ${err.message}`);
 	}
@@ -182,6 +192,7 @@ function send() {
 		pk: identity.pk,
 	});
 
+	seen.add(event.id);
 	pool.broadcast(event);
 	renderEvent(event);
 }

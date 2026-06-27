@@ -152,7 +152,6 @@ const pool = new RelayPool({
 (async function init() {
 	try {
 		allRelays = await fetchRelayList();
-		appendSystem(`connecting to ${allRelays.length} relays...`);
 		// no channel focused yet - cast as wide a net as possible to absorb
 		// whatever backlog/history relays are still rebroadcasting.
 		pool.connectAll(allRelays.map((r) => r.url));
@@ -173,7 +172,6 @@ function focusChannel(geo) {
 
 	try {
 		const sorted = sortRelaysByGeohash(allRelays, geo);
-		appendSystem(`#${geo}: connecting to nearest relays...`);
 		pool.connectNearest(sorted.map((r) => r.url));
 	} catch (err) {
 		appendSystem(`#${geo}: invalid geohash, keeping current relays`);

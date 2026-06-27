@@ -391,8 +391,8 @@ if (window.visualViewport) {
 	};
 	vv.addEventListener("resize", syncViewport);
 	vv.addEventListener("scroll", syncViewport);
-	// the height transition changes the terminal's visible size over ~250ms, so
-	// re-pin to the bottom once it settles to keep the latest message in view.
+	// re-pin to the bottom once the transform settles, in case the page
+	// shifted while iOS was scrolling the focused input into view.
 	appEl.addEventListener("transitionend", () => {
 		if (autoScroll) scrollToBottom();
 	});

@@ -27,10 +27,10 @@ body {
 	height: 100dvh;
 	display: flex;
 	flex-direction: column;
-	/* visualViewport snaps height/transform in one step when the keyboard
-	   opens; ease it over ~the keyboard's animation so the topbar glides
-	   instead of teleporting. */
-	transition: height 0.25s ease-out, transform 0.25s ease-out;
+	/* height tracks the keyboard in real-time so the input bar stays locked to
+	   it as it slides; only ease transform, which is what jumps when iOS scrolls
+	   the page on focus - that's the topbar "teleport" we want to smooth out. */
+	transition: transform 0.25s ease-out;
 }
 
 #topbar {

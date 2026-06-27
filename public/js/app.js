@@ -423,7 +423,7 @@ function focusChannel(geo) {
 		const sorted = sortRelaysByGeohash(allRelays, geo);
 		pool.connectNearest(sorted.map((r) => r.url));
 	} catch (err) {
-		appendSystem(`#${geo}: invalid geohash, keeping current relays`);
+		// non-geocodable channel - just keep the current relays, no need to nag
 	}
 }
 

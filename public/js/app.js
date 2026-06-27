@@ -4,6 +4,7 @@ import { RelayPool } from "./nostr/relayPool.js";
 import { makeChatMessage, getGeohash, getName, CHAT_KIND, sortRelaysByGeohash } from "./nostr/protocol.js";
 
 const MAX_LINES = 600;
+const NEAR_BOTTOM_PX = 60;
 const seen = new Set();
 const entries = []; // [{ ts, geo, system, pubkey, html, el }], ascending by ts - all received messages
 
@@ -13,6 +14,9 @@ let focusedGeo = null;
 let focusedUserCount = 0;
 let allRelays = []; // [{ url, lat, lon }], populated after the CSV fetch resolves
 
+let autoScroll = true; // stick to the bottom; false once the user scrolls up to read history
+let unreadCount = 0; // messages arrived while scrolled up, shown in the banner
+
 const nameGate = document.getElementById("nameGate");
 const nameForm = document.getElementById("nameForm");
 const nameInput = document.getElementById("nameInput");
@@ -21,6 +25,7 @@ const brandEl = document.getElementById("brand");
 const statusEl = document.getElementById("status");
 const chatInput = document.getElementById("chatInput");
 const sendBtn = document.getElementById("sendBtn");
+const newMessagesBar = document.getElementById("newMessagesBar");
 
 function escapeHtml(s) {
 	return String(s).replace(
@@ -71,8 +76,34 @@ function renderEntryDom(entry) {
 
 	if (nextEl) terminal.insertBefore(div, nextEl);
 	else terminal.appendChild(div);
+}
 
+function isNearBottom() {
+	return terminal.scrollTop + terminal.clientHeight >= terminal.scrollHeight - NEAR_BOTTOM_PX;
+}
+
+function scrollToBottom() {
 	terminal.scrollTop = terminal.scrollHeight;
+}
+
+function updateNewMessagesBar() {
+	if (unreadCount <= 0) {
+		newMessagesBar.hidden = true;
+		return;
+	}
+	newMessagesBar.hidden = false;
+	newMessagesBar.textContent = `[ ${unreadCount} new message${unreadCount === 1 ? "" : "s"} ]`;
+}
+
+function clearUnread() {
+	unreadCount = 0;
+	updateNewMessagesBar();
+}
+
+function jumpToBottom() {
+	autoScroll = true;
+	clearUnread();
+	scrollToBottom();
 }
 
 // rebuilds the visible terminal from `entries` under the current filter -
@@ -83,6 +114,7 @@ function rerenderTerminal() {
 	for (const entry of entries) {
 		if (entryVisible(entry)) renderEntryDom(entry);
 	}
+	jumpToBottom();
 }
 
 // inserts a new entry in chronological order by ts (relay backlog can arrive
@@ -102,7 +134,15 @@ function insertEntry(entry) {
 		if (oldest.el) oldest.el.remove();
 	}
 
-	if (entryVisible(entry)) renderEntryDom(entry);
+	if (entryVisible(entry)) {
+		renderEntryDom(entry);
+		if (autoScroll) {
+			scrollToBottom();
+		} else {
+			unreadCount += 1;
+			updateNewMessagesBar();
+		}
+	}
 
 	if (focusedGeo && !entry.system && entry.geo === focusedGeo) {
 		updateFocusedUserCount();
@@ -167,10 +207,10 @@ function updateFocusedUserCount() {
 function renderTopbar() {
 	if (focusedGeo) {
 		const clippedGeo = clipText(focusedGeo, 12);
-		brandEl.innerHTML = `#${escapeHtml(clippedGeo)}/@${escapeHtml(clipText(name || "anon", 12))}`;
+		brandEl.innerHTML = `<strong>#${escapeHtml(clippedGeo)}</strong>/@${escapeHtml(clipText(name || "anon", 12))}`;
 
 		const userWord = focusedUserCount === 1 ? "USER" : "USERS";
-		statusEl.innerHTML = `${focusedUserCount} ${userWord} [EXIT]`;
+		statusEl.innerHTML = `${focusedUserCount} ${userWord} <strong>[EXIT]</strong>`;
 		statusEl.classList.add("tapExit");
 	} else {
 		brandEl.innerHTML = `<strong>GLUB.CHAT</strong>/@${escapeHtml(clipText(name || "anon", 12))}`;
@@ -206,6 +246,15 @@ statusEl.addEventListener("click", () => {
 	if (!focusedGeo) return;
 	exitFocus();
 });
+
+// once the user scrolls up to read history, stop yanking them back to the
+// bottom on every new message; resume only when they scroll back down.
+terminal.addEventListener("scroll", () => {
+	autoScroll = isNearBottom();
+	if (autoScroll) clearUnread();
+});
+
+newMessagesBar.addEventListener("click", jumpToBottom);
 
 nameForm.addEventListener("submit", (e) => {
 	e.preventDefault();
@@ -315,6 +364,7 @@ function send() {
 	seen.add(event.id);
 	pool.broadcast(event);
 	renderEvent(event);
+	jumpToBottom(); // sending always returns you to the live bottom
 }
 
 sendBtn.addEventListener("click", send);
@@ -330,7 +380,7 @@ chatInput.addEventListener("keydown", (e) => {
 // the latest messages back into view whenever the visual viewport changes.
 if (window.visualViewport) {
 	window.visualViewport.addEventListener("resize", () => {
-		terminal.scrollTop = terminal.scrollHeight;
+		if (autoScroll) scrollToBottom();
 	});
 }
 

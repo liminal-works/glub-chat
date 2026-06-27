@@ -85,6 +85,32 @@ body {
 	color: var(--muted);
 }
 
+#composerWrap {
+	position: relative;
+}
+
+#newMessagesBar {
+	position: absolute;
+	left: 0;
+	right: 0;
+	bottom: 100%;
+	padding: 8px 12px;
+	background: color-mix(in srgb, var(--accent) 14%, transparent);
+	backdrop-filter: blur(3px);
+	-webkit-backdrop-filter: blur(3px);
+	color: var(--accent);
+	font-size: 0.9em;
+	font-weight: 700;
+	text-align: center;
+	cursor: pointer;
+	user-select: none;
+	z-index: 5;
+}
+
+#newMessagesBar[hidden] {
+	display: none;
+}
+
 #inputbar {
 	display: flex;
 	gap: 10px;

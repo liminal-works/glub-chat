@@ -34,6 +34,20 @@ function clipText(str, max) {
 	return str.length > max ? str.slice(0, max - 3) + "..." : str;
 }
 
+// [hh:mm:ss] in the device's local time, 24-hour. tsSec is in seconds.
+function formatTime(tsSec) {
+	return new Date(tsSec * 1000).toLocaleTimeString([], {
+		hour: "2-digit",
+		minute: "2-digit",
+		second: "2-digit",
+		hour12: false,
+	});
+}
+
+function timeTag(tsSec) {
+	return ` <span class="ts">[${formatTime(tsSec)}]</span>`;
+}
+
 function entryVisible(entry) {
 	return entry.system || !focusedGeo || entry.geo === focusedGeo;
 }
@@ -97,12 +111,13 @@ function insertEntry(entry) {
 }
 
 function appendSystem(text) {
+	const ts = Date.now() / 1000;
 	insertEntry({
-		ts: Date.now() / 1000,
+		ts,
 		geo: null,
 		system: true,
 		pubkey: null,
-		html: `<span class="system">${escapeHtml(text)}</span>`,
+		html: `<span class="system">${escapeHtml(text)}</span>${timeTag(ts)}`,
 		el: null,
 	});
 }
@@ -131,7 +146,8 @@ function renderEvent(ev) {
 		`<span class="user" style="color:${color}">@${escapeHtml(who)}</span>` +
 		`<span class="tag" style="color:${color}">#${escapeHtml(tag)}</span>` +
 		`<span class="bracket" style="color:${color}">&gt;</span> ` +
-		`<span class="msg" style="color:${color}">${escapeHtml(text)}</span>`;
+		`<span class="msg" style="color:${color}">${escapeHtml(text)}</span>` +
+		timeTag(ev.created_at);
 
 	insertEntry({ ts: ev.created_at, geo, system: false, pubkey: ev.pubkey, html, el: null });
 }
@@ -153,7 +169,8 @@ function renderTopbar() {
 		const clippedGeo = clipText(focusedGeo, 12);
 		brandEl.innerHTML = `#${escapeHtml(clippedGeo)}/@${escapeHtml(clipText(name || "anon", 12))}`;
 
-		statusEl.innerHTML = `${focusedUserCount} USERS &bull; [EXIT]`;
+		const userWord = focusedUserCount === 1 ? "USER" : "USERS";
+		statusEl.innerHTML = `${focusedUserCount} ${userWord} [EXIT]`;
 		statusEl.classList.add("tapExit");
 	} else {
 		brandEl.innerHTML = `<strong>GLUB.CHAT</strong>/@${escapeHtml(clipText(name || "anon", 12))}`;

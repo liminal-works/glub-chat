@@ -76,6 +76,11 @@ body {
 	color: var(--fg);
 }
 
+.ts {
+	color: var(--muted);
+	font-size: 0.8em;
+}
+
 .system {
 	color: var(--muted);
 }

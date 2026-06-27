@@ -105,7 +105,10 @@ export class RelayPool {
 		});
 
 		ws.addEventListener("close", () => {
-			this.sockets.delete(url);
+			// only forget this url if a newer socket hasn't already claimed it -
+			// after a gen switch the same url is reconnected immediately, and an
+			// old socket's late close event must not delete the fresh one.
+			if (this.sockets.get(url) === ws) this.sockets.delete(url);
 			this.onStatusChange();
 			if (gen !== this.gen) return; // superseded by a channel switch
 

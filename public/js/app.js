@@ -66,7 +66,10 @@ function renderEvent(ev) {
 	insertLine(
 		ev.created_at,
 		`<span class="geo">#${escapeHtml(geo)}</span> ` +
-			`<span class="user">${escapeHtml(who)}#${escapeHtml(tag)}</span> ` +
+			`<span class="bracket">&lt;</span>` +
+			`<span class="user">@${escapeHtml(who)}</span>` +
+			`<span class="tag">#${escapeHtml(tag)}</span>` +
+			`<span class="bracket">&gt;</span> ` +
 			`<span class="msg">${escapeHtml(text)}</span>`
 	);
 }

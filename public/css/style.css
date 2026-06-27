@@ -68,6 +68,14 @@ body {
 	font-weight: 700;
 }
 
+.tag {
+	color: var(--muted);
+}
+
+.bracket {
+	color: var(--muted);
+}
+
 .msg {
 	color: var(--fg);
 }

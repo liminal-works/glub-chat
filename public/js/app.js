@@ -52,6 +52,11 @@ function escapeRegExp(str) {
 	return String(str).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+// bitchat-style action/emote: "* did something *" (spaces required, like /me).
+function isActionMessage(text) {
+	return /^\*\s+[\s\S]+?\s+\*$/.test(String(text || "").trim());
+}
+
 // true if text @-mentions the current user: "@name" optionally followed by the
 // "#xxxx" pubkey suffix, bounded so "@names" or "@nameother" don't false-match.
 function isMention(text, currentName) {
@@ -102,23 +107,31 @@ function entryVisible(entry) {
 // "more"/"less" toggle so a single huge message can't blow out the view.
 function messageInnerHtml(entry) {
 	const expanded = entry.expanded;
-	const who = expanded ? entry.who : clipWithEllipsis(entry.who, MAX_NAME_LEN);
 	const text = expanded ? entry.text : clipWithEllipsis(entry.text, MAX_MSG_LEN);
-	const needsToggle = entry.who.length > MAX_NAME_LEN || entry.text.length > MAX_MSG_LEN;
 	const color = entry.color;
 
-	let html =
-		`<span class="bracket" style="color:${color}">&lt;</span>` +
-		`<span class="user" style="color:${color}">@${escapeHtml(who)}</span>` +
-		`<span class="tag" style="color:${color}">#${escapeHtml(entry.tag)}</span>` +
-		`<span class="bracket" style="color:${color}">&gt;</span> ` +
-		`<span class="msg" style="color:${color}">${linkify(escapeHtml(text))}</span>`;
+	let body;
+	let needsToggle = entry.text.length > MAX_MSG_LEN;
 
-	if (needsToggle) {
-		html += `<span class="toggleMore" data-toggle="${escapeHtml(entry.id)}">${expanded ? "less" : "more"}</span>`;
+	if (entry.action) {
+		// emote: the whole "* ... *" rendered muted like a timestamp, no username
+		body = `<span class="ts">${linkify(escapeHtml(text))}</span>`;
+	} else {
+		const who = expanded ? entry.who : clipWithEllipsis(entry.who, MAX_NAME_LEN);
+		needsToggle = needsToggle || entry.who.length > MAX_NAME_LEN;
+		body =
+			`<span class="bracket" style="color:${color}">&lt;</span>` +
+			`<span class="user" style="color:${color}">@${escapeHtml(who)}</span>` +
+			`<span class="tag" style="color:${color}">#${escapeHtml(entry.tag)}</span>` +
+			`<span class="bracket" style="color:${color}">&gt;</span> ` +
+			`<span class="msg" style="color:${color}">${linkify(escapeHtml(text))}</span>`;
 	}
 
-	return html + timeTag(entry.ts);
+	if (needsToggle) {
+		body += `<span class="toggleMore" data-toggle="${escapeHtml(entry.id)}">${expanded ? "less" : "more"}</span>`;
+	}
+
+	return body + timeTag(entry.ts);
 }
 
 // renders one entry's DOM node into the terminal at the correct chronological
@@ -279,6 +292,7 @@ function renderEvent(ev) {
 		geoPrefix,
 		mention,
 		mentionTint,
+		action: isActionMessage(text),
 		expanded: false,
 		el: null,
 	});

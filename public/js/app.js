@@ -9,8 +9,14 @@ const MAX_GEO_LEN = 12; // geohash precision tops out here; clip the prefix so a
 const MAX_NAME_LEN = 22; // collapse longer names behind a "more" toggle
 const MAX_MSG_LEN = 450; // collapse longer messages behind a "more" toggle
 const HARD_MAX_MSG_LEN = 8000; // absolute ceiling, even when expanded, to bound DOM/memory
+const MAX_IMAGES_PER_MESSAGE = 6; // anti-flood: cap how many previews one message can spam in
 const seen = new Set();
 const entries = []; // [{ ts, geo, system, pubkey, html, el }], ascending by ts - all received messages
+
+// groundwork for a future "/censor" command - for now images always start
+// blurred and are revealed per-tap (see revealedImages below).
+const mediaSettings = { censorImages: true };
+const revealedImages = new Set(); // "entryId:idx" keys for images tapped open
 
 const identity = loadOrCreateIdentity();
 let name = getStoredName();
@@ -55,6 +61,20 @@ function escapeRegExp(str) {
 // bitchat-style action/emote: "* did something *" (spaces required, like /me).
 function isActionMessage(text) {
 	return /^\*\s+[\s\S]+?\s+\*$/.test(String(text || "").trim());
+}
+
+function extractUrls(text) {
+	return String(text || "").match(/\bhttps?:\/\/[^\s<]+/gi) || [];
+}
+
+function isDirectImageUrl(url) {
+	const clean = String(url).split("?")[0].split("#")[0].toLowerCase();
+	return /\.(png|jpe?g|gif|webp|bmp|svg)$/.test(clean);
+}
+
+// direct image links in a message's content, capped against link-spam
+function extractImageUrls(text) {
+	return extractUrls(text).filter(isDirectImageUrl).slice(0, MAX_IMAGES_PER_MESSAGE);
 }
 
 // true if text @-mentions the current user: "@name" optionally followed by the
@@ -131,7 +151,36 @@ function messageInnerHtml(entry) {
 		body += `<span class="toggleMore" data-toggle="${escapeHtml(entry.id)}">${expanded ? "less" : "more"}</span>`;
 	}
 
+	body += renderImagePreviews(entry);
+
 	return body + timeTag(entry.ts);
+}
+
+// one preview block per image url in the message, blurred by default with a
+// tap-to-reveal overlay (bitchat-style); tapping again re-blurs it.
+function renderImagePreviews(entry) {
+	if (!entry.images || !entry.images.length) return "";
+
+	return entry.images
+		.map((url, idx) => {
+			const safeUrl = escapeHtml(url);
+
+			if (!mediaSettings.censorImages) {
+				return `<div class="mediaPreview"><img class="chatImagePreview" src="${safeUrl}" alt="image preview" loading="lazy"></div>`;
+			}
+
+			const key = `${entry.id}:${idx}`;
+			if (revealedImages.has(key)) {
+				return `<div class="mediaPreview" data-img-toggle="${escapeHtml(key)}"><img class="chatImagePreview" src="${safeUrl}" alt="image preview" loading="lazy"></div>`;
+			}
+
+			return (
+				`<div class="mediaPreview" data-img-toggle="${escapeHtml(key)}">` +
+				`<img class="chatImagePreview chatImagePreviewCensored" src="${safeUrl}" alt="image preview" loading="lazy">` +
+				`<div class="mediaCensorOverlay">[tap to view]</div></div>`
+			);
+		})
+		.join("");
 }
 
 // renders one entry's DOM node into the terminal at the correct chronological
@@ -293,6 +342,7 @@ function renderEvent(ev) {
 		mention,
 		mentionTint,
 		action: isActionMessage(text),
+		images: extractImageUrls(text),
 		expanded: false,
 		el: null,
 	});
@@ -378,6 +428,22 @@ terminal.addEventListener("click", (e) => {
 	const entry = entries.find((en) => en.id === toggle.dataset.toggle);
 	if (!entry || !entry.el) return;
 	entry.expanded = !entry.expanded;
+	entry.el.innerHTML = (focusedGeo ? "" : entry.geoPrefix || "") + messageInnerHtml(entry);
+});
+
+// tap a blurred image preview to reveal it, tap again to re-blur
+terminal.addEventListener("click", (e) => {
+	const imgToggle = e.target.closest("[data-img-toggle]");
+	if (!imgToggle) return;
+	const key = imgToggle.dataset.imgToggle;
+	if (!key) return;
+
+	if (revealedImages.has(key)) revealedImages.delete(key);
+	else revealedImages.add(key);
+
+	const entryId = key.slice(0, key.lastIndexOf(":"));
+	const entry = entries.find((en) => en.id === entryId);
+	if (!entry || !entry.el) return;
 	entry.el.innerHTML = (focusedGeo ? "" : entry.geoPrefix || "") + messageInnerHtml(entry);
 });
 

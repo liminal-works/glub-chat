@@ -82,7 +82,7 @@ function renderEvent(ev) {
 			`<span class="user" style="color:${color}">@${escapeHtml(who)}</span>` +
 			`<span class="tag" style="color:${color}">#${escapeHtml(tag)}</span>` +
 			`<span class="bracket" style="color:${color}">&gt;</span> ` +
-			`<span class="msg">${escapeHtml(text)}</span>`
+			`<span class="msg" style="color:${color}">${escapeHtml(text)}</span>`
 	);
 }
 

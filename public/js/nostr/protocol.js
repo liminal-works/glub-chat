@@ -12,7 +12,10 @@ export function subscribeFilter(limit = 500) {
 }
 
 export function makeChatMessage({ content, geohash, name, sk, pk }) {
-	const tags = [["g", geohash]];
+	// "teleport" marks a message posted into a geohash we're not physically in -
+	// always true for this web client, since you pick any channel regardless of
+	// location. Matches what bitchat/the reference web client sends.
+	const tags = [["g", geohash], ["t", "teleport"]];
 	if (name) tags.push(["n", name]);
 
 	return finalizeEvent(

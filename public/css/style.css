@@ -54,10 +54,21 @@ body {
 	flex: 1;
 	min-height: 0;
 	overflow-y: auto;
+	display: flex;
+	flex-direction: column;
 	padding: 12px 14px;
 	white-space: pre-wrap;
 	word-break: break-word;
 	font-size: 14px;
+}
+
+/* while composing, anchor messages to the bottom so the newest sit right above
+   the keyboard (and ride up with it) instead of the oldest hanging at the top
+   out of reach. The auto-margin spacer collapses to 0 once content overflows,
+   so scrolling stays fully accessible. */
+#terminal.bottomUp::before {
+	content: "";
+	margin-top: auto;
 }
 
 .line {

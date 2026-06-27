@@ -5,6 +5,10 @@ import { makeChatMessage, getGeohash, getName, CHAT_KIND, sortRelaysByGeohash } 
 
 const MAX_LINES = 600;
 const NEAR_BOTTOM_PX = 60;
+const MAX_GEO_LEN = 12; // geohash precision tops out here; clip the prefix so a huge "g" tag can't flood a line
+const MAX_NAME_LEN = 22; // collapse longer names behind a "more" toggle
+const MAX_MSG_LEN = 450; // collapse longer messages behind a "more" toggle
+const HARD_MAX_MSG_LEN = 8000; // absolute ceiling, even when expanded, to bound DOM/memory
 const seen = new Set();
 const entries = []; // [{ ts, geo, system, pubkey, html, el }], ascending by ts - all received messages
 
@@ -37,6 +41,11 @@ function escapeHtml(s) {
 function clipText(str, max) {
 	if (!str) return "";
 	return str.length > max ? str.slice(0, max - 3) + "..." : str;
+}
+
+function clipWithEllipsis(str, max) {
+	if (!str) return "";
+	return str.length > max ? str.slice(0, max) + "..." : str;
 }
 
 function escapeRegExp(str) {
@@ -88,6 +97,30 @@ function entryVisible(entry) {
 	return entry.system || !focusedGeo || entry.geo === focusedGeo;
 }
 
+// builds a message line's inner html (everything after the optional #geo prefix)
+// from its stored fields, collapsing an over-long name or message behind a
+// "more"/"less" toggle so a single huge message can't blow out the view.
+function messageInnerHtml(entry) {
+	const expanded = entry.expanded;
+	const who = expanded ? entry.who : clipWithEllipsis(entry.who, MAX_NAME_LEN);
+	const text = expanded ? entry.text : clipWithEllipsis(entry.text, MAX_MSG_LEN);
+	const needsToggle = entry.who.length > MAX_NAME_LEN || entry.text.length > MAX_MSG_LEN;
+	const color = entry.color;
+
+	let html =
+		`<span class="bracket" style="color:${color}">&lt;</span>` +
+		`<span class="user" style="color:${color}">@${escapeHtml(who)}</span>` +
+		`<span class="tag" style="color:${color}">#${escapeHtml(entry.tag)}</span>` +
+		`<span class="bracket" style="color:${color}">&gt;</span> ` +
+		`<span class="msg" style="color:${color}">${linkify(escapeHtml(text))}</span>`;
+
+	if (needsToggle) {
+		html += `<span class="toggleMore" data-toggle="${escapeHtml(entry.id)}">${expanded ? "less" : "more"}</span>`;
+	}
+
+	return html + timeTag(entry.ts);
+}
+
 // renders one entry's DOM node into the terminal at the correct chronological
 // position among the other currently-visible (filter-matching) entries.
 function renderEntryDom(entry) {
@@ -96,7 +129,8 @@ function renderEntryDom(entry) {
 	if (entry.mentionTint) div.style.background = entry.mentionTint;
 	// the #geo prefix is redundant in a focused channel (every line is that
 	// channel), so only prepend it in global view.
-	div.innerHTML = (focusedGeo ? "" : entry.geoPrefix || "") + entry.html;
+	const body = entry.system ? entry.html : messageInnerHtml(entry);
+	div.innerHTML = (focusedGeo ? "" : entry.geoPrefix || "") + body;
 	entry.el = div;
 
 	const idx = entries.indexOf(entry);
@@ -219,24 +253,34 @@ function renderEvent(ev) {
 	const geo = getGeohash(ev) || "?";
 	const who = getName(ev) || "anon";
 	const tag = ev.pubkey.slice(-4);
-	const text = String(ev.content || "");
+	const text = String(ev.content || "").slice(0, HARD_MAX_MSG_LEN);
 	const color = pubkeyColor(ev.pubkey);
 
-	const geoPrefix = `<span class="geo" data-geo="${escapeHtml(geo)}">#${escapeHtml(geo)}</span> `;
-	const html =
-		`<span class="bracket" style="color:${color}">&lt;</span>` +
-		`<span class="user" style="color:${color}">@${escapeHtml(who)}</span>` +
-		`<span class="tag" style="color:${color}">#${escapeHtml(tag)}</span>` +
-		`<span class="bracket" style="color:${color}">&gt;</span> ` +
-		`<span class="msg" style="color:${color}">${linkify(escapeHtml(text))}</span>` +
-		timeTag(ev.created_at);
+	// clip the displayed geohash so an oversized "g" tag can't flood a line
+	const clippedGeo = clipWithEllipsis(geo, MAX_GEO_LEN);
+	const geoPrefix = `<span class="geo" data-geo="${escapeHtml(clippedGeo)}">#${escapeHtml(clippedGeo)}</span> `;
 
 	// highlight messages that @-mention us, tinted with the sender's own color
 	// so it stays visually cohesive (includes our own messages @-ing ourselves).
 	const mention = isMention(text, name);
 	const mentionTint = mention ? pubkeyTint(ev.pubkey) : null;
 
-	insertEntry({ ts: ev.created_at, geo, system: false, pubkey: ev.pubkey, geoPrefix, html, mention, mentionTint, el: null });
+	insertEntry({
+		ts: ev.created_at,
+		geo,
+		system: false,
+		pubkey: ev.pubkey,
+		id: ev.id,
+		who,
+		tag,
+		text,
+		color,
+		geoPrefix,
+		mention,
+		mentionTint,
+		expanded: false,
+		el: null,
+	});
 }
 
 function updateFocusedUserCount() {
@@ -310,6 +354,16 @@ terminal.addEventListener("click", (e) => {
 	if (!geoEl) return;
 	const geo = geoEl.dataset.geo;
 	if (geo) focusChannel(geo);
+});
+
+// expand/collapse an over-long name or message in place
+terminal.addEventListener("click", (e) => {
+	const toggle = e.target.closest(".toggleMore");
+	if (!toggle) return;
+	const entry = entries.find((en) => en.id === toggle.dataset.toggle);
+	if (!entry || !entry.el) return;
+	entry.expanded = !entry.expanded;
+	entry.el.innerHTML = (focusedGeo ? "" : entry.geoPrefix || "") + messageInnerHtml(entry);
 });
 
 nameForm.addEventListener("submit", (e) => {

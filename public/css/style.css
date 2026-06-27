@@ -107,6 +107,16 @@ body {
 	font-size: 0.8em;
 }
 
+.toggleMore {
+	color: var(--muted);
+	font-size: 0.8em;
+	text-decoration: underline;
+	cursor: pointer;
+	margin-left: 8px;
+	user-select: none;
+	-webkit-tap-highlight-color: transparent;
+}
+
 .system {
 	color: var(--muted);
 }

@@ -256,9 +256,10 @@ function renderEvent(ev) {
 	const text = String(ev.content || "").slice(0, HARD_MAX_MSG_LEN);
 	const color = pubkeyColor(ev.pubkey);
 
-	// clip the displayed geohash so an oversized "g" tag can't flood a line
-	const clippedGeo = clipWithEllipsis(geo, MAX_GEO_LEN);
-	const geoPrefix = `<span class="geo" data-geo="${escapeHtml(clippedGeo)}">#${escapeHtml(clippedGeo)}</span> `;
+	// clip only the *displayed* geohash so an oversized "g" tag can't flood a
+	// line; data-geo keeps the full value so clicking still focuses the real
+	// channel (an actually-invalid geohash is caught by focusChannel).
+	const geoPrefix = `<span class="geo" data-geo="${escapeHtml(geo)}">#${escapeHtml(clipWithEllipsis(geo, MAX_GEO_LEN))}</span> `;
 
 	// highlight messages that @-mention us, tinted with the sender's own color
 	// so it stays visually cohesive (includes our own messages @-ing ourselves).

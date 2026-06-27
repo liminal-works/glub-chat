@@ -117,6 +117,7 @@ const pool = new RelayPool({
 	onStatusChange: updateStatus,
 	onEvent: (ev) => {
 		if (ev.kind !== CHAT_KIND) return;
+		if (!getGeohash(ev)) return;
 
 		if (seen.has(ev.id)) return;
 		seen.add(ev.id);

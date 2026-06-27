@@ -101,7 +101,7 @@ body {
 	color: var(--accent);
 	font-size: 0.9em;
 	font-weight: 700;
-	text-align: center;
+	text-align: left;
 	cursor: pointer;
 	user-select: none;
 	z-index: 5;

@@ -24,6 +24,13 @@ body {
 }
 
 #app {
+	/* fixed + top:0 keeps the app out of document flow, so iOS can't scroll it
+	   up when the keyboard opens - the top edge stays locked. The JS then sets
+	   the height to the visible viewport so the bottom squishes up instead. */
+	position: fixed;
+	top: 0;
+	left: 0;
+	right: 0;
 	height: 100dvh;
 	display: flex;
 	flex-direction: column;

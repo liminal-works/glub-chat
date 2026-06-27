@@ -27,6 +27,10 @@ body {
 	height: 100dvh;
 	display: flex;
 	flex-direction: column;
+	/* visualViewport snaps height/transform in one step when the keyboard
+	   opens; ease it over ~the keyboard's animation so the topbar glides
+	   instead of teleporting. */
+	transition: height 0.25s ease-out, transform 0.25s ease-out;
 }
 
 #topbar {

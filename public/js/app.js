@@ -17,7 +17,6 @@ let allRelays = []; // [{ url, lat, lon }], populated after the CSV fetch resolv
 let autoScroll = true; // stick to the bottom; false once the user scrolls up to read history
 let unreadCount = 0; // messages arrived while scrolled up, shown in the banner
 
-const appEl = document.getElementById("app");
 const nameGate = document.getElementById("nameGate");
 const nameForm = document.getElementById("nameForm");
 const nameInput = document.getElementById("nameInput");
@@ -376,27 +375,13 @@ chatInput.addEventListener("keydown", (e) => {
 	}
 });
 
-// iOS Safari ignores interactive-widget=resizes-content and 100dvh doesn't
-// shrink for the on-screen keyboard, so the keyboard just overlays our content
-// and Safari scrolls messages off the top. Drive the app's box from the visual
-// viewport instead: size it to the visible height (so the flex column shrinks
-// and the input bar sits right above the keyboard) and translate it to the
-// viewport's offset (so the header doesn't drift when iOS scrolls the page).
+// iOS Safari doesn't honor interactive-widget=resizes-content yet, so when the
+// keyboard opens/closes it just scrolls the page instead of resizing it - pull
+// the latest messages back into view whenever the visual viewport changes.
 if (window.visualViewport) {
-	const vv = window.visualViewport;
-	const syncViewport = () => {
-		appEl.style.height = `${vv.height}px`;
-		appEl.style.transform = `translate(${vv.offsetLeft}px, ${vv.offsetTop}px)`;
-		if (autoScroll) scrollToBottom();
-	};
-	vv.addEventListener("resize", syncViewport);
-	vv.addEventListener("scroll", syncViewport);
-	// re-pin to the bottom once the transform settles, in case the page
-	// shifted while iOS was scrolling the focused input into view.
-	appEl.addEventListener("transitionend", () => {
+	window.visualViewport.addEventListener("resize", () => {
 		if (autoScroll) scrollToBottom();
 	});
-	syncViewport();
 }
 
 updatePlaceholder();

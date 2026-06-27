@@ -3,6 +3,7 @@ import { fetchRelayList } from "./nostr/relayList.js";
 import { RelayPool } from "./nostr/relayPool.js";
 import { makeChatMessage, getGeohash, getName, CHAT_KIND, sortRelaysByGeohash } from "./nostr/protocol.js";
 
+const MAX_LINES = 600;
 const seen = new Set();
 const lines = []; // [{ ts, el }], kept ascending by ts so history renders in order
 
@@ -50,6 +51,12 @@ function insertLine(ts, html) {
 	else terminal.insertBefore(div, lines[lo].el);
 
 	lines.splice(lo, 0, { ts, el: div });
+
+	while (lines.length > MAX_LINES) {
+		const oldest = lines.shift();
+		oldest.el.remove();
+	}
+
 	terminal.scrollTop = terminal.scrollHeight;
 }
 

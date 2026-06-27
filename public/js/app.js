@@ -57,19 +57,31 @@ function appendSystem(text) {
 	insertLine(Date.now() / 1000, `<span class="system">${escapeHtml(text)}</span>`);
 }
 
+// derives a stable per-user color from their pubkey (like native bitchat),
+// so distinct users are visually distinguishable at a glance.
+function pubkeyColor(pubkey) {
+	let hash = 0;
+	for (let i = 0; i < pubkey.length; i++) {
+		hash = (hash * 31 + pubkey.charCodeAt(i)) | 0;
+	}
+	const hue = Math.abs(hash) % 360;
+	return `hsl(${hue}, 65%, 60%)`;
+}
+
 function renderEvent(ev) {
 	const geo = getGeohash(ev) || "?";
 	const who = getName(ev) || "anon";
 	const tag = ev.pubkey.slice(-4);
 	const text = String(ev.content || "");
+	const color = pubkeyColor(ev.pubkey);
 
 	insertLine(
 		ev.created_at,
 		`<span class="geo">#${escapeHtml(geo)}</span> ` +
-			`<span class="bracket">&lt;</span>` +
-			`<span class="user">@${escapeHtml(who)}</span>` +
-			`<span class="tag">#${escapeHtml(tag)}</span>` +
-			`<span class="bracket">&gt;</span> ` +
+			`<span class="bracket" style="color:${color}">&lt;</span>` +
+			`<span class="user" style="color:${color}">@${escapeHtml(who)}</span>` +
+			`<span class="tag" style="color:${color}">#${escapeHtml(tag)}</span>` +
+			`<span class="bracket" style="color:${color}">&gt;</span> ` +
 			`<span class="msg">${escapeHtml(text)}</span>`
 	);
 }

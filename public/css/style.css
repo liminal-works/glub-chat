@@ -3,7 +3,10 @@
 	--fg: #8fe89c;
 	--muted: #7a828c;
 
-	--geo: #ff9500;
+	/* the clickable channel/location prefix - blue reads as "navigate here" and
+	   is the one palette slot not already claimed by identity (orange = you /
+	   hashed user hues), the app's voice (green), or metadata (gray). */
+	--geo: #5cb3ff;
 	--user: #8ef29c;
 	--accent: #7be488;
 

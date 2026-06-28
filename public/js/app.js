@@ -292,23 +292,73 @@ function appendSystem(text) {
 	});
 }
 
-// derives a stable per-user hue from their pubkey (like native bitchat),
-// so distinct users are visually distinguishable at a glance.
-function pubkeyHue(pubkey) {
-	let hash = 0;
-	for (let i = 0; i < pubkey.length; i++) {
-		hash = (hash * 31 + pubkey.charCodeAt(i)) | 0;
+// Apple's system orange (SwiftUI's Color.orange), reserved for the current
+// user. Native bitchat always renders "you" in orange and deliberately steers
+// every other user's hue away from orange (see the avoidance below) so the
+// color stays unique to you.
+const SELF_RGB = { r: 255, g: 149, b: 0 };
+
+// DJB2 hash over a string's UTF-8 bytes, in a wrapping UInt64 - the exact hash
+// bitchat uses (String+DJB2.swift). BigInt gives us the 64-bit overflow.
+function djb2(str) {
+	let h = 5381n;
+	const mask = 0xFFFFFFFFFFFFFFFFn;
+	for (const b of new TextEncoder().encode(str)) {
+		h = ((h << 5n) + h + BigInt(b)) & mask; // h*33 + b
 	}
-	return Math.abs(hash) % 360;
+	return h;
+}
+
+// HSB/HSV -> { r, g, b } (0-255). SwiftUI's Color(hue:saturation:brightness:)
+// is HSB, not CSS's HSL, so we convert here rather than emitting hsl().
+function hsbToRgb(h, s, v) {
+	const i = Math.floor(h * 6);
+	const f = h * 6 - i;
+	const p = v * (1 - s);
+	const q = v * (1 - f * s);
+	const t = v * (1 - (1 - f) * s);
+	let r, g, b;
+	switch (i % 6) {
+		case 0: r = v; g = t; b = p; break;
+		case 1: r = q; g = v; b = p; break;
+		case 2: r = p; g = v; b = t; break;
+		case 3: r = p; g = q; b = v; break;
+		case 4: r = t; g = p; b = v; break;
+		default: r = v; g = p; b = q; break;
+	}
+	return { r: Math.round(r * 255), g: Math.round(g * 255), b: Math.round(b * 255) };
+}
+
+// bitchat's exact per-user color (Color+Peer.swift, geohash/Nostr path):
+// DJB2 of "nostr:" + lowercased pubkey hex, hue from the hash with orange
+// steered away, and saturation/brightness also pulled from other bit-slices of
+// the same hash. We render dark-mode only, so the isDark=true constants apply.
+function pubkeyRgb(pubkey) {
+	if (pubkey.toLowerCase() === identity.pk.toLowerCase()) return SELF_RGB; // "you" is always orange
+
+	const h = djb2("nostr:" + pubkey.toLowerCase());
+
+	let hue = Number(h % 1000n) / 1000;
+	const orange = 30 / 360;
+	if (Math.abs(hue - orange) < 0.05) hue = (hue + 0.12) % 1.0; // avoid orange (reserved for you)
+
+	const sRand = Number((h >> 17n) & 0x3ffn) / 1023;
+	const bRand = Number((h >> 27n) & 0x3ffn) / 1023;
+	const saturation = Math.min(1, Math.max(0.5, 0.8 + (sRand - 0.5) * 0.2));
+	const brightness = Math.min(1, Math.max(0.35, 0.75 + (bRand - 0.5) * 0.16));
+
+	return hsbToRgb(hue, saturation, brightness);
 }
 
 function pubkeyColor(pubkey) {
-	return `hsl(${pubkeyHue(pubkey)}, 65%, 60%)`;
+	const { r, g, b } = pubkeyRgb(pubkey);
+	return `rgb(${r}, ${g}, ${b})`;
 }
 
 // translucent version of the sender's color, for tinting their mention highlight
 function pubkeyTint(pubkey) {
-	return `hsla(${pubkeyHue(pubkey)}, 65%, 60%, 0.16)`;
+	const { r, g, b } = pubkeyRgb(pubkey);
+	return `rgba(${r}, ${g}, ${b}, 0.16)`;
 }
 
 function renderEvent(ev) {

@@ -177,7 +177,7 @@ function renderImagePreviews(entry) {
 			return (
 				`<div class="mediaPreview" data-img-toggle="${escapeHtml(key)}">` +
 				`<img class="chatImagePreview chatImagePreviewCensored" src="${safeUrl}" alt="image preview" loading="lazy">` +
-				`<div class="mediaCensorOverlay">[tap to view]</div></div>`
+				`<div class="mediaCensorOverlay">[reveal]</div></div>`
 			);
 		})
 		.join("");

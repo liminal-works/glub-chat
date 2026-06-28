@@ -188,6 +188,7 @@ function renderImagePreviews(entry) {
 function renderEntryDom(entry) {
 	const div = document.createElement("div");
 	div.className = entry.mention ? "line mention" : "line";
+	if (entry.mine) div.className += " mine"; // your own messages render bold (like bitchat)
 	if (entry.mentionTint) div.style.background = entry.mentionTint;
 	// the #geo prefix is redundant in a focused channel (every line is that
 	// channel), so only prepend it in global view.
@@ -391,6 +392,7 @@ function renderEvent(ev) {
 		geoPrefix,
 		mention,
 		mentionTint,
+		mine: ev.pubkey.toLowerCase() === identity.pk.toLowerCase(), // bitchat bolds your own messages
 		action: isActionMessage(text),
 		images: extractImageUrls(text),
 		expanded: false,

@@ -3,7 +3,7 @@
 	--fg: #8fe89c;
 	--muted: #7a828c;
 
-	--geo: #5cb3ff;
+	--geo: #ff9500;
 	--user: #8ef29c;
 	--accent: #7be488;
 
@@ -108,12 +108,21 @@ body {
 	font-weight: 700;
 }
 
+/* bitchat weights: other users get a medium name + regular body, while your
+   own messages render fully bold. The .mine class is added to the line in JS. */
 .user {
-	font-weight: 700;
+	font-weight: 500;
 }
 
 .msg {
 	color: var(--fg);
+}
+
+.line.mine .bracket,
+.line.mine .user,
+.line.mine .tag,
+.line.mine .msg {
+	font-weight: 700;
 }
 
 .ts {

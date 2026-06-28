@@ -19,7 +19,10 @@ body {
 	height: 100%;
 	background: var(--bg);
 	color: var(--fg);
-	font-family: "JetBrains Mono", "IBM Plex Mono", "SFMono-Regular", Menlo, Consolas, monospace;
+	/* match bitchat: it ships no custom font and renders chat in the system
+	   monospaced design (SF Mono on Apple platforms). ui-monospace resolves to
+	   that same platform system monospace, with explicit fallbacks behind it. */
+	font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
 	overflow: hidden;
 }
 

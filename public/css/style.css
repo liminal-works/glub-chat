@@ -221,6 +221,7 @@ body {
 	gap: 12px;
 	padding: 6px 14px calc(6px + env(safe-area-inset-bottom));
 	background: var(--chrome-bg);
+	border-top: 1px solid var(--chrome-border);
 }
 
 #chatInput {

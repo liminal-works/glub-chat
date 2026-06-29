@@ -2,23 +2,30 @@ import { fetchRelayList } from "../public/js/nostr/relayList.js";
 import { CHAT_KIND, getGeohash, verifyEvent } from "./nostr.mjs";
 
 const SUB_ID = "glub-api";
-const MAX_RELAYS = 200; // bound how many sockets the aggregator holds open
 const MAX_GEOHASH_LEN = 32; // ignore absurd geohashes (anti-flood, mirrors the client)
+const MAX_FUTURE_SECS = 120; // drop events timestamped more than this far in the future
 const MAX_BACKOFF_MS = 60_000;
 const REQ_LIMIT = 500; // backlog asked of each relay on (re)connect
+const REFRESH_MS = 30 * 60_000; // re-fetch the relay list this often to pick up new relays
 
-// The relay aggregator: subscribes broadly to relays, signature-verifies events,
-// and stores geohash chat events. `onStored(ev, geo)` fires once per newly-stored
-// event so the http layer can fan it out to live SSE subscribers.
+// The relay aggregator: subscribes to every relay it can, signature-verifies
+// events, and stores geohash chat events. Unlike the browser client (which caps
+// its own connections to save the device), the server casts as wide a net as
+// possible and self-heals - reconnecting dropped relays with exponential backoff
+// and periodically re-fetching the list to add newly-listed relays.
+// `onStored(ev, geo)` fires once per newly-stored event so the http layer can fan
+// it out to live SSE subscribers.
 export function createAggregator(store, { onStored } = {}) {
 	const sockets = new Map(); // url -> WebSocket (live attempts)
-	let relayUrls = []; // the set we cycle through, length is the "monitored" count
+	const managed = new Set(); // every url we're keeping connected (incl. mid-backoff)
 
 	// validate + store a single event. Exposed for unit tests (no live relay
-	// needed): only signed kind-20000 chat events with a sane geohash are kept.
+	// needed): only signed kind-20000 chat events with a sane geohash are kept,
+	// and we reject far-future timestamps (skewed/forged clocks).
 	function ingest(ev) {
 		if (!ev || ev.kind !== CHAT_KIND) return false;
 		if (typeof ev.id !== "string" || typeof ev.pubkey !== "string") return false;
+		if (ev.created_at > Math.floor(Date.now() / 1000) + MAX_FUTURE_SECS) return false;
 		const geo = getGeohash(ev);
 		if (!geo || geo.length > MAX_GEOHASH_LEN) return false;
 		if (!verifyEvent(ev)) return false;
@@ -70,7 +77,9 @@ export function createAggregator(store, { onStored } = {}) {
 		setTimeout(() => connectRelay(url, attempt + 1), delay);
 	}
 
-	async function start() {
+	// fetch the relay list and start connecting to any relays we aren't already
+	// managing. Safe to call repeatedly - existing connections are left alone.
+	async function loadAndConnect() {
 		let relays;
 		try {
 			relays = await fetchRelayList();
@@ -78,9 +87,19 @@ export function createAggregator(store, { onStored } = {}) {
 			console.error(`[aggregator] could not fetch relay list: ${err.message}`);
 			return;
 		}
-		relayUrls = relays.map((r) => r.url).slice(0, MAX_RELAYS);
-		console.log(`[aggregator] subscribing to ${relayUrls.length} relays`);
-		for (const url of relayUrls) connectRelay(url);
+		let added = 0;
+		for (const { url } of relays) {
+			if (managed.has(url)) continue;
+			managed.add(url);
+			connectRelay(url);
+			added++;
+		}
+		if (added) console.log(`[aggregator] connecting to ${added} relays (${managed.size} total)`);
+	}
+
+	async function start() {
+		await loadAndConnect();
+		setInterval(loadAndConnect, REFRESH_MS).unref();
 	}
 
 	function stats() {
@@ -88,7 +107,7 @@ export function createAggregator(store, { onStored } = {}) {
 		for (const ws of sockets.values()) {
 			if (ws.readyState === WebSocket.OPEN) connected++;
 		}
-		return { monitored: relayUrls.length, connected };
+		return { monitored: managed.size, connected };
 	}
 
 	return { start, stats, ingest, handleFrame };

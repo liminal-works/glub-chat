@@ -10,6 +10,7 @@ const MAX_NAME_LEN = 22; // collapse longer names behind a "more" toggle
 const MAX_MSG_LEN = 450; // collapse longer messages behind a "more" toggle
 const HARD_MAX_MSG_LEN = 8000; // absolute ceiling, even when expanded, to bound DOM/memory
 const MAX_IMAGES_PER_MESSAGE = 6; // anti-flood: cap how many previews one message can spam in
+const MAX_FUTURE_SECS = 120; // drop events timestamped more than this far ahead (skewed/forged clocks)
 const seen = new Set();
 const entries = []; // [{ ts, geo, system, pubkey, html, el }], ascending by ts - all received messages
 
@@ -479,9 +480,11 @@ function renderTopbar() {
 		statusEl.classList.remove("tapExit");
 
 		if (liveSource === "assist") {
-			// assist active: show the api's live relay coverage instead of our own
-			const n = apiHealth?.relays?.connected;
-			statusEl.innerHTML = `<strong>PROXY</strong>: ${n == null ? "--" : n}`;
+			// assist active: show the api's relay coverage (connected / list size)
+			const r = apiHealth?.relays;
+			const left = r?.connected == null ? "--" : r.connected;
+			const right = r?.monitored == null ? "--" : r.monitored;
+			statusEl.innerHTML = `<strong>RELAYS</strong>: ${left}/${right}`;
 		} else {
 			const connected = pool.connectedCount;
 			const total = pool.total;
@@ -650,6 +653,9 @@ function confirmSent(id) {
 function ingestEvent(ev) {
 	if (ev.kind !== CHAT_KIND) return;
 	if (!getGeohash(ev)) return;
+	// reject far-future timestamps (a skewed/forged clock) - they'd otherwise sit
+	// permanently pinned below every real message
+	if (ev.created_at > Math.floor(Date.now() / 1000) + MAX_FUTURE_SECS) return;
 
 	// detect our own message echoing back (before the dedup skip) so we can
 	// confirm it propagated and time it

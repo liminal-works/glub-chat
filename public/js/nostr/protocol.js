@@ -1,4 +1,8 @@
-import { finalizeEvent } from "https://esm.sh/nostr-tools@2";
+import { finalizeEvent, verifyEvent } from "https://esm.sh/nostr-tools@2";
+
+// re-exported so the client can verify events the (untrusted) history api hands
+// back - the api is a convenience transport, not an authority.
+export { verifyEvent };
 
 // bitchat's geohash channels ride on these two ephemeral nostr kinds:
 // 20000 = chat message, 20001 = presence/announce.

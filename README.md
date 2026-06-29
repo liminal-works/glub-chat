@@ -33,6 +33,18 @@ The relay list is fetched at runtime from bitchat's own repo:
   - `public/js/nostr/relayPool.js` — manage relay WebSocket connections,
     subscriptions, and reconnects
   - `public/js/app.js` — wires the above into the UI
+- `api/` — an **optional** "server assist" service, deliberately separate from
+  the static server (and its own process) so its failure modes can never stop
+  the pure client from loading. It subscribes to relays, signature-verifies and
+  stores `kind 20000` chat events in a local SQLite db (`node:sqlite`), and
+  serves read-only history (`GET /api/health`, `GET /api/history`). It never
+  holds keys, never sends messages, and re-served events are re-verified by the
+  client. With assist enabled the client backfills deep history the relays no
+  longer rebroadcast; without it (api absent, down, or assist toggled off) the
+  client runs entirely on its own direct relay subscriptions.
+  - `api/store.mjs` — SQLite event store (insert + history queries)
+  - `api/aggregator.mjs` — relay subscriber → verify → store
+  - `api/index.mjs` — the read-only HTTP endpoints
 
 This is a deliberate departure from the earlier prototype, which ran a
 single server-held identity and had the browser hand its raw private key to
@@ -58,3 +70,17 @@ npm start
 ```
 
 Then open `http://localhost:3000`.
+
+### optional: the history api
+
+The client works without it, but to run the optional "server assist" history
+service:
+
+```bash
+npm run api    # listens on :3001, writes api/glub-history.db
+```
+
+The client looks for the api at same-origin `/api` by default (reverse-proxy
+the api there next to the static files), or set `window.GLUB_API_BASE` to a
+separately-hosted instance. Toggle it on/off per-device from the settings popup
+(tap the topbar status). It starts empty and accumulates history as it runs.

@@ -12,3 +12,8 @@ Thumbs.db
 
 dist/
 build/
+
+# api history store (sqlite + its wal/shm sidecars)
+*.db
+*.db-wal
+*.db-shm

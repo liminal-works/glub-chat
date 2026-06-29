@@ -6,10 +6,13 @@
   "description": "A web client speaking bitchat's geohash-channel protocol over nostr.",
   "scripts": {
     "start": "node server/index.mjs",
-    "dev": "node --watch server/index.mjs"
+    "dev": "node --watch server/index.mjs",
+    "api": "node api/index.mjs",
+    "api:dev": "node --watch api/index.mjs"
   },
   "dependencies": {
     "dotenv": "^16.4.5",
-    "express": "^4.19.2"
+    "express": "^4.19.2",
+    "nostr-tools": "^2.23.8"
   }
 }

@@ -1,7 +1,7 @@
 import { loadOrCreateIdentity, getStoredName, setStoredName } from "./nostr/identity.js";
 import { fetchRelayList } from "./nostr/relayList.js";
 import { RelayPool } from "./nostr/relayPool.js";
-import { makeChatMessage, getGeohash, getName, CHAT_KIND, sortRelaysByGeohash } from "./nostr/protocol.js";
+import { makeChatMessage, getGeohash, getName, CHAT_KIND, sortRelaysByGeohash, verifyEvent } from "./nostr/protocol.js";
 
 const MAX_LINES = 600;
 const NEAR_BOTTOM_PX = 60;
@@ -52,6 +52,14 @@ function getAssistEnabled() {
 function setAssistEnabled(on) {
 	localStorage.setItem(STORAGE_ASSIST_KEY, on ? "true" : "false");
 }
+
+// the optional history API. Same-origin "/api" by default (reverse-proxy it next
+// to the static files); point window.GLUB_API_BASE at a separately-hosted
+// instance to override. Absent/unhealthy api just means no backfill - the client
+// runs fully on its direct relay subscriptions regardless.
+const API_BASE = (typeof window !== "undefined" && window.GLUB_API_BASE ? String(window.GLUB_API_BASE) : "").replace(/\/+$/, "");
+let apiAvailable = false;
+const backfilledGeos = new Set(); // history already pulled this session ("*" = global)
 
 function escapeHtml(s) {
 	return String(s).replace(
@@ -482,7 +490,11 @@ statusEl.addEventListener("click", () => {
 	else openSettings();
 });
 
-assistToggle.addEventListener("change", () => setAssistEnabled(assistToggle.checked));
+assistToggle.addEventListener("change", () => {
+	setAssistEnabled(assistToggle.checked);
+	if (assistToggle.checked) assistBackfill(focusedGeo);
+	else apiAvailable = false;
+});
 settingsClose.addEventListener("click", closeSettings);
 // tapping the dimmed backdrop (outside the card) dismisses settings
 settingsGate.addEventListener("click", (e) => {
@@ -544,19 +556,74 @@ nameForm.addEventListener("submit", (e) => {
 	closeNameGate();
 });
 
+// single entry point for every event source (relays + history api): filter to
+// geohash chat, dedup by id, then render. Both paths share one dedup set.
+function ingestEvent(ev) {
+	if (ev.kind !== CHAT_KIND) return;
+	if (!getGeohash(ev)) return;
+
+	if (seen.has(ev.id)) return;
+	seen.add(ev.id);
+	if (seen.size > 5000) seen.clear();
+
+	renderEvent(ev);
+}
+
 const pool = new RelayPool({
 	onStatusChange: renderTopbar,
-	onEvent: (ev) => {
-		if (ev.kind !== CHAT_KIND) return;
-		if (!getGeohash(ev)) return;
-
-		if (seen.has(ev.id)) return;
-		seen.add(ev.id);
-		if (seen.size > 5000) seen.clear();
-
-		renderEvent(ev);
-	},
+	onEvent: ingestEvent,
 });
+
+// --- optional history backfill via the "server assist" API ------------------
+
+async function checkApiHealth() {
+	if (!getAssistEnabled()) {
+		apiAvailable = false;
+		return false;
+	}
+	try {
+		const res = await fetch(`${API_BASE}/api/health`, { cache: "no-store" });
+		apiAvailable = res.ok;
+	} catch {
+		apiAvailable = false;
+	}
+	return apiAvailable;
+}
+
+// pulls a page of stored history for a channel ("*"/null = global) and feeds it
+// through the same dedup+render pipeline as live events. Each event is signature-
+// verified client-side, so a bad/compromised api can't inject forged messages.
+async function backfillHistory(geo) {
+	const key = geo || "*";
+	if (backfilledGeos.has(key)) return;
+	backfilledGeos.add(key);
+
+	try {
+		const qs = geo ? `?geo=${encodeURIComponent(geo)}&limit=200` : "?limit=200";
+		const res = await fetch(`${API_BASE}/api/history${qs}`, { cache: "no-store" });
+		if (!res.ok) throw new Error(`history ${res.status}`);
+
+		const data = await res.json();
+		if (!Array.isArray(data.events)) return;
+
+		for (const ev of data.events) {
+			if (!seen.has(ev.id) && verifyEvent(ev)) ingestEvent(ev);
+		}
+	} catch {
+		// api went away mid-request - drop the marker so we can retry, then carry
+		// on as a pure client.
+		backfilledGeos.delete(key);
+		apiAvailable = false;
+	}
+}
+
+// ensures the api is healthy (checking once if needed) and backfills the given
+// view. Safe to call freely - it no-ops when assist is off or the api is down.
+async function assistBackfill(geo) {
+	if (!getAssistEnabled()) return;
+	if (!apiAvailable) await checkApiHealth();
+	if (apiAvailable) await backfillHistory(geo);
+}
 
 // initial paint - done after `pool` exists since renderTopbar reads its counts
 renderTopbar();
@@ -570,6 +637,9 @@ renderTopbar();
 	} catch (err) {
 		appendSystem(`failed to load relays: ${err.message}`);
 	}
+
+	// independent of relays: pull deep global history from the api if assisting
+	assistBackfill(null);
 })();
 
 function updatePlaceholder() {
@@ -582,6 +652,9 @@ function focusChannel(geo) {
 	updateFocusedUserCount();
 	renderTopbar();
 	rerenderTerminal();
+
+	// deep history for this channel from the api (no-op if assist off / api down)
+	assistBackfill(geo);
 
 	if (!allRelays.length) return;
 

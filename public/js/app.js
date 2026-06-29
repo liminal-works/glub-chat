@@ -634,6 +634,10 @@ function ingestEvent(ev) {
 const pool = new RelayPool({
 	onStatusChange: renderTopbar,
 	onEvent: ingestEvent,
+	// broadcast-only set size (assist mode). The nearest-N relays to a focused
+	// geohash can be a sparse/flaky regional set, so keep enough of them open
+	// that a send reliably reaches relays the api is also watching.
+	broadcastCount: 16,
 });
 
 // --- "server assist" mode: mirror the api's buffer + live stream -------------

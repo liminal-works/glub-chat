@@ -20,20 +20,48 @@ export function createAggregator(store, { onStored } = {}) {
 	const sockets = new Map(); // url -> WebSocket (live attempts)
 	const managed = new Set(); // every url we're keeping connected (incl. mid-backoff)
 
-	// validate + store a single event. Exposed for unit tests (no live relay
-	// needed): only signed kind-20000 chat events with a sane geohash are kept,
-	// and we reject far-future timestamps (skewed/forged clocks).
-	function ingest(ev) {
-		if (!ev || ev.kind !== CHAT_KIND) return false;
-		if (typeof ev.id !== "string" || typeof ev.pubkey !== "string") return false;
-		if (ev.created_at > Math.floor(Date.now() / 1000) + MAX_FUTURE_SECS) return false;
+	// returns an event's geohash if it's acceptable to store/relay, else "".
+	// Only signed kind-20000 chat events with a sane geohash and a non-future
+	// timestamp (skewed/forged clocks) pass.
+	function acceptableGeo(ev) {
+		if (!ev || ev.kind !== CHAT_KIND) return "";
+		if (typeof ev.id !== "string" || typeof ev.pubkey !== "string") return "";
+		if (ev.created_at > Math.floor(Date.now() / 1000) + MAX_FUTURE_SECS) return "";
 		const geo = getGeohash(ev);
-		if (!geo || geo.length > MAX_GEOHASH_LEN) return false;
-		if (!verifyEvent(ev)) return false;
+		if (!geo || geo.length > MAX_GEOHASH_LEN) return "";
+		if (!verifyEvent(ev)) return "";
+		return geo;
+	}
 
+	// validate + store a single event arriving from a relay. Exposed for unit
+	// tests (no live relay needed). Streams to subscribers only when it's new, so
+	// relays resending the same event don't double-fire.
+	function ingest(ev) {
+		const geo = acceptableGeo(ev);
+		if (!geo) return false;
 		const inserted = store.insert(ev, geo);
 		if (inserted && onStored) onStored(ev, geo);
 		return inserted;
+	}
+
+	// publish a client-signed event: validate, store + stream to subscribers
+	// (always, so a re-publish/retry can re-confirm), and fan it out to every
+	// connected relay. Returns the relay count, or -1 if the event is invalid.
+	function publish(ev) {
+		const geo = acceptableGeo(ev);
+		if (!geo) return -1;
+		store.insert(ev, geo); // idempotent
+		if (onStored) onStored(ev, geo);
+
+		const payload = JSON.stringify(["EVENT", ev]);
+		let sent = 0;
+		for (const ws of sockets.values()) {
+			if (ws.readyState === WebSocket.OPEN) {
+				ws.send(payload);
+				sent++;
+			}
+		}
+		return sent;
 	}
 
 	function handleFrame(raw) {
@@ -122,5 +150,5 @@ export function createAggregator(store, { onStored } = {}) {
 		return { monitored: managed.size, connected };
 	}
 
-	return { start, stats, ingest, handleFrame };
+	return { start, stats, ingest, publish, handleFrame };
 }

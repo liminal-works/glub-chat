@@ -48,7 +48,8 @@ const app = express();
 // api from a different host).
 app.use((req, res, next) => {
 	res.set("Access-Control-Allow-Origin", "*");
-	res.set("Access-Control-Allow-Methods", "GET, OPTIONS");
+	res.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+	res.set("Access-Control-Allow-Headers", "Content-Type");
 	if (req.method === "OPTIONS") return res.sendStatus(204);
 	next();
 });
@@ -58,6 +59,19 @@ app.use((req, res, next) => {
 // and to render the assist status indicator.
 app.get("/api/health", (req, res) => {
 	res.json({ ok: true, ...store.stats(), relays: aggregator.stats() });
+});
+
+// publish a client-signed event: the api fans it out across the relays it
+// already has open (so the client doesn't open its own), stores it, and streams
+// it back. The client signs locally - we only ever receive a signed event, never
+// a key. Re-verified before anything happens to it.
+app.post("/api/publish", express.json({ limit: "32kb" }), (req, res) => {
+	const relays = aggregator.publish(req.body);
+	if (relays < 0) {
+		res.status(400).json({ ok: false, error: "invalid event" });
+		return;
+	}
+	res.json({ ok: true, relays });
 });
 
 // newest-first history, optionally scoped to a geohash and paged with `before`.

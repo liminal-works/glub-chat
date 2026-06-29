@@ -92,6 +92,17 @@ export class RelayPool {
 		this._scheduleExpandCheck();
 	}
 
+	// close every connection and stop reconnecting (used in assist mode, where the
+	// client holds no relay sockets - reads come from the api stream, sends go
+	// through the api's /api/publish).
+	disconnect() {
+		this.gen++;
+		this._closeAll();
+		this.candidates = [];
+		this.cursor = 0;
+		this.onStatusChange();
+	}
+
 	_closeAll() {
 		clearTimeout(this.expandTimer);
 		for (const ws of this.sockets.values()) ws.close();

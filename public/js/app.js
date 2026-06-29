@@ -612,12 +612,36 @@ function rerenderEntryEl(entry) {
 	if (entry.el) entry.el.innerHTML = (focusedGeo ? "" : entry.geoPrefix || "") + messageInnerHtml(entry);
 }
 
-// (re)broadcast a tracked message and arm its confirmation timeout
+// deliver a signed event: in assist mode hand it to the api to fan out across
+// the relays it already holds open; otherwise broadcast to our own relay subs.
+function deliver(event) {
+	if (liveSource === "assist") publishViaApi(event);
+	else pool.broadcast(event);
+}
+
+// hand a signed event to the api to fan out. We POST the signed event only - the
+// key never leaves the browser. Confirmation still arrives via the SSE echo.
+async function publishViaApi(event) {
+	try {
+		const res = await fetch(`${API_BASE}/api/publish`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify(event),
+			cache: "no-store",
+		});
+		if (!res.ok) throw new Error(`publish ${res.status}`);
+	} catch {
+		// couldn't reach the api - if the stream is also down we'll fall back to
+		// relays and the retry goes out there; otherwise the retry re-POSTs.
+	}
+}
+
+// (re)deliver a tracked message and arm its confirmation timeout
 function attemptBroadcast(id) {
 	const rec = pending.get(id);
 	if (!rec) return;
 	rec.attempts += 1;
-	pool.broadcast(rec.event);
+	deliver(rec.event);
 	clearTimeout(rec.timer);
 	rec.timer = setTimeout(() => onSendTimeout(id), ACK_TIMEOUT_MS);
 }
@@ -782,36 +806,14 @@ function closeAssistStream() {
 	}
 }
 
-// nearest-first relay urls for the current channel (first-available for global
-// or a non-geocodable channel).
-function broadcastUrls() {
-	if (!allRelays.length) return [];
-	const reliable = allRelays.map((r) => r.url); // list order: well-connected, api-watched
-	if (!focusedGeo) return reliable;
-
-	let nearest;
-	try {
-		nearest = sortRelaysByGeohash(allRelays, focusedGeo).map((r) => r.url);
-	} catch {
-		return reliable; // non-geocodable channel
-	}
-	// lead with a few nearest relays (to reach native bitchat clients subscribed
-	// near that geohash), but always fold in the reliable list-order relays so a
-	// send still lands on relays the api and wider network see well - the nearest
-	// set alone can be sparse/flaky.
-	return [...new Set([...nearest.slice(0, 8), ...reliable])];
-}
-
-function connectBroadcastRelays() {
-	const urls = broadcastUrls();
-	if (urls.length) pool.connectBroadcast(urls);
-}
-
-// assist mode: live reads from the api stream, relays kept only for sending.
+// assist mode: the client holds no relay sockets at all - reads come from the
+// api stream, sends go through the api's /api/publish (which fans out across the
+// relays it already monitors). So there's nothing to warm up or recompute when
+// switching channels.
 function enterAssistMode() {
 	if (liveSource === "assist" && eventSource) return; // already assisting
 	liveSource = "assist";
-	connectBroadcastRelays(); // relays become send-only (drops the ~200 read subs)
+	pool.disconnect(); // drop any relay sockets - the api handles both directions
 	openAssistStream(); // open the stream first so nothing arriving during the
 	mirrorBuffer(); // buffer fetch is missed (dedup handles the overlap)
 	renderTopbar();
@@ -885,10 +887,9 @@ function focusChannel(geo) {
 	renderTopbar();
 	rerenderTerminal(); // assist mode: focus is just an instant local filter of the buffer
 
-	// in assist mode reads come from the stream, so only repoint the send relays;
-	// in pure mode, re-subscribe to the channel's nearest relays.
-	if (liveSource === "assist") connectBroadcastRelays();
-	else enterRelayMode();
+	// assist mode has no client relay sockets, so focus is purely a local filter;
+	// pure mode re-subscribes to the channel's nearest relays.
+	if (liveSource !== "assist") enterRelayMode();
 }
 
 function exitFocus() {
@@ -898,8 +899,7 @@ function exitFocus() {
 	renderTopbar();
 	rerenderTerminal();
 
-	if (liveSource === "assist") connectBroadcastRelays();
-	else enterRelayMode();
+	if (liveSource !== "assist") enterRelayMode();
 }
 
 function parseDraft(raw) {

@@ -213,34 +213,36 @@ body {
 	display: none;
 }
 
+/* flat, borderless composer to match native bitchat: just the input text and a
+   "send" label sitting low above the home indicator, no boxes or separator. */
 #inputbar {
 	display: flex;
-	gap: 10px;
-	padding: 10px 12px calc(4px + env(safe-area-inset-bottom));
+	align-items: center;
+	gap: 12px;
+	padding: 6px 14px calc(6px + env(safe-area-inset-bottom));
 	background: var(--chrome-bg);
-	border-top: 1px solid var(--chrome-border);
 }
 
 #chatInput {
 	flex: 1;
 	min-width: 0;
-	border: 1px solid var(--chrome-border);
-	background: rgba(0, 0, 0, 0.18);
+	border: 0;
+	background: transparent;
 	color: var(--fg);
 	font: inherit;
 	font-size: 15px;
 	outline: 0;
-	padding: 10px 12px;
+	padding: 6px 0;
 }
 
 #sendBtn {
-	border: 1px solid var(--chrome-border);
+	border: 0;
 	background: transparent;
 	color: var(--accent);
 	font: inherit;
 	font-weight: 700;
 	cursor: pointer;
-	padding: 0 16px;
+	padding: 6px 0;
 }
 
 .gate {

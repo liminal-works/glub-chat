@@ -18,8 +18,16 @@ const PORT = process.env.API_PORT || 3001;
 const DB_PATH = process.env.API_DB || path.join(__dirname, "glub-history.db");
 const DEFAULT_LIMIT = 200;
 const HEARTBEAT_MS = 25_000; // SSE keep-alive comment, under common proxy idle timeouts
+// rolling buffer size the client mirrors; events are tiny, so the default is
+// generous enough that busy channels don't crowd out quiet ones. Tune via env.
+const BUFFER_MAX = Number(process.env.API_BUFFER_MAX) || 2000;
+const PRUNE_INTERVAL_MS = 60_000;
 
 const store = openStore(DB_PATH);
+
+// keep the buffer bounded: trim to the most-recent BUFFER_MAX events periodically
+store.prune(BUFFER_MAX);
+setInterval(() => store.prune(BUFFER_MAX), PRUNE_INTERVAL_MS).unref();
 
 // live SSE subscribers; each may scope to a single geohash
 const subscribers = new Set(); // { res, geo }

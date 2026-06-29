@@ -30,10 +30,7 @@ body {
 }
 
 #app {
-	/* experiment: dvh was resolving shorter than the screen in standalone PWA
-	   mode, leaving a black gap below the composer. 100vh = the large viewport,
-	   which should fill the full screen at rest. */
-	height: 100vh;
+	height: 100dvh;
 	display: flex;
 	flex-direction: column;
 }

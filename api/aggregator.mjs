@@ -6,7 +6,8 @@ const MAX_GEOHASH_LEN = 32; // ignore absurd geohashes (anti-flood, mirrors the 
 const MAX_FUTURE_SECS = 120; // drop events timestamped more than this far in the future
 const MAX_BACKOFF_MS = 60_000;
 const REQ_LIMIT = 500; // backlog asked of each relay on (re)connect
-const REFRESH_MS = 30 * 60_000; // re-fetch the relay list this often to pick up new relays
+const REFRESH_MS = 24 * 60 * 60_000; // re-scrape the relay list daily to pick up list changes
+const RETRY_MS = 5 * 60_000; // until we have any relays (e.g. a failed startup fetch), retry sooner
 
 // The relay aggregator: subscribes to every relay it can, signature-verifies
 // events, and stores geohash chat events. Unlike the browser client (which caps
@@ -97,9 +98,20 @@ export function createAggregator(store, { onStored } = {}) {
 		if (added) console.log(`[aggregator] connecting to ${added} relays (${managed.size} total)`);
 	}
 
+	// re-scrape on the long (daily) cycle once we're up, but back off to a short
+	// retry while we still have zero relays (e.g. the startup fetch failed), so a
+	// transient hiccup doesn't leave the api dead until tomorrow.
+	function scheduleRefresh() {
+		const delay = managed.size > 0 ? REFRESH_MS : RETRY_MS;
+		setTimeout(async () => {
+			await loadAndConnect();
+			scheduleRefresh();
+		}, delay).unref();
+	}
+
 	async function start() {
 		await loadAndConnect();
-		setInterval(loadAndConnect, REFRESH_MS).unref();
+		scheduleRefresh();
 	}
 
 	function stats() {

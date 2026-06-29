@@ -121,6 +121,12 @@ body {
 	color: var(--fg);
 }
 
+/* the #xxxx pubkey suffix is dimmed to 60% of the name color, matching native
+   bitchat (it renders the suffix run as baseColor.opacity(0.6)). */
+.tag {
+	opacity: 0.6;
+}
+
 .line.mine .bracket,
 .line.mine .user,
 .line.mine .tag,

@@ -747,14 +747,20 @@ function closeAssistStream() {
 // or a non-geocodable channel).
 function broadcastUrls() {
 	if (!allRelays.length) return [];
-	if (focusedGeo) {
-		try {
-			return sortRelaysByGeohash(allRelays, focusedGeo).map((r) => r.url);
-		} catch {
-			return allRelays.map((r) => r.url);
-		}
+	const reliable = allRelays.map((r) => r.url); // list order: well-connected, api-watched
+	if (!focusedGeo) return reliable;
+
+	let nearest;
+	try {
+		nearest = sortRelaysByGeohash(allRelays, focusedGeo).map((r) => r.url);
+	} catch {
+		return reliable; // non-geocodable channel
 	}
-	return allRelays.map((r) => r.url);
+	// lead with a few nearest relays (to reach native bitchat clients subscribed
+	// near that geohash), but always fold in the reliable list-order relays so a
+	// send still lands on relays the api and wider network see well - the nearest
+	// set alone can be sparse/flaky.
+	return [...new Set([...nearest.slice(0, 8), ...reliable])];
 }
 
 function connectBroadcastRelays() {

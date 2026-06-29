@@ -30,6 +30,7 @@ export class RelayPool {
 
 		this.candidates = []; // urls for the current channel, nearest first
 		this.cursor = 0; // candidates already attempted
+		this.activeTarget = targetCount; // how many open connections we aim to hold
 		this.gen = 0; // bumped on every channel switch; stale sockets/timers no-op
 		this.expandTimer = null;
 	}
@@ -54,6 +55,7 @@ export class RelayPool {
 
 		this.candidates = sortedUrls.slice(0, this.maxCandidates);
 		this.cursor = 0;
+		this.activeTarget = this.targetCount;
 
 		this._expand(this.targetCount);
 		this._scheduleExpandCheck();
@@ -68,22 +70,26 @@ export class RelayPool {
 
 		this.candidates = urls.slice(0, this.globalMaxCount);
 		this.cursor = 0;
+		this.activeTarget = this.candidates.length;
 
 		this._expand(this.candidates.length);
 	}
 
-	// broadcast-only: keep a small set of (nearest-first) relays open purely for
-	// sending. No REQ subscription, so no inbound event firehose - the history
-	// api's live stream supplies reads instead.
+	// broadcast-only: hold ~broadcastCount relays open purely for sending. No REQ
+	// subscription, so no inbound firehose (the api's stream supplies reads). We
+	// keep a wider candidate pool than the target so the set self-heals - if some
+	// relays refuse or drop, _maybeExpand pulls in the next ones to stay covered.
 	connectBroadcast(sortedUrls) {
 		this.gen++;
 		this._closeAll();
 		this.readMode = false;
 
-		this.candidates = sortedUrls.slice(0, this.broadcastCount);
+		this.candidates = sortedUrls.slice(0, this.maxCandidates);
 		this.cursor = 0;
+		this.activeTarget = this.broadcastCount;
 
-		this._expand(this.candidates.length);
+		this._expand(this.broadcastCount);
+		this._scheduleExpandCheck();
 	}
 
 	_closeAll() {
@@ -99,9 +105,9 @@ export class RelayPool {
 	}
 
 	_maybeExpand() {
-		if (this.connectedCount >= this.targetCount) return;
+		if (this.connectedCount >= this.activeTarget) return;
 		if (this.cursor >= this.candidates.length) return;
-		this._expand(this.targetCount - this.connectedCount);
+		this._expand(this.activeTarget - this.connectedCount);
 	}
 
 	_scheduleExpandCheck() {
@@ -111,7 +117,7 @@ export class RelayPool {
 		this.expandTimer = setTimeout(() => {
 			if (gen !== this.gen) return;
 			this._maybeExpand();
-			if (this.connectedCount < this.targetCount && this.cursor < this.candidates.length) {
+			if (this.connectedCount < this.activeTarget && this.cursor < this.candidates.length) {
 				this._scheduleExpandCheck();
 			}
 		}, this.expandAfterMs);

@@ -821,18 +821,18 @@ function enterRelayMode() {
 		try {
 			sorted = sortRelaysByGeohash(allRelays, focusedGeo).map((r) => r.url);
 		} catch {
-			// non-geocodable: can't compute nearest. Keep existing read relays (just
-			// filter locally), but if we're arriving from broadcast-only (an assist
-			// fallback) we still need reads, so subscribe to all.
-			if (!pool.readMode) pool.connectAll(allRelays.map((r) => r.url));
+			// non-geocodable channel: it isn't a decodable location, so there's no
+			// local set to compute - use the global set instead.
+			pool.connectAll(allRelays.map((r) => r.url));
+			if (announce) appendSystem(`#${focusedGeo}: not a location, connecting to global relay set...`);
 			renderTopbar();
 			return;
 		}
 		pool.connectNearest(sorted);
-		if (announce) appendSystem(`#${focusedGeo}: connecting to nearest relays...`);
+		if (announce) appendSystem(`#${focusedGeo}: connecting to local relay set...`);
 	} else {
 		pool.connectAll(allRelays.map((r) => r.url));
-		if (announce) appendSystem(`connecting to ${Math.min(allRelays.length, 200)} relays...`);
+		if (announce) appendSystem(`connecting to global relay set...`);
 	}
 	renderTopbar();
 }

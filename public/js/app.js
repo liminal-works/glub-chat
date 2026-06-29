@@ -530,8 +530,10 @@ assistToggle.addEventListener("change", async () => {
 	setAssistEnabled(assistToggle.checked);
 	if (assistToggle.checked) {
 		// flip to assist if the api is reachable; otherwise stay on relays and let
-		// the maintain loop promote us once it comes up.
-		if (await checkApiHealth()) enterAssistMode();
+		// the maintain loop promote us once it comes up. Re-check the toggle after
+		// the await - the user may have flipped it back off while the health check
+		// was in flight.
+		if ((await checkApiHealth()) && getAssistEnabled()) enterAssistMode();
 	} else {
 		apiAvailable = false;
 		apiHealth = null;

@@ -7,68 +7,89 @@ const MAX_GEOHASH_LEN = 32; // ignore absurd geohashes (anti-flood, mirrors the 
 const MAX_BACKOFF_MS = 60_000;
 const REQ_LIMIT = 500; // backlog asked of each relay on (re)connect
 
-// validate + store a single event. Exported so it's unit-testable without a
-// live relay: only signed kind-20000 chat events carrying a sane geohash are
-// kept, and the signature is verified before anything touches the store.
-export function ingestEvent(store, ev) {
-	if (!ev || ev.kind !== CHAT_KIND) return false;
-	if (typeof ev.id !== "string" || typeof ev.pubkey !== "string") return false;
-	const geo = getGeohash(ev);
-	if (!geo || geo.length > MAX_GEOHASH_LEN) return false;
-	if (!verifyEvent(ev)) return false;
-	return store.insert(ev, geo);
-}
+// The relay aggregator: subscribes broadly to relays, signature-verifies events,
+// and stores geohash chat events. `onStored(ev, geo)` fires once per newly-stored
+// event so the http layer can fan it out to live SSE subscribers.
+export function createAggregator(store, { onStored } = {}) {
+	const sockets = new Map(); // url -> WebSocket (live attempts)
+	let relayUrls = []; // the set we cycle through, length is the "monitored" count
 
-export function handleFrame(store, raw) {
-	let frame;
-	try {
-		frame = JSON.parse(raw);
-	} catch {
-		return;
-	}
-	if (!Array.isArray(frame) || frame[0] !== "EVENT") return;
-	ingestEvent(store, frame[2]);
-}
+	// validate + store a single event. Exposed for unit tests (no live relay
+	// needed): only signed kind-20000 chat events with a sane geohash are kept.
+	function ingest(ev) {
+		if (!ev || ev.kind !== CHAT_KIND) return false;
+		if (typeof ev.id !== "string" || typeof ev.pubkey !== "string") return false;
+		const geo = getGeohash(ev);
+		if (!geo || geo.length > MAX_GEOHASH_LEN) return false;
+		if (!verifyEvent(ev)) return false;
 
-export async function startAggregator(store) {
-	let relays;
-	try {
-		relays = await fetchRelayList();
-	} catch (err) {
-		console.error(`[aggregator] could not fetch relay list: ${err.message}`);
-		return;
+		const inserted = store.insert(ev, geo);
+		if (inserted && onStored) onStored(ev, geo);
+		return inserted;
 	}
 
-	const urls = relays.map((r) => r.url).slice(0, MAX_RELAYS);
-	console.log(`[aggregator] subscribing to ${urls.length} relays`);
-	for (const url of urls) connectRelay(store, url);
-}
-
-function connectRelay(store, url, attempt = 0) {
-	let ws;
-	try {
-		ws = new WebSocket(url);
-	} catch {
-		scheduleReconnect(store, url, attempt);
-		return;
+	function handleFrame(raw) {
+		let frame;
+		try {
+			frame = JSON.parse(raw);
+		} catch {
+			return;
+		}
+		if (!Array.isArray(frame) || frame[0] !== "EVENT") return;
+		ingest(frame[2]);
 	}
 
-	let reconnected = false;
-	const retry = () => {
-		if (reconnected) return;
-		reconnected = true;
-		scheduleReconnect(store, url, attempt);
-	};
+	function connectRelay(url, attempt = 0) {
+		let ws;
+		try {
+			ws = new WebSocket(url);
+		} catch {
+			scheduleReconnect(url, attempt);
+			return;
+		}
+		sockets.set(url, ws);
 
-	ws.addEventListener("open", () => {
-		ws.send(JSON.stringify(["REQ", SUB_ID, { kinds: [CHAT_KIND], limit: REQ_LIMIT }]));
-	});
-	ws.addEventListener("message", (msg) => handleFrame(store, msg.data));
-	ws.addEventListener("error", () => {});
-	ws.addEventListener("close", retry);
-}
+		let reconnected = false;
+		const retry = () => {
+			if (reconnected) return;
+			reconnected = true;
+			if (sockets.get(url) === ws) sockets.delete(url);
+			scheduleReconnect(url, attempt);
+		};
 
-function scheduleReconnect(store, url, attempt) {
-	const delay = Math.min(MAX_BACKOFF_MS, 1000 * 2 ** Math.min(attempt + 1, 6));
-	setTimeout(() => connectRelay(store, url, attempt + 1), delay);
+		ws.addEventListener("open", () => {
+			ws.send(JSON.stringify(["REQ", SUB_ID, { kinds: [CHAT_KIND], limit: REQ_LIMIT }]));
+		});
+		ws.addEventListener("message", (msg) => handleFrame(msg.data));
+		ws.addEventListener("error", () => {});
+		ws.addEventListener("close", retry);
+	}
+
+	function scheduleReconnect(url, attempt) {
+		const delay = Math.min(MAX_BACKOFF_MS, 1000 * 2 ** Math.min(attempt + 1, 6));
+		setTimeout(() => connectRelay(url, attempt + 1), delay);
+	}
+
+	async function start() {
+		let relays;
+		try {
+			relays = await fetchRelayList();
+		} catch (err) {
+			console.error(`[aggregator] could not fetch relay list: ${err.message}`);
+			return;
+		}
+		relayUrls = relays.map((r) => r.url).slice(0, MAX_RELAYS);
+		console.log(`[aggregator] subscribing to ${relayUrls.length} relays`);
+		for (const url of relayUrls) connectRelay(url);
+	}
+
+	function stats() {
+		let connected = 0;
+		for (const ws of sockets.values()) {
+			if (ws.readyState === WebSocket.OPEN) connected++;
+		}
+		return { monitored: relayUrls.length, connected };
+	}
+
+	return { start, stats, ingest, handleFrame };
 }

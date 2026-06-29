@@ -539,7 +539,7 @@ renderTopbar();
 })();
 
 function updatePlaceholder() {
-	chatInput.placeholder = focusedGeo ? `message -> #${focusedGeo}` : "#channel message";
+	chatInput.placeholder = focusedGeo ? `message -> #${focusedGeo}` : "#channel message...";
 }
 
 function focusChannel(geo) {

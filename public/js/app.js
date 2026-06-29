@@ -30,12 +30,28 @@ let unreadCount = 0; // messages arrived while scrolled up, shown in the banner
 const nameGate = document.getElementById("nameGate");
 const nameForm = document.getElementById("nameForm");
 const nameInput = document.getElementById("nameInput");
+const settingsGate = document.getElementById("settingsGate");
+const assistToggle = document.getElementById("assistToggle");
+const settingsClose = document.getElementById("settingsClose");
 const terminal = document.getElementById("terminal");
 const brandEl = document.getElementById("brand");
 const statusEl = document.getElementById("status");
 const chatInput = document.getElementById("chatInput");
 const sendBtn = document.getElementById("sendBtn");
 const newMessagesBar = document.getElementById("newMessagesBar");
+
+// "server assist": optional API-backed history/low-bandwidth mode. Phase 0 only
+// persists the preference - nothing reads it yet. Defaults ON (per the plan:
+// assist-by-default with automatic fallback to pure client when unavailable).
+const STORAGE_ASSIST_KEY = "glub_assist";
+
+function getAssistEnabled() {
+	return localStorage.getItem(STORAGE_ASSIST_KEY) !== "false";
+}
+
+function setAssistEnabled(on) {
+	localStorage.setItem(STORAGE_ASSIST_KEY, on ? "true" : "false");
+}
 
 function escapeHtml(s) {
 	return String(s).replace(
@@ -442,6 +458,15 @@ function closeNameGate() {
 	nameGate.classList.remove("show");
 }
 
+function openSettings() {
+	assistToggle.checked = getAssistEnabled();
+	settingsGate.classList.add("show");
+}
+
+function closeSettings() {
+	settingsGate.classList.remove("show");
+}
+
 if (name) {
 	closeNameGate();
 } else {
@@ -450,9 +475,18 @@ if (name) {
 
 brandEl.addEventListener("click", openNameGate);
 
+// the status doubles as [EXIT] when focused on a channel, and the settings
+// entry point otherwise.
 statusEl.addEventListener("click", () => {
-	if (!focusedGeo) return;
-	exitFocus();
+	if (focusedGeo) exitFocus();
+	else openSettings();
+});
+
+assistToggle.addEventListener("change", () => setAssistEnabled(assistToggle.checked));
+settingsClose.addEventListener("click", closeSettings);
+// tapping the dimmed backdrop (outside the card) dismisses settings
+settingsGate.addEventListener("click", (e) => {
+	if (e.target === settingsGate) closeSettings();
 });
 
 // once the user scrolls up to read history, stop yanking them back to the

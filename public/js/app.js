@@ -342,7 +342,9 @@ function appendSystem(text) {
 		geo: null,
 		system: true,
 		pubkey: null,
-		html: `<span class="system">${escapeHtml(text)}</span>${timeTag(ts)}`,
+		// render in bitchat's emote style (* muted text *) so system notices match
+		// the rest of the theming
+		html: `<span class="ts">* ${escapeHtml(text)} *</span>${timeTag(ts)}`,
 		el: null,
 	});
 }

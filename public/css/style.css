@@ -156,10 +156,6 @@ body {
 	-webkit-tap-highlight-color: transparent;
 }
 
-.system {
-	color: var(--muted);
-}
-
 /* "beginning of chat" divider shown when the client has mirrored the api's
    entire buffer */
 .barrier {

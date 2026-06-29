@@ -206,8 +206,7 @@ function ackTag(entry) {
 		return ` <span class="ts ack">${entry.ackSecs === 0 ? "&lt;1s" : `${entry.ackSecs}s`}</span>`;
 	}
 	if (entry.ackFailed) return ` <span class="ts ack">?</span>`;
-	if (entry.pendingAck) return ` <span class="ts ack">…</span>`;
-	return "";
+	return ""; // pending: show nothing until it confirms (latency) or fails (?)
 }
 
 // one preview block per image url in the message, blurred by default with a

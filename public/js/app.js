@@ -31,6 +31,7 @@ let unreadCount = 0; // messages arrived while scrolled up, shown in the banner
 const nameGate = document.getElementById("nameGate");
 const nameForm = document.getElementById("nameForm");
 const nameInput = document.getElementById("nameInput");
+const nameHint = document.getElementById("nameHint");
 const settingsGate = document.getElementById("settingsGate");
 const assistToggle = document.getElementById("assistToggle");
 const settingsClose = document.getElementById("settingsClose");
@@ -497,8 +498,30 @@ function renderTopbar() {
 	}
 }
 
+// your own #suffix (last 4 of your pubkey), in your color - matches how your
+// handle renders in chat
+const ownSuffix = identity.pk.slice(-4);
+const ownColor = pubkeyColor(identity.pk);
+
+// ghost-text in the name gate: appends a dimmed "#suffix" after whatever you're
+// typing, previewing how your handle will appear. Hidden while the field is
+// empty so it doesn't fight the placeholder.
+function updateNameHint() {
+	const v = nameInput.value;
+	if (!v) {
+		nameHint.innerHTML = "";
+		return;
+	}
+	nameHint.innerHTML =
+		`<span class="typed">${escapeHtml(v)}</span>` +
+		`<span class="sfx" style="color:${ownColor}">#${escapeHtml(ownSuffix)}</span>`;
+}
+
+nameInput.addEventListener("input", updateNameHint);
+
 function openNameGate() {
 	nameInput.value = name || "";
+	updateNameHint();
 	nameGate.classList.add("show");
 	setTimeout(() => nameInput.focus(), 0);
 }

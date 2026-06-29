@@ -26,16 +26,19 @@
 					<div class="gateSub">no accounts. no emails. no servers.<br />just pick a name to start chatting.</div>
 
 					<form id="nameForm" autocomplete="off">
-						<input
-							id="nameInput"
-							type="text"
-							maxlength="24"
-							spellcheck="false"
-							autocapitalize="none"
-							autocorrect="off"
-							autocomplete="off"
-							placeholder="alias"
-						/>
+						<div class="nameInputWrap">
+							<input
+								id="nameInput"
+								type="text"
+								maxlength="24"
+								spellcheck="false"
+								autocapitalize="none"
+								autocorrect="off"
+								autocomplete="off"
+								placeholder="alias"
+							/>
+							<div id="nameHint" class="nameHint" aria-hidden="true"></div>
+						</div>
 						<button type="submit">enter</button>
 					</form>
 				</div>

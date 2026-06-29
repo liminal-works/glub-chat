@@ -310,7 +310,13 @@ body {
 	gap: 10px;
 }
 
+.nameInputWrap {
+	position: relative;
+}
+
 #nameInput {
+	width: 100%;
+	box-sizing: border-box;
 	border: 1px solid var(--chrome-border);
 	background: rgba(0, 0, 0, 0.18);
 	color: var(--fg);
@@ -318,6 +324,29 @@ body {
 	font-size: 16px;
 	padding: 10px 12px;
 	outline: 0;
+}
+
+/* live ghost-text that appends your #suffix to the name as you type, mirroring
+   the input's box model so it lines up with the real text */
+.nameHint {
+	position: absolute;
+	inset: 0;
+	box-sizing: border-box;
+	border: 1px solid transparent;
+	padding: 10px 12px;
+	font: inherit;
+	font-size: 16px;
+	white-space: pre;
+	pointer-events: none;
+	overflow: hidden;
+}
+
+.nameHint .typed {
+	color: transparent; /* invisible spacer that pushes the suffix past the typed name */
+}
+
+.nameHint .sfx {
+	opacity: 0.6; /* same dimming as the chat #tag */
 }
 
 #nameForm button {

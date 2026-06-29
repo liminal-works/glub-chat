@@ -62,11 +62,13 @@ const API_BASE = (typeof window !== "undefined" && window.GLUB_API_BASE ? String
 const BUFFER_FETCH = 600; // how much of the api buffer the client mirrors on connect
 const ASSIST_FALLBACK_MS = 12_000; // grace period before a dead stream falls back to relays
 const ASSIST_MAINTAIN_MS = 30_000; // health re-check cadence (status freshness + recovery)
-const ACK_TIMEOUT_MS = 15_000; // how long to wait for a sent message to echo back before flagging it
+const ACK_TIMEOUT_MS = 15_000; // wait this long for an echo before rebroadcasting / giving up
+const MAX_SEND_ATTEMPTS = 3; // initial broadcast + up to 2 automatic rebroadcasts
 
-// our own just-sent messages awaiting echo-back confirmation: event id -> send time (ms).
-// when a live source (the api stream, or relays) replays our message we know it
-// propagated, and the gap is shown as send latency on that line.
+// our own sent messages awaiting echo-back confirmation, keyed by event id:
+// { event, firstSentAt, attempts, timer }. When a live source (the api stream or
+// relays) replays the message we know it propagated; until then we rebroadcast
+// the identical signed event (relays dedup by id) up to MAX_SEND_ATTEMPTS.
 const pending = new Map();
 
 let apiAvailable = false;
@@ -604,15 +606,43 @@ function rerenderEntryEl(entry) {
 	if (entry.el) entry.el.innerHTML = (focusedGeo ? "" : entry.geoPrefix || "") + messageInnerHtml(entry);
 }
 
-// a live source replayed one of our sent messages - record how long it took and
-// refresh that line's latency badge.
+// (re)broadcast a tracked message and arm its confirmation timeout
+function attemptBroadcast(id) {
+	const rec = pending.get(id);
+	if (!rec) return;
+	rec.attempts += 1;
+	pool.broadcast(rec.event);
+	clearTimeout(rec.timer);
+	rec.timer = setTimeout(() => onSendTimeout(id), ACK_TIMEOUT_MS);
+}
+
+// no echo in time: rebroadcast the identical signed event (relays have warmed /
+// the broadcast set has healed since) until attempts run out, then flag it.
+function onSendTimeout(id) {
+	const rec = pending.get(id);
+	if (!rec) return;
+	if (rec.attempts < MAX_SEND_ATTEMPTS) {
+		attemptBroadcast(id);
+		return;
+	}
+	pending.delete(id);
+	const entry = entries.find((e) => e.id === id);
+	if (entry) {
+		entry.ackFailed = true;
+		rerenderEntryEl(entry);
+	}
+}
+
+// a live source replayed one of our sent messages - it propagated. Record the
+// round-trip (from the first send) and refresh that line's latency badge.
 function confirmSent(id) {
-	const sentAt = pending.get(id);
-	if (sentAt == null) return;
+	const rec = pending.get(id);
+	if (!rec) return;
+	clearTimeout(rec.timer);
 	pending.delete(id);
 	const entry = entries.find((e) => e.id === id);
 	if (!entry) return;
-	entry.ackSecs = Math.max(0, Math.floor((Date.now() - sentAt) / 1000));
+	entry.ackSecs = Math.max(0, Math.floor((Date.now() - rec.firstSentAt) / 1000));
 	rerenderEntryEl(entry);
 }
 
@@ -899,21 +929,12 @@ function send() {
 	});
 
 	seen.add(event.id);
-	pending.set(event.id, Date.now()); // track for the send-latency badge (read by renderEvent)
-	pool.broadcast(event);
+	// track before rendering so renderEvent's pendingAck picks it up ("…"), then
+	// broadcast + arm the confirm/rebroadcast timer.
+	pending.set(event.id, { event, firstSentAt: Date.now(), attempts: 0, timer: null });
 	renderEvent(event);
+	attemptBroadcast(event.id);
 	jumpToBottom(); // sending always returns you to the live bottom
-
-	// if no live source replays it within the window, flag it as unconfirmed
-	setTimeout(() => {
-		if (!pending.has(event.id)) return; // already confirmed
-		pending.delete(event.id);
-		const entry = entries.find((e) => e.id === event.id);
-		if (entry) {
-			entry.ackFailed = true;
-			rerenderEntryEl(entry);
-		}
-	}, ACK_TIMEOUT_MS);
 }
 
 sendBtn.addEventListener("click", send);

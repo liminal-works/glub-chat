@@ -8,10 +8,11 @@
 	   hashed user hues), the app's voice (green), or metadata (gray). */
 	--geo: #5cb3ff;
 	--user: #8ef29c;
-	--accent: #7be488;
+	/* bitchat's dark-mode green (SwiftUI Color.green ~ systemGreen #30D158) */
+	--accent: #30d158;
 
 	--chrome-bg: #000000;
-	--chrome-border: rgba(123, 228, 136, 0.12);
+	--chrome-border: rgba(48, 209, 88, 0.12);
 }
 
 html,

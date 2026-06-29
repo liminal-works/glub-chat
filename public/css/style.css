@@ -309,6 +309,45 @@ body {
 	margin-bottom: 14px;
 }
 
+.usersList {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	max-height: 50vh;
+	overflow-y: auto;
+	margin-bottom: 14px;
+	font-size: 14px;
+}
+
+.usersList:empty::before {
+	content: "no one here yet";
+	color: var(--muted);
+	font-size: 13px;
+}
+
+.userRow {
+	display: flex;
+	align-items: baseline;
+	justify-content: space-between;
+	gap: 12px;
+}
+
+.userRow .sfx {
+	opacity: 0.6; /* dimmed suffix, like the chat #tag */
+}
+
+.userOrigin {
+	flex: none;
+	color: var(--muted);
+	font-size: 0.8em;
+	text-transform: uppercase;
+	letter-spacing: 0.04em;
+}
+
+.userOrigin.local {
+	color: var(--accent); /* physically-present users stand out */
+}
+
 #nameForm {
 	display: flex;
 	flex-direction: column;

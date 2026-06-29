@@ -35,6 +35,10 @@ const nameHint = document.getElementById("nameHint");
 const settingsGate = document.getElementById("settingsGate");
 const assistToggle = document.getElementById("assistToggle");
 const settingsClose = document.getElementById("settingsClose");
+const usersGate = document.getElementById("usersGate");
+const usersTitle = document.getElementById("usersTitle");
+const usersList = document.getElementById("usersList");
+const usersClose = document.getElementById("usersClose");
 const terminal = document.getElementById("terminal");
 const brandEl = document.getElementById("brand");
 const statusEl = document.getElementById("status");
@@ -436,6 +440,10 @@ function renderEvent(ev) {
 	const mention = isMention(text, name);
 	const mentionTint = mention ? pubkeyTint(ev.pubkey) : null;
 
+	// "teleport" = sender isn't physically in the geohash (every glub send is; a
+	// native bitchat client physically present omits it = "local")
+	const teleport = Array.isArray(ev.tags) && ev.tags.some((t) => t[0] === "t" && t[1] === "teleport");
+
 	insertEntry({
 		ts: ev.created_at,
 		geo,
@@ -449,6 +457,7 @@ function renderEvent(ev) {
 		geoPrefix,
 		mention,
 		mentionTint,
+		teleport,
 		mine: ev.pubkey.toLowerCase() === identity.pk.toLowerCase(), // bitchat bolds your own messages
 		pendingAck: pending.has(ev.id), // a message we just sent, awaiting echo-back confirmation
 		action: isActionMessage(text),
@@ -476,7 +485,7 @@ function renderTopbar() {
 		brandEl.innerHTML = `<strong>#${escapeHtml(clippedGeo)}</strong>/<span class="handle">@${escapeHtml(clipText(name || "anon", 12))}</span>`;
 
 		const userWord = focusedUserCount === 1 ? "USER" : "USERS";
-		statusEl.innerHTML = `${focusedUserCount} ${userWord} - <strong>[EXIT]</strong>`;
+		statusEl.innerHTML = `<span class="tapUsers">${focusedUserCount} ${userWord}</span> - <strong>[EXIT]</strong>`;
 		statusEl.classList.add("tapExit");
 	} else {
 		brandEl.innerHTML = `<strong>GLUB.CHAT</strong>/<span class="handle">@${escapeHtml(clipText(name || "anon", 12))}</span>`;
@@ -537,6 +546,37 @@ function closeSettings() {
 	settingsGate.classList.remove("show");
 }
 
+// snapshot of who's in the focused channel: latest message per pubkey, most
+// recently active first, each tagged local (physically present) or teleport.
+function openUsers() {
+	if (!focusedGeo) return;
+
+	const latest = new Map(); // pubkey -> entry (their most recent message here)
+	for (const e of entries) {
+		if (e.system || e.geo !== focusedGeo) continue;
+		const prev = latest.get(e.pubkey);
+		if (!prev || e.ts >= prev.ts) latest.set(e.pubkey, e);
+	}
+
+	const rows = [...latest.values()].sort((a, b) => b.ts - a.ts);
+	usersTitle.textContent = `users in #${clipText(focusedGeo, 14)}`;
+	usersList.innerHTML = rows
+		.map(
+			(u) =>
+				`<div class="userRow">` +
+				`<span style="color:${u.color}">@${escapeHtml(clipText(u.who, 22))}<span class="sfx">#${escapeHtml(u.tag)}</span></span>` +
+				`<span class="userOrigin ${u.teleport ? "teleport" : "local"}">${u.teleport ? "teleport" : "local"}</span>` +
+				`</div>`
+		)
+		.join("");
+
+	usersGate.classList.add("show");
+}
+
+function closeUsers() {
+	usersGate.classList.remove("show");
+}
+
 if (name) {
 	closeNameGate();
 } else {
@@ -545,11 +585,16 @@ if (name) {
 
 brandEl.addEventListener("click", openNameGate);
 
-// the status doubles as [EXIT] when focused on a channel, and the settings
-// entry point otherwise.
-statusEl.addEventListener("click", () => {
-	if (focusedGeo) exitFocus();
-	else openSettings();
+// in a focused channel the status is "N USERS - [EXIT]": tapping the user count
+// opens the user list, tapping anywhere else (incl. [EXIT]) leaves the channel.
+// In global view it's the settings entry point.
+statusEl.addEventListener("click", (e) => {
+	if (!focusedGeo) {
+		openSettings();
+		return;
+	}
+	if (e.target.closest(".tapUsers")) openUsers();
+	else exitFocus();
 });
 
 assistToggle.addEventListener("change", async () => {
@@ -570,6 +615,11 @@ settingsClose.addEventListener("click", closeSettings);
 // tapping the dimmed backdrop (outside the card) dismisses settings
 settingsGate.addEventListener("click", (e) => {
 	if (e.target === settingsGate) closeSettings();
+});
+
+usersClose.addEventListener("click", closeUsers);
+usersGate.addEventListener("click", (e) => {
+	if (e.target === usersGate) closeUsers();
 });
 
 // once the user scrolls up to read history, stop yanking them back to the

@@ -141,6 +141,11 @@ body {
 	font-size: 0.8em;
 }
 
+/* send-latency badge on your own messages - same look as the timestamp */
+.ack {
+	margin-left: 2px;
+}
+
 .toggleMore {
 	color: var(--muted);
 	font-size: 0.8em;

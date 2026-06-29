@@ -62,6 +62,12 @@ const API_BASE = (typeof window !== "undefined" && window.GLUB_API_BASE ? String
 const BUFFER_FETCH = 600; // how much of the api buffer the client mirrors on connect
 const ASSIST_FALLBACK_MS = 12_000; // grace period before a dead stream falls back to relays
 const ASSIST_MAINTAIN_MS = 30_000; // health re-check cadence (status freshness + recovery)
+const ACK_TIMEOUT_MS = 15_000; // how long to wait for a sent message to echo back before flagging it
+
+// our own just-sent messages awaiting echo-back confirmation: event id -> send time (ms).
+// when a live source (the api stream, or relays) replays our message we know it
+// propagated, and the gap is shown as send latency on that line.
+const pending = new Map();
 
 let apiAvailable = false;
 let apiHealth = null; // last /api/health payload (events count, relay stats)
@@ -186,7 +192,20 @@ function messageInnerHtml(entry) {
 
 	body += renderImagePreviews(entry);
 
-	return body + timeTag(entry.ts);
+	return body + timeTag(entry.ts) + ackTag(entry);
+}
+
+// send-confirmation badge for our own messages, styled like the timestamp:
+// "…" while awaiting echo-back, the round-trip latency once a source replays it
+// ("<1s" / "4s"), or "?" if it never came back (possible delivery problem).
+function ackTag(entry) {
+	if (!entry.mine) return "";
+	if (entry.ackSecs != null) {
+		return ` <span class="ts ack">${entry.ackSecs === 0 ? "&lt;1s" : `${entry.ackSecs}s`}</span>`;
+	}
+	if (entry.ackFailed) return ` <span class="ts ack">?</span>`;
+	if (entry.pendingAck) return ` <span class="ts ack">…</span>`;
+	return "";
 }
 
 // one preview block per image url in the message, blurred by default with a
@@ -426,6 +445,7 @@ function renderEvent(ev) {
 		mention,
 		mentionTint,
 		mine: ev.pubkey.toLowerCase() === identity.pk.toLowerCase(), // bitchat bolds your own messages
+		pendingAck: pending.has(ev.id), // a message we just sent, awaiting echo-back confirmation
 		action: isActionMessage(text),
 		images: extractImageUrls(text),
 		expanded: false,
@@ -460,7 +480,7 @@ function renderTopbar() {
 		if (liveSource === "assist") {
 			// assist active: show the api's live relay coverage instead of our own
 			const n = apiHealth?.relays?.connected;
-			statusEl.innerHTML = `<strong>ASSIST</strong> &#9670; ${n == null ? "--" : n}`;
+			statusEl.innerHTML = `<strong>PROXY</strong>: ${n == null ? "--" : n}`;
 		} else {
 			const connected = pool.connectedCount;
 			const total = pool.total;
@@ -580,9 +600,29 @@ nameForm.addEventListener("submit", (e) => {
 
 // single entry point for every event source (relays + history api): filter to
 // geohash chat, dedup by id, then render. Both paths share one dedup set.
+function rerenderEntryEl(entry) {
+	if (entry.el) entry.el.innerHTML = (focusedGeo ? "" : entry.geoPrefix || "") + messageInnerHtml(entry);
+}
+
+// a live source replayed one of our sent messages - record how long it took and
+// refresh that line's latency badge.
+function confirmSent(id) {
+	const sentAt = pending.get(id);
+	if (sentAt == null) return;
+	pending.delete(id);
+	const entry = entries.find((e) => e.id === id);
+	if (!entry) return;
+	entry.ackSecs = Math.max(0, Math.floor((Date.now() - sentAt) / 1000));
+	rerenderEntryEl(entry);
+}
+
 function ingestEvent(ev) {
 	if (ev.kind !== CHAT_KIND) return;
 	if (!getGeohash(ev)) return;
+
+	// detect our own message echoing back (before the dedup skip) so we can
+	// confirm it propagated and time it
+	if (pending.has(ev.id)) confirmSent(ev.id);
 
 	if (seen.has(ev.id)) return;
 	seen.add(ev.id);
@@ -674,7 +714,9 @@ function openAssistStream() {
 		} catch {
 			return;
 		}
-		if (ev && !seen.has(ev.id) && verifyEvent(ev)) ingestEvent(ev);
+		// no seen-pre-check: our own (already-seen) messages must still reach
+		// ingestEvent so it can confirm them. ingestEvent dedups rendering itself.
+		if (ev && verifyEvent(ev)) ingestEvent(ev);
 	};
 	eventSource.onerror = () => {
 		// EventSource auto-reconnects; only fall back to relays if it can't recover
@@ -847,9 +889,21 @@ function send() {
 	});
 
 	seen.add(event.id);
+	pending.set(event.id, Date.now()); // track for the send-latency badge (read by renderEvent)
 	pool.broadcast(event);
 	renderEvent(event);
 	jumpToBottom(); // sending always returns you to the live bottom
+
+	// if no live source replays it within the window, flag it as unconfirmed
+	setTimeout(() => {
+		if (!pending.has(event.id)) return; // already confirmed
+		pending.delete(event.id);
+		const entry = entries.find((e) => e.id === event.id);
+		if (entry) {
+			entry.ackFailed = true;
+			rerenderEntryEl(entry);
+		}
+	}, ACK_TIMEOUT_MS);
 }
 
 sendBtn.addEventListener("click", send);

@@ -473,13 +473,13 @@ function updateFocusedUserCount() {
 function renderTopbar() {
 	if (focusedGeo) {
 		const clippedGeo = clipText(focusedGeo, 12);
-		brandEl.innerHTML = `<strong>#${escapeHtml(clippedGeo)}</strong>/@${escapeHtml(clipText(name || "anon", 12))}`;
+		brandEl.innerHTML = `<strong>#${escapeHtml(clippedGeo)}</strong>/<span class="handle">@${escapeHtml(clipText(name || "anon", 12))}</span>`;
 
 		const userWord = focusedUserCount === 1 ? "USER" : "USERS";
 		statusEl.innerHTML = `${focusedUserCount} ${userWord} - <strong>[EXIT]</strong>`;
 		statusEl.classList.add("tapExit");
 	} else {
-		brandEl.innerHTML = `<strong>GLUB.CHAT</strong>/@${escapeHtml(clipText(name || "anon", 12))}`;
+		brandEl.innerHTML = `<strong>GLUB.CHAT</strong>/<span class="handle">@${escapeHtml(clipText(name || "anon", 12))}</span>`;
 		statusEl.classList.remove("tapExit");
 
 		if (liveSource === "assist") {
@@ -498,10 +498,8 @@ function renderTopbar() {
 	}
 }
 
-// your own #suffix (last 4 of your pubkey), in your color - matches how your
-// handle renders in chat
+// your own #suffix (last 4 of your pubkey)
 const ownSuffix = identity.pk.slice(-4);
-const ownColor = pubkeyColor(identity.pk);
 
 // ghost-text in the name gate: appends a dimmed "#suffix" after whatever you're
 // typing, previewing how your handle will appear. Hidden while the field is
@@ -514,7 +512,7 @@ function updateNameHint() {
 	}
 	nameHint.innerHTML =
 		`<span class="typed">${escapeHtml(v)}</span>` +
-		`<span class="sfx" style="color:${ownColor}">#${escapeHtml(ownSuffix)}</span>`;
+		`<span class="sfx">#${escapeHtml(ownSuffix)}</span>`;
 }
 
 nameInput.addEventListener("input", updateNameHint);

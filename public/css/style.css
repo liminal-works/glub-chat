@@ -53,6 +53,11 @@ body {
 	cursor: pointer;
 }
 
+/* your handle in the topbar shows verbatim - the topbar otherwise force-uppercases */
+.handle {
+	text-transform: none;
+}
+
 /* the status is always interactive now: [EXIT] when focused, settings otherwise */
 #status {
 	cursor: pointer;
@@ -346,7 +351,8 @@ body {
 }
 
 .nameHint .sfx {
-	opacity: 0.6; /* same dimming as the chat #tag */
+	color: var(--fg); /* 60% of the input's green - coherent, not jarring */
+	opacity: 0.6;
 }
 
 #nameForm button {

@@ -10,6 +10,7 @@ export class RelayPool {
 		maxCandidates = 40,
 		expandAfterMs = 3000,
 		globalMaxCount = 200,
+		broadcastCount = 5,
 	} = {}) {
 		this.sockets = new Map(); // url -> WebSocket
 		this.onEvent = onEvent || (() => {});
@@ -20,6 +21,12 @@ export class RelayPool {
 		this.maxCandidates = maxCandidates;
 		this.expandAfterMs = expandAfterMs;
 		this.globalMaxCount = globalMaxCount;
+		this.broadcastCount = broadcastCount;
+
+		// when false (broadcast-only mode), connections stay open for sending but
+		// never REQ-subscribe - used when the history api supplies the live feed,
+		// so the client isn't pulling the firehose from hundreds of relays.
+		this.readMode = true;
 
 		this.candidates = []; // urls for the current channel, nearest first
 		this.cursor = 0; // candidates already attempted
@@ -43,6 +50,7 @@ export class RelayPool {
 	connectNearest(sortedUrls) {
 		this.gen++;
 		this._closeAll();
+		this.readMode = true;
 
 		this.candidates = sortedUrls.slice(0, this.maxCandidates);
 		this.cursor = 0;
@@ -56,8 +64,23 @@ export class RelayPool {
 	connectAll(urls) {
 		this.gen++;
 		this._closeAll();
+		this.readMode = true;
 
 		this.candidates = urls.slice(0, this.globalMaxCount);
+		this.cursor = 0;
+
+		this._expand(this.candidates.length);
+	}
+
+	// broadcast-only: keep a small set of (nearest-first) relays open purely for
+	// sending. No REQ subscription, so no inbound event firehose - the history
+	// api's live stream supplies reads instead.
+	connectBroadcast(sortedUrls) {
+		this.gen++;
+		this._closeAll();
+		this.readMode = false;
+
+		this.candidates = sortedUrls.slice(0, this.broadcastCount);
 		this.cursor = 0;
 
 		this._expand(this.candidates.length);
@@ -100,7 +123,8 @@ export class RelayPool {
 		this.sockets.set(url, ws);
 
 		ws.addEventListener("open", () => {
-			ws.send(JSON.stringify(["REQ", this.subId, subscribeFilter()]));
+			// broadcast-only sockets stay open for sending but never subscribe
+			if (this.readMode) ws.send(JSON.stringify(["REQ", this.subId, subscribeFilter()]));
 			this.onStatusChange();
 		});
 

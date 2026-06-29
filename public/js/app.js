@@ -53,13 +53,22 @@ function setAssistEnabled(on) {
 	localStorage.setItem(STORAGE_ASSIST_KEY, on ? "true" : "false");
 }
 
-// the optional history API. Same-origin "/api" by default (reverse-proxy it next
-// to the static files); point window.GLUB_API_BASE at a separately-hosted
-// instance to override. Absent/unhealthy api just means no backfill - the client
-// runs fully on its direct relay subscriptions regardless.
+// the optional "server assist" history API. Same-origin "/api" by default
+// (reverse-proxy it next to the static files); point window.GLUB_API_BASE at a
+// separately-hosted instance to override. When assist is on and the api is
+// healthy the client mirrors the api's buffer + live stream and uses relays for
+// sending only; otherwise it runs as a pure client on direct relay subscriptions.
 const API_BASE = (typeof window !== "undefined" && window.GLUB_API_BASE ? String(window.GLUB_API_BASE) : "").replace(/\/+$/, "");
+const BUFFER_FETCH = 600; // how much of the api buffer the client mirrors on connect
+const ASSIST_FALLBACK_MS = 12_000; // grace period before a dead stream falls back to relays
+const ASSIST_MAINTAIN_MS = 30_000; // health re-check cadence (status freshness + recovery)
+
 let apiAvailable = false;
-const backfilledGeos = new Set(); // history already pulled this session ("*" = global)
+let apiHealth = null; // last /api/health payload (events count, relay stats)
+let liveSource = "relays"; // "relays" | "assist" - where live events currently come from
+let eventSource = null; // the SSE connection while in assist mode
+let assistFallbackTimer = null;
+let barrierShown = false; // "beginning of chat" marker rendered once per session
 
 function escapeHtml(s) {
 	return String(s).replace(
@@ -446,13 +455,19 @@ function renderTopbar() {
 		statusEl.classList.add("tapExit");
 	} else {
 		brandEl.innerHTML = `<strong>GLUB.CHAT</strong>/@${escapeHtml(clipText(name || "anon", 12))}`;
-
-		const connected = pool.connectedCount;
-		const total = pool.total;
-		const left = connected === 0 ? "--" : connected;
-		const right = total === 0 ? "--" : total;
-		statusEl.innerHTML = `<strong>RELAYS</strong>: ${left}/${right}`;
 		statusEl.classList.remove("tapExit");
+
+		if (liveSource === "assist") {
+			// assist active: show the api's live relay coverage instead of our own
+			const n = apiHealth?.relays?.connected;
+			statusEl.innerHTML = `<strong>ASSIST</strong> &#9670; ${n == null ? "--" : n}`;
+		} else {
+			const connected = pool.connectedCount;
+			const total = pool.total;
+			const left = connected === 0 ? "--" : connected;
+			const right = total === 0 ? "--" : total;
+			statusEl.innerHTML = `<strong>RELAYS</strong>: ${left}/${right}`;
+		}
 	}
 }
 
@@ -490,10 +505,17 @@ statusEl.addEventListener("click", () => {
 	else openSettings();
 });
 
-assistToggle.addEventListener("change", () => {
+assistToggle.addEventListener("change", async () => {
 	setAssistEnabled(assistToggle.checked);
-	if (assistToggle.checked) assistBackfill(focusedGeo);
-	else apiAvailable = false;
+	if (assistToggle.checked) {
+		// flip to assist if the api is reachable; otherwise stay on relays and let
+		// the maintain loop promote us once it comes up.
+		if (await checkApiHealth()) enterAssistMode();
+	} else {
+		apiAvailable = false;
+		apiHealth = null;
+		enterRelayMode();
+	}
 });
 settingsClose.addEventListener("click", closeSettings);
 // tapping the dimmed backdrop (outside the card) dismisses settings
@@ -574,55 +596,175 @@ const pool = new RelayPool({
 	onEvent: ingestEvent,
 });
 
-// --- optional history backfill via the "server assist" API ------------------
+// --- "server assist" mode: mirror the api's buffer + live stream -------------
 
 async function checkApiHealth() {
 	if (!getAssistEnabled()) {
 		apiAvailable = false;
+		apiHealth = null;
 		return false;
 	}
 	try {
 		const res = await fetch(`${API_BASE}/api/health`, { cache: "no-store" });
-		apiAvailable = res.ok;
+		if (!res.ok) {
+			apiAvailable = false;
+			return false;
+		}
+		apiHealth = await res.json();
+		apiAvailable = !!apiHealth.ok;
 	} catch {
 		apiAvailable = false;
 	}
 	return apiAvailable;
 }
 
-// pulls a page of stored history for a channel ("*"/null = global) and feeds it
-// through the same dedup+render pipeline as live events. Each event is signature-
-// verified client-side, so a bad/compromised api can't inject forged messages.
-async function backfillHistory(geo) {
-	const key = geo || "*";
-	if (backfilledGeos.has(key)) return;
-	backfilledGeos.add(key);
-
+// fetch the api's whole buffer once and feed it through the dedup+render
+// pipeline. Every event is signature-verified client-side, so a bad/compromised
+// api can't inject forged messages.
+async function mirrorBuffer() {
 	try {
-		const qs = geo ? `?geo=${encodeURIComponent(geo)}&limit=200` : "?limit=200";
-		const res = await fetch(`${API_BASE}/api/history${qs}`, { cache: "no-store" });
-		if (!res.ok) throw new Error(`history ${res.status}`);
-
+		const res = await fetch(`${API_BASE}/api/history?limit=${BUFFER_FETCH}`, { cache: "no-store" });
+		if (!res.ok) return;
 		const data = await res.json();
 		if (!Array.isArray(data.events)) return;
 
 		for (const ev of data.events) {
 			if (!seen.has(ev.id) && verifyEvent(ev)) ingestEvent(ev);
 		}
+		// fewer than we asked for => we've mirrored the api's entire buffer, so
+		// mark the start of available history.
+		if (data.events.length < BUFFER_FETCH) showBeginningBarrier(data.events);
 	} catch {
-		// api went away mid-request - drop the marker so we can retry, then carry
-		// on as a pure client.
-		backfilledGeos.delete(key);
-		apiAvailable = false;
+		// stream/fallback machinery handles dropping back to relays
 	}
 }
 
-// ensures the api is healthy (checking once if needed) and backfills the given
-// view. Safe to call freely - it no-ops when assist is off or the api is down.
-async function assistBackfill(geo) {
-	if (!getAssistEnabled()) return;
-	if (!apiAvailable) await checkApiHealth();
-	if (apiAvailable) await backfillHistory(geo);
+// a "beginning of chat" divider above the oldest known event (api-buffer only)
+function showBeginningBarrier(events) {
+	if (barrierShown || !events.length) return;
+	barrierShown = true;
+	const oldest = events.reduce((m, e) => Math.min(m, e.created_at), Infinity);
+	insertEntry({
+		ts: oldest - 1,
+		geo: null,
+		system: true,
+		pubkey: null,
+		html: `<span class="barrier">——— ** beginning of chat ** ———</span>`,
+		el: null,
+	});
+}
+
+function openAssistStream() {
+	closeAssistStream();
+	try {
+		eventSource = new EventSource(`${API_BASE}/api/stream`);
+	} catch {
+		enterRelayMode();
+		return;
+	}
+
+	eventSource.onopen = () => {
+		clearTimeout(assistFallbackTimer);
+		assistFallbackTimer = null;
+	};
+	eventSource.onmessage = (e) => {
+		let ev;
+		try {
+			ev = JSON.parse(e.data);
+		} catch {
+			return;
+		}
+		if (ev && !seen.has(ev.id) && verifyEvent(ev)) ingestEvent(ev);
+	};
+	eventSource.onerror = () => {
+		// EventSource auto-reconnects; only fall back to relays if it can't recover
+		if (assistFallbackTimer || liveSource !== "assist") return;
+		assistFallbackTimer = setTimeout(() => {
+			assistFallbackTimer = null;
+			if (liveSource === "assist" && (!eventSource || eventSource.readyState !== EventSource.OPEN)) {
+				enterRelayMode(); // transparent fallback - maintain loop re-enters when api recovers
+			}
+		}, ASSIST_FALLBACK_MS);
+	};
+}
+
+function closeAssistStream() {
+	clearTimeout(assistFallbackTimer);
+	assistFallbackTimer = null;
+	if (eventSource) {
+		eventSource.close();
+		eventSource = null;
+	}
+}
+
+// nearest-first relay urls for the current channel (first-available for global
+// or a non-geocodable channel).
+function broadcastUrls() {
+	if (!allRelays.length) return [];
+	if (focusedGeo) {
+		try {
+			return sortRelaysByGeohash(allRelays, focusedGeo).map((r) => r.url);
+		} catch {
+			return allRelays.map((r) => r.url);
+		}
+	}
+	return allRelays.map((r) => r.url);
+}
+
+function connectBroadcastRelays() {
+	const urls = broadcastUrls();
+	if (urls.length) pool.connectBroadcast(urls);
+}
+
+// assist mode: live reads from the api stream, relays kept only for sending.
+function enterAssistMode() {
+	if (liveSource === "assist" && eventSource) return; // already assisting
+	liveSource = "assist";
+	connectBroadcastRelays(); // relays become send-only (drops the ~200 read subs)
+	openAssistStream(); // open the stream first so nothing arriving during the
+	mirrorBuffer(); // buffer fetch is missed (dedup handles the overlap)
+	renderTopbar();
+}
+
+// pure-client mode: live reads from direct relay subscriptions (today's behavior).
+function enterRelayMode() {
+	liveSource = "relays";
+	closeAssistStream();
+	if (!allRelays.length) {
+		renderTopbar();
+		return;
+	}
+	const announce = !getAssistEnabled(); // relay chatter is for the pure-client experience
+	if (focusedGeo) {
+		let sorted;
+		try {
+			sorted = sortRelaysByGeohash(allRelays, focusedGeo).map((r) => r.url);
+		} catch {
+			// non-geocodable: can't compute nearest. Keep existing read relays (just
+			// filter locally), but if we're arriving from broadcast-only (an assist
+			// fallback) we still need reads, so subscribe to all.
+			if (!pool.readMode) pool.connectAll(allRelays.map((r) => r.url));
+			renderTopbar();
+			return;
+		}
+		pool.connectNearest(sorted);
+		if (announce) appendSystem(`#${focusedGeo}: connecting to nearest relays...`);
+	} else {
+		pool.connectAll(allRelays.map((r) => r.url));
+		if (announce) appendSystem(`connecting to ${Math.min(allRelays.length, 200)} relays...`);
+	}
+	renderTopbar();
+}
+
+// periodic upkeep: refresh the api's relay count for the status, and recover
+// into assist mode once the api is reachable again after a fallback.
+function startAssistMaintain() {
+	setInterval(async () => {
+		if (!getAssistEnabled()) return;
+		await checkApiHealth();
+		if (apiAvailable && liveSource === "relays") enterAssistMode();
+		else renderTopbar();
+	}, ASSIST_MAINTAIN_MS);
 }
 
 // initial paint - done after `pool` exists since renderTopbar reads its counts
@@ -631,15 +773,14 @@ renderTopbar();
 (async function init() {
 	try {
 		allRelays = await fetchRelayList();
-		// no channel focused yet - cast as wide a net as possible to absorb
-		// whatever backlog/history relays are still rebroadcasting.
-		pool.connectAll(allRelays.map((r) => r.url));
 	} catch (err) {
 		appendSystem(`failed to load relays: ${err.message}`);
 	}
 
-	// independent of relays: pull deep global history from the api if assisting
-	assistBackfill(null);
+	if (getAssistEnabled() && (await checkApiHealth())) enterAssistMode();
+	else enterRelayMode();
+
+	startAssistMaintain();
 })();
 
 function updatePlaceholder() {
@@ -651,19 +792,12 @@ function focusChannel(geo) {
 	updatePlaceholder();
 	updateFocusedUserCount();
 	renderTopbar();
-	rerenderTerminal();
+	rerenderTerminal(); // assist mode: focus is just an instant local filter of the buffer
 
-	// deep history for this channel from the api (no-op if assist off / api down)
-	assistBackfill(geo);
-
-	if (!allRelays.length) return;
-
-	try {
-		const sorted = sortRelaysByGeohash(allRelays, geo);
-		pool.connectNearest(sorted.map((r) => r.url));
-	} catch (err) {
-		// non-geocodable channel - just keep the current relays, no need to nag
-	}
+	// in assist mode reads come from the stream, so only repoint the send relays;
+	// in pure mode, re-subscribe to the channel's nearest relays.
+	if (liveSource === "assist") connectBroadcastRelays();
+	else enterRelayMode();
 }
 
 function exitFocus() {
@@ -673,7 +807,8 @@ function exitFocus() {
 	renderTopbar();
 	rerenderTerminal();
 
-	if (allRelays.length) pool.connectAll(allRelays.map((r) => r.url));
+	if (liveSource === "assist") connectBroadcastRelays();
+	else enterRelayMode();
 }
 
 function parseDraft(raw) {

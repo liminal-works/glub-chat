@@ -903,7 +903,9 @@ function enterRelayMode() {
 		renderTopbar();
 		return;
 	}
-	const announce = !getAssistEnabled(); // relay chatter is for the pure-client experience
+	// we only reach here when we're actually on relays (assist off, or assist on
+	// but the api is unreachable / fell back), so always narrate the relay work -
+	// it reflects what's genuinely happening, regardless of the toggle.
 	if (focusedGeo) {
 		let sorted;
 		try {
@@ -912,15 +914,15 @@ function enterRelayMode() {
 			// non-geocodable channel: it isn't a decodable location, so there's no
 			// local set to compute - use the global set instead.
 			pool.connectAll(allRelays.map((r) => r.url));
-			if (announce) appendSystem(`#${focusedGeo}: not a location, connecting to global relay set...`);
+			appendSystem(`#${focusedGeo}: not a location, connecting to global relay set...`);
 			renderTopbar();
 			return;
 		}
 		pool.connectNearest(sorted);
-		if (announce) appendSystem(`#${focusedGeo}: connecting to local relay set...`);
+		appendSystem(`#${focusedGeo}: connecting to local relay set...`);
 	} else {
 		pool.connectAll(allRelays.map((r) => r.url));
-		if (announce) appendSystem(`connecting to global relay set...`);
+		appendSystem(`connecting to global relay set...`);
 	}
 	renderTopbar();
 }

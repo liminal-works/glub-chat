@@ -28,6 +28,16 @@ export function loadOrCreateIdentity() {
 	return { sk, pk };
 }
 
+// throw away the current keypair and mint a fresh one (a brand new identity).
+// stored in place of the old, so it persists like any other.
+export function regenerateIdentity() {
+	const skHex = randomHex(64);
+	localStorage.setItem(STORAGE_SK_KEY, skHex);
+	const sk = hexToBytes(skHex);
+	const pk = getPublicKey(sk);
+	return { sk, pk };
+}
+
 export function getStoredName() {
 	return localStorage.getItem(STORAGE_NAME_KEY);
 }

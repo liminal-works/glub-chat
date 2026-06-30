@@ -1,4 +1,4 @@
-import { loadOrCreateIdentity, getStoredName, setStoredName } from "./nostr/identity.js";
+import { loadOrCreateIdentity, regenerateIdentity, getStoredName, setStoredName } from "./nostr/identity.js";
 import { fetchRelayList } from "./nostr/relayList.js";
 import { RelayPool } from "./nostr/relayPool.js";
 import { makeChatMessage, getGeohash, getName, CHAT_KIND, PRESENCE_KIND, sortRelaysByGeohash, verifyEvent } from "./nostr/protocol.js";
@@ -19,7 +19,7 @@ const entries = []; // [{ ts, geo, system, pubkey, html, el }], ascending by ts 
 const mediaSettings = { censorImages: true };
 const revealedImages = new Set(); // "entryId:idx" keys for images tapped open
 
-const identity = loadOrCreateIdentity();
+let identity = loadOrCreateIdentity(); // mutable: the "random" button mints a fresh one
 let name = getStoredName();
 let focusedGeo = null;
 let focusedUserCount = 0;
@@ -32,6 +32,7 @@ const nameGate = document.getElementById("nameGate");
 const nameForm = document.getElementById("nameForm");
 const nameInput = document.getElementById("nameInput");
 const nameHint = document.getElementById("nameHint");
+const randomBtn = document.getElementById("randomBtn");
 const settingsGate = document.getElementById("settingsGate");
 const assistToggle = document.getElementById("assistToggle");
 const settingsClose = document.getElementById("settingsClose");
@@ -551,8 +552,8 @@ function renderTopbar() {
 	}
 }
 
-// your own #suffix (last 4 of your pubkey)
-const ownSuffix = identity.pk.slice(-4);
+// your own #suffix (last 4 of your pubkey) - re-derived when the identity changes
+let ownSuffix = identity.pk.slice(-4);
 
 // ghost-text in the name gate: appends a dimmed "#suffix" after whatever you're
 // typing, previewing how your handle will appear. Hidden while the field is
@@ -756,13 +757,31 @@ terminal.addEventListener("click", (e) => {
 	entry.el.innerHTML = (focusedGeo ? "" : entry.geoPrefix || "") + messageInnerHtml(entry);
 });
 
+function randomAnonName() {
+	return `anon${Math.floor(1000 + Math.random() * 9000)}`;
+}
+
 nameForm.addEventListener("submit", (e) => {
 	e.preventDefault();
 
 	const value = nameInput.value.trim().slice(0, 24);
-	name = value || `anon${Math.floor(1000 + Math.random() * 9000)}`;
+	name = value || randomAnonName();
 
 	setStoredName(name);
+	renderTopbar();
+	closeNameGate();
+});
+
+// "random": mint a brand new keypair and a fresh anon#### name, then drop you
+// straight in - a one-tap throwaway identity, parallel to typing one + "enter".
+randomBtn.addEventListener("click", () => {
+	identity = regenerateIdentity();
+	ownSuffix = identity.pk.slice(-4);
+	name = randomAnonName();
+
+	setStoredName(name);
+	nameInput.value = name;
+	updateNameHint();
 	renderTopbar();
 	closeNameGate();
 });

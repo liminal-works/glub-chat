@@ -1,86 +1,119 @@
-# glub chat
+# glub.chat
 
-A web client that speaks [bitchat](https://github.com/permissionlesstech/bitchat)'s geohash-channel
-protocol over nostr — chat with native bitchat clients straight from a browser.
+geohash-linked user broadcast over nostr — drop into a location channel and talk
+to whoever's there, native [bitchat](https://github.com/permissionlesstech/bitchat)
+clients included, straight from a browser.
 
-## protocol
+no accounts. no email. no servers holding your keys. pick a name and go.
 
-bitchat's location-based channels are plain nostr:
+> nostr = *notes and other stuff transmitted by relays*. glub = *geohash-linked
+> user broadcast*. it checks out.
 
-- each channel is a geohash, carried as a `g` tag (e.g. `["g", "9q5"]`)
-- chat messages are ephemeral events, `kind 20000`
-- presence/announce events are `kind 20001`
-- display names are carried as an `n` tag
+## what it is
+
+glub talks bitchat's location-channel protocol, which under the hood is just
+plain nostr. every place on earth is a [geohash](https://en.wikipedia.org/wiki/Geohash),
+and every geohash is a channel. tune into `#9q5` and you're in the same room as
+everyone else — phones running bitchat, other browsers running glub — pointed at
+that patch of the map.
+
+## the protocol
+
+it's all ordinary nostr events with a couple of conventions:
+
+- each channel is a geohash, carried as a `g` tag — `["g", "9q5"]`
+- chat messages are ephemeral `kind 20000` events
+- presence ("i'm here") is `kind 20001` — how the user list knows who's lurking
+- your display name rides along as an `n` tag
+- glub always posts with a `t: teleport` tag — you're chatting *into* a geohash,
+  not physically standing in it like a phone on a mesh would be
 - clients connect to a shared pool of public relays and `REQ` for
   `kinds: [20000, 20001]`
 
-The relay list is fetched at runtime from bitchat's own repo:
-`https://github.com/permissionlesstech/bitchat/blob/main/relays/online_relays_gps.csv`.
+the relay pool is fetched at runtime from bitchat's own repo
+([`online_relays_gps.csv`](https://github.com/permissionlesstech/bitchat/blob/main/relays/online_relays_gps.csv)),
+so glub and bitchat stay pointed at the same relays.
 
-## architecture
+## pure client
 
-- `server/` — a tiny Express app that does nothing but serve `public/` as
-  static files. There is no backend chat logic and no API for sending
-  messages.
-- `public/` — the actual client. Identity (keypair), relay connections, and
-  message signing all happen **in the browser**. The secret key is generated
-  client-side, stored in `localStorage`, and never sent anywhere — the
-  browser opens its own WebSocket connections to relays and signs its own
-  events.
-  - `public/js/nostr/identity.js` — session keypair (generate/load/store)
-  - `public/js/nostr/relayList.js` — fetch + parse bitchat's relay CSV
-  - `public/js/nostr/protocol.js` — build/read bitchat-flavored nostr events
-  - `public/js/nostr/relayPool.js` — manage relay WebSocket connections,
-    subscriptions, and reconnects
-  - `public/js/app.js` — wires the above into the UI
-- `api/` — an **optional** "server assist" service, deliberately separate from
-  the static server (and its own process) so its failure modes can never stop
-  the pure client from loading. It subscribes to relays, signature-verifies and
-  stores `kind 20000` chat events in a local SQLite db (`node:sqlite`), and
-  serves read-only history (`GET /api/health`, `GET /api/history`). It never
-  holds keys, never sends messages, and re-served events are re-verified by the
-  client. With assist enabled the client backfills deep history the relays no
-  longer rebroadcast; without it (api absent, down, or assist toggled off) the
-  client runs entirely on its own direct relay subscriptions.
-  - `api/store.mjs` — SQLite event store (insert + history queries)
-  - `api/aggregator.mjs` — relay subscriber → verify → store
-  - `api/index.mjs` — the read-only HTTP endpoints
+your identity is a nostr keypair generated **in your browser**, stored in
+`localStorage`, and never sent anywhere. the browser opens its own relay sockets
+and signs its own events. the static server is a dumb file host — it doesn't know
+who you are and couldn't send a message as you if it tried.
 
-This is a deliberate departure from the earlier prototype, which ran a
-single server-held identity and had the browser hand its raw private key to
-the server on every send. Here the server is just a static file host; all
-protocol/identity logic is client-side, matching how nostr clients normally
-work.
+this is the whole point. an earlier prototype kept one server-held identity and
+had the browser hand over its raw private key on every send. never again — keys
+stay on your device, like a nostr client should.
 
-## status
+## server assist (optional)
 
-This is the foundation: identity, relay discovery, connecting to relays,
-and sending/receiving `kind 20000` chat messages in one focused channel at a
-time. Everything else from the prototype (themes, the message board, image
-uploads, translation, the AI persona, Cashu wallet/betting, etc.) is left
-out for now and will come back — if at all — as separate, deliberate pieces
-on top of this base.
+a separate, optional service that makes glub nicer to run without ever touching
+your keys. it never signs, never sends as you, and the client works completely
+fine without it.
+
+it casts a much wider net than a browser can — subscribing to the whole relay
+pool, signature-verifying everything, and keeping a bounded rolling buffer of
+recent chat in sqlite. turn assist on and the client:
+
+- **backfills** deep history the relays no longer rebroadcast
+- **reads** live messages over one server-sent-events stream instead of holding
+  dozens of relay sockets open — much lighter on mobile bandwidth and battery
+- **sends** by handing the api its already-signed event to fan out across every
+  relay it's connected to (so an assisted client opens *zero* relay sockets)
+- **sees** who's around via a presence snapshot that feeds the channel user list
+
+everything it serves is re-verified client-side, so a down, absent, or even
+compromised api can't forge a message or hold the app hostage — flip assist off
+and the client drops straight back to talking to relays directly.
 
 ## running locally
 
 ```bash
 cp .env.example .env
 npm install
-npm start
+npm start            # serves the client on http://localhost:3000
 ```
 
-Then open `http://localhost:3000`.
+open `http://localhost:3000` and you're in.
 
-### optional: the history api
+### with the assist api
 
-The client works without it, but to run the optional "server assist" history
-service:
+optional. the client runs without it.
 
 ```bash
-npm run api    # listens on :3001, writes api/glub-history.db
+npm run api          # listens on :3001, writes api/glub-history.db
 ```
 
-The client looks for the api at same-origin `/api` by default (reverse-proxy
-the api there next to the static files), or set `window.GLUB_API_BASE` to a
-separately-hosted instance. Toggle it on/off per-device from the settings popup
-(tap the topbar status). It starts empty and accumulates history as it runs.
+when `API_PORT` (or `API_ORIGIN`) is set, the static server transparently proxies
+`/api` → the api, so the client reaches it same-origin with no extra config. or
+point `window.GLUB_API_BASE` at a separately-hosted instance. toggle it per-device
+from the settings popup (tap the topbar status). it starts empty and fills up as
+it runs. note: the sqlite store uses `node:sqlite`, so the api needs **node ≥ 22.5**.
+
+## layout
+
+```
+server/   tiny express app — serves public/ and (optionally) proxies /api
+public/   the client. identity, relay connections, signing — all in the browser
+  js/nostr/identity.js    session keypair (generate / load / store)
+  js/nostr/relayList.js   fetch + parse bitchat's relay csv
+  js/nostr/protocol.js    build / read bitchat-flavored nostr events
+  js/nostr/relayPool.js   manage relay sockets, subscriptions, reconnects
+  js/app.js               wires it all into the ui
+api/      optional assist service — its own process, never holds keys
+  store.mjs       sqlite rolling buffer (insert + history queries)
+  aggregator.mjs  relay subscriber → verify → store + presence tracking
+  index.mjs       read-only http endpoints + live stream + publish fanout
+```
+
+## status
+
+what works today: keypair identity, relay discovery, joining a geohash channel,
+sending and receiving chat, per-user colors ported from bitchat's exact algorithm,
+a channel user list (who's talking, plus detected "ghosts"), blurred tap-to-reveal
+image previews, send confirmation with automatic rebroadcast, and the optional
+server assist above.
+
+it's intentionally focused. the kitchen sink from the old prototype (themes, the
+message board, translation, the ai persona, cashu wallet/betting, and the rest)
+is left out, to come back — if at all — as deliberate pieces on top of this base.

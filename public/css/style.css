@@ -385,6 +385,20 @@ body {
 	gap: 12px;
 }
 
+/* name + "x ago" travel together on the left; origin stays pinned right */
+.userMeta {
+	display: flex;
+	align-items: baseline;
+	gap: 8px;
+	min-width: 0;
+}
+
+.userAgo {
+	flex: none;
+	color: var(--muted);
+	font-size: 0.8em;
+}
+
 .userRow .sfx {
 	opacity: 0.6; /* dimmed suffix, like the chat #tag */
 }

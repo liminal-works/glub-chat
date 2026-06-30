@@ -65,7 +65,9 @@ export function createAggregator(store, { onStored } = {}) {
 		let chan = presence.get(geo);
 		if (!chan) presence.set(geo, (chan = new Map()));
 		const teleport = Array.isArray(ev.tags) && ev.tags.some((t) => t[0] === "t" && t[1] === "teleport");
-		chan.set(ev.pubkey, { name: getName(ev), teleport, lastSeen: Date.now() });
+		// lastSeen (receipt time) drives freshness/pruning; createdAt (the event's
+		// own timestamp) is what the client renders as "x ago".
+		chan.set(ev.pubkey, { name: getName(ev), teleport, createdAt: ev.created_at, lastSeen: Date.now() });
 		return true;
 	}
 
@@ -78,9 +80,9 @@ export function createAggregator(store, { onStored } = {}) {
 		const out = [];
 		for (const [pubkey, p] of chan) {
 			if (p.lastSeen < cutoff) continue;
-			out.push({ pubkey, name: p.name, teleport: p.teleport, lastSeen: p.lastSeen });
+			out.push({ pubkey, name: p.name, teleport: p.teleport, createdAt: p.createdAt });
 		}
-		out.sort((a, b) => b.lastSeen - a.lastSeen);
+		out.sort((a, b) => b.createdAt - a.createdAt);
 		return out;
 	}
 

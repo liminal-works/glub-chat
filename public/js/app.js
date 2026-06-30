@@ -74,7 +74,7 @@ const PRESENCE_FRESH_MS = 5 * 60_000; // a detected presence is "live" within th
 
 // presences we've detected from kind-20001 events on the relays we read (relay
 // mode only - in assist mode the api tracks these and we fetch a snapshot).
-// geo -> Map<pubkey, { name, teleport, lastSeen }>. Used to list "lurkers" who
+// geo -> Map<pubkey, { name, teleport, createdAt, lastSeen }>. Used to list "lurkers" who
 // announce their presence without sending a message.
 const presence = new Map();
 
@@ -101,6 +101,19 @@ function escapeHtml(s) {
 function clipText(str, max) {
 	if (!str) return "";
 	return str.length > max ? str.slice(0, max - 3) + "..." : str;
+}
+
+// short relative-time label from an epoch-seconds timestamp ("now", "5s", "3m",
+// "2h", "4d"). Computed at render time, so it's a snapshot when the list opens.
+function agoLabel(tsSeconds) {
+	const s = Math.max(0, Math.floor(Date.now() / 1000) - tsSeconds);
+	if (s < 5) return "now";
+	if (s < 60) return `${s}s ago`;
+	const m = Math.floor(s / 60);
+	if (m < 60) return `${m}m ago`;
+	const h = Math.floor(m / 60);
+	if (h < 24) return `${h}h ago`;
+	return `${Math.floor(h / 24)}d ago`;
 }
 
 function clipWithEllipsis(str, max) {
@@ -554,9 +567,13 @@ function closeSettings() {
 }
 
 function userRowHtml(u) {
+	const ago = u.ts ? `<span class="userAgo">${agoLabel(u.ts)}</span>` : "";
 	return (
 		`<div class="userRow">` +
+		`<span class="userMeta">` +
 		`<span style="color:${u.color}">@${escapeHtml(clipText(u.who, 22))}<span class="sfx">#${escapeHtml(u.tag)}</span></span>` +
+		ago +
+		`</span>` +
 		`<span class="userOrigin ${u.teleport ? "teleport" : "local"}">${u.teleport ? "teleport" : "local"}</span>` +
 		`</div>`
 	);
@@ -572,6 +589,7 @@ function presentRows(snapshot, excludePubkeys) {
 			tag: p.pubkey.slice(-4),
 			color: pubkeyColor(p.pubkey),
 			teleport: !!p.teleport,
+			ts: p.createdAt, // heartbeat time, for the "x ago" badge
 		}));
 }
 
@@ -805,7 +823,8 @@ function trackPresence(ev) {
 	let chan = presence.get(geo);
 	if (!chan) presence.set(geo, (chan = new Map()));
 	const teleport = Array.isArray(ev.tags) && ev.tags.some((t) => t[0] === "t" && t[1] === "teleport");
-	chan.set(ev.pubkey, { name: getName(ev) || "anon", teleport, lastSeen: Date.now() });
+	// lastSeen drives freshness; createdAt is the heartbeat time we show as "x ago".
+	chan.set(ev.pubkey, { name: getName(ev) || "anon", teleport, createdAt: ev.created_at, lastSeen: Date.now() });
 }
 
 // fresh presences for a channel, freshest first (stale entries skipped).
@@ -816,9 +835,9 @@ function localPresence(geo) {
 	const out = [];
 	for (const [pubkey, p] of chan) {
 		if (p.lastSeen < cutoff) continue;
-		out.push({ pubkey, name: p.name, teleport: p.teleport, lastSeen: p.lastSeen });
+		out.push({ pubkey, name: p.name, teleport: p.teleport, createdAt: p.createdAt });
 	}
-	out.sort((a, b) => b.lastSeen - a.lastSeen);
+	out.sort((a, b) => b.createdAt - a.createdAt);
 	return out;
 }
 

@@ -772,18 +772,14 @@ nameForm.addEventListener("submit", (e) => {
 	closeNameGate();
 });
 
-// "random": mint a brand new keypair and a fresh anon#### name, then drop you
-// straight in - a one-tap throwaway identity, parallel to typing one + "enter".
+// "random": mint a brand new keypair and drop a fresh anon#### name into the
+// field, live - the new identity (name + #suffix) previews right in the gate so
+// you can re-roll until you like it, then commit with "enter".
 randomBtn.addEventListener("click", () => {
 	identity = regenerateIdentity();
 	ownSuffix = identity.pk.slice(-4);
-	name = randomAnonName();
-
-	setStoredName(name);
-	nameInput.value = name;
+	nameInput.value = randomAnonName();
 	updateNameHint();
-	renderTopbar();
-	closeNameGate();
 });
 
 // single entry point for every event source (relays + history api): filter to

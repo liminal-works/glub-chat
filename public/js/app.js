@@ -620,7 +620,7 @@ function presentRows(snapshot, excludePubkeys) {
 function renderUsers(talking, present) {
 	let html = talking.map(userRowHtml).join("");
 	if (present.length) {
-		html += `<div class="usersBarrier">ghosts</div>`;
+		html += `<div class="usersBarrier">${present.length === 1 ? "ghost" : "ghosts"}</div>`;
 		html += present.map(userRowHtml).join("");
 	}
 	usersList.innerHTML = html;

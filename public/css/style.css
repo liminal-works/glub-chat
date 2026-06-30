@@ -309,13 +309,45 @@ body {
 	margin-bottom: 14px;
 }
 
+/* the user list is a full-screen blurred panel (no card/borders), title + EXIT
+   pinned to the top, the list filling the rest. */
+#usersGate {
+	align-items: stretch;
+	padding: calc(16px + env(safe-area-inset-top)) 16px calc(16px + env(safe-area-inset-bottom));
+}
+
+.usersPanel {
+	width: 100%;
+	display: flex;
+	flex-direction: column;
+	gap: 16px;
+	min-height: 0;
+}
+
+.usersHeader {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+	color: var(--accent);
+	font-size: 15px;
+}
+
+#usersTitle {
+	font-weight: 700;
+}
+
+.usersExit {
+	cursor: pointer;
+}
+
 .usersList {
 	display: flex;
 	flex-direction: column;
-	gap: 6px;
-	max-height: 50vh;
+	gap: 8px;
+	flex: 1;
+	min-height: 0;
 	overflow-y: auto;
-	margin-bottom: 14px;
 	font-size: 14px;
 }
 

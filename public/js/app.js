@@ -890,9 +890,9 @@ function enterAssistMode() {
 	renderTopbar();
 
 	// announce the genuine activation (api reachable + switched over), not the
-	// mere toggle state - fires on first connect, toggle-on, and recovery
-	const n = apiHealth?.relays?.monitored;
-	appendSystem(n ? `server assist is active · ${n} relays` : "server assist is active");
+	// mere toggle state - fires on first connect, toggle-on, and recovery. The
+	// relay count is already in the topbar, so keep the notice clean.
+	appendSystem("server assist is active");
 }
 
 // pure-client mode: live reads from direct relay subscriptions (today's behavior).

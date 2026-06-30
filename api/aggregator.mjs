@@ -1,11 +1,15 @@
+import WebSocket from "ws";
 import { fetchRelayList } from "../public/js/nostr/relayList.js";
 import { CHAT_KIND, getGeohash, verifyEvent } from "./nostr.mjs";
+
+// Use the `ws` library (not Node's built-in/undici WebSocket): it's the
+// battle-tested standard the nostr ecosystem relies on and holds far more
+// simultaneous relay connections reliably (the undici one tops out / drops).
 
 const SUB_ID = "glub-api";
 const MAX_GEOHASH_LEN = 32; // ignore absurd geohashes (anti-flood, mirrors the client)
 const MAX_FUTURE_SECS = 120; // drop events timestamped more than this far in the future
 const MAX_BACKOFF_MS = 60_000;
-const REQ_LIMIT = 500; // backlog asked of each relay on (re)connect
 const REFRESH_MS = 24 * 60 * 60_000; // re-scrape the relay list daily to pick up list changes
 const RETRY_MS = 5 * 60_000; // until we have any relays (e.g. a failed startup fetch), retry sooner
 
@@ -93,12 +97,15 @@ export function createAggregator(store, { onStored } = {}) {
 			scheduleReconnect(url, attempt);
 		};
 
-		ws.addEventListener("open", () => {
-			ws.send(JSON.stringify(["REQ", SUB_ID, { kinds: [CHAT_KIND], limit: REQ_LIMIT }]));
+		// ws EventEmitter API. The error handler is required - an unhandled "error"
+		// event would crash the process. No `limit` on the REQ, matching what the
+		// prototype subscribed with.
+		ws.on("open", () => {
+			ws.send(JSON.stringify(["REQ", SUB_ID, { kinds: [CHAT_KIND] }]));
 		});
-		ws.addEventListener("message", (msg) => handleFrame(msg.data));
-		ws.addEventListener("error", () => {});
-		ws.addEventListener("close", retry);
+		ws.on("message", (data) => handleFrame(data.toString()));
+		ws.on("error", () => {});
+		ws.on("close", retry);
 	}
 
 	function scheduleReconnect(url, attempt) {

@@ -357,8 +357,8 @@ body {
 	font-size: 13px;
 }
 
-/* divider between actively-talking users (above) and users we've only detected
-   via presence heartbeats / "lurkers" (below) */
+/* divider between actively-talking users (above) and "ghosts" - users we've only
+   detected via presence heartbeats, maybe still around, maybe stale (below) */
 .usersBarrier {
 	display: flex;
 	align-items: center;

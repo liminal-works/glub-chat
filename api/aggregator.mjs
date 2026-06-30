@@ -14,6 +14,13 @@ const REFRESH_MS = 24 * 60 * 60_000; // re-scrape the relay list daily to pick u
 const RETRY_MS = 5 * 60_000; // until we have any relays (e.g. a failed startup fetch), retry sooner
 const PRESENCE_FRESH_MS = 5 * 60_000; // a presence is "live" if seen within this window
 const PRESENCE_PRUNE_MS = 60_000; // sweep stale presences this often
+// presence (kind 20001) is a high-volume heartbeat and we only ever keep the
+// live window, so we must NOT let relays replay their whole presence history on
+// connect: signature-verifying that backlog (~3ms each, single-threaded) across
+// hundreds of relays starves the event loop and freezes the http server. Scope
+// the presence subscription to just the recent window + a hard replay cap.
+const PRESENCE_SINCE_SECS = PRESENCE_FRESH_MS / 1000;
+const PRESENCE_REPLAY_LIMIT = 200;
 
 // The relay aggregator: subscribes to every relay it can, signature-verifies
 // events, and stores geohash chat events. Unlike the browser client (which caps
@@ -26,6 +33,8 @@ export function createAggregator(store, { onStored } = {}) {
 	const sockets = new Map(); // url -> WebSocket (live attempts)
 	const managed = new Set(); // every url we're keeping connected (incl. mid-backoff)
 	const presence = new Map(); // geo -> Map<pubkey, { name, teleport, lastSeen }>
+	const seenIds = new Set(); // event ids already processed from relays - skip re-verifying duplicates
+	const SEEN_MAX = 50_000; // bound the dedup set; cleared wholesale when it grows past this
 
 	// returns an event's geohash if it's acceptable to store/relay, else "".
 	// Only signed kind-20000 chat events with a sane geohash and a non-future
@@ -125,7 +134,15 @@ export function createAggregator(store, { onStored } = {}) {
 		}
 		if (!Array.isArray(frame) || frame[0] !== "EVENT") return;
 		const ev = frame[2];
-		if (ev && ev.kind === PRESENCE_KIND) trackPresence(ev);
+		if (!ev || typeof ev.id !== "string") return;
+
+		// the same event is relayed by many relays; verify it only on first sight.
+		// (publish() takes its own path, so client re-sends still re-confirm.)
+		if (seenIds.has(ev.id)) return;
+		if (seenIds.size >= SEEN_MAX) seenIds.clear();
+		seenIds.add(ev.id);
+
+		if (ev.kind === PRESENCE_KIND) trackPresence(ev);
 		else ingest(ev);
 	}
 
@@ -151,7 +168,17 @@ export function createAggregator(store, { onStored } = {}) {
 		// event would crash the process. No `limit` on the REQ, matching what the
 		// prototype subscribed with.
 		ws.on("open", () => {
-			ws.send(JSON.stringify(["REQ", SUB_ID, { kinds: [CHAT_KIND, PRESENCE_KIND] }]));
+			// two filters in one REQ: full chat history (unchanged), but presence
+			// scoped to the live window so we don't ingest a giant heartbeat backlog.
+			const since = Math.floor(Date.now() / 1000) - PRESENCE_SINCE_SECS;
+			ws.send(
+				JSON.stringify([
+					"REQ",
+					SUB_ID,
+					{ kinds: [CHAT_KIND] },
+					{ kinds: [PRESENCE_KIND], since, limit: PRESENCE_REPLAY_LIMIT },
+				])
+			);
 		});
 		ws.on("message", (data) => handleFrame(data.toString()));
 		ws.on("error", () => {});

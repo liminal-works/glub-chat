@@ -888,6 +888,11 @@ function enterAssistMode() {
 	openAssistStream(); // open the stream first so nothing arriving during the
 	mirrorBuffer(); // buffer fetch is missed (dedup handles the overlap)
 	renderTopbar();
+
+	// announce the genuine activation (api reachable + switched over), not the
+	// mere toggle state - fires on first connect, toggle-on, and recovery
+	const n = apiHealth?.relays?.monitored;
+	appendSystem(n ? `server assist active · ${n} relays` : "server assist active");
 }
 
 // pure-client mode: live reads from direct relay subscriptions (today's behavior).

@@ -88,6 +88,15 @@ body {
 	margin: 0 0 4px 0;
 }
 
+/* ephemeral status notices fade out before they're removed from the log */
+.line.system {
+	transition: opacity 0.3s ease;
+}
+
+.line.system.fading {
+	opacity: 0;
+}
+
 /* messages that @-mention you: full-bleed across the terminal's horizontal
    padding (14px) so the highlight reaches the screen edges. The tint color is
    the sender's own color, set inline in JS. */

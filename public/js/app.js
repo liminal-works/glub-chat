@@ -71,6 +71,8 @@ const ASSIST_MAINTAIN_MS = 30_000; // health re-check cadence (status freshness 
 const ACK_TIMEOUT_MS = 15_000; // wait this long for an echo before rebroadcasting / giving up
 const MAX_SEND_ATTEMPTS = 3; // initial broadcast + up to 2 automatic rebroadcasts
 const PRESENCE_FRESH_MS = 5 * 60_000; // a detected presence is "live" within this window
+const SYSTEM_TTL_MS = 7_000; // how long an ephemeral status notice stays before fading out
+const SYSTEM_FADE_MS = 300; // fade-out duration before the faded line is removed (matches css)
 
 // presences we've detected from kind-20001 events on the relays we read (relay
 // mode only - in assist mode the api tracks these and we fetch a snapshot).
@@ -271,6 +273,7 @@ function renderEntryDom(entry) {
 	const div = document.createElement("div");
 	div.className = entry.mention ? "line mention" : "line";
 	if (entry.mine) div.className += " mine"; // your own messages render bold (like bitchat)
+	if (entry.system) div.className += " system";
 	if (entry.mentionTint) div.style.background = entry.mentionTint;
 	// the #geo prefix is redundant in a focused channel (every line is that
 	// channel), so only prepend it in global view.
@@ -363,9 +366,13 @@ function insertEntry(entry) {
 	}
 }
 
+// status notices (relay set, assist activation, etc.) are ephemeral: they auto-
+// dismiss with a short fade so hopping between channels doesn't pile up a wall of
+// stale "* connecting to ... *" lines. The "beginning of chat" barrier is a
+// separate system entry (inserted directly) and is intentionally not affected.
 function appendSystem(text) {
 	const ts = Date.now() / 1000;
-	insertEntry({
+	const entry = {
 		ts,
 		geo: null,
 		system: true,
@@ -374,7 +381,21 @@ function appendSystem(text) {
 		// the rest of the theming
 		html: `<span class="ts">* ${escapeHtml(text)} *</span>${timeTag(ts)}`,
 		el: null,
-	});
+	};
+	insertEntry(entry);
+	setTimeout(() => dismissEntry(entry), SYSTEM_TTL_MS);
+}
+
+// fade an entry out and drop it from the log. No-ops if it's already gone (e.g.
+// pruned by MAX_LINES or cleared on a channel switch).
+function dismissEntry(entry) {
+	const idx = entries.indexOf(entry);
+	if (idx === -1) return;
+	entries.splice(idx, 1);
+	const el = entry.el;
+	if (!el) return;
+	el.classList.add("fading");
+	setTimeout(() => el.remove(), SYSTEM_FADE_MS);
 }
 
 // Apple's system orange (SwiftUI's Color.orange), reserved for the current

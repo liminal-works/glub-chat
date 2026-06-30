@@ -22,8 +22,11 @@
 		<div id="app">
 			<div id="nameGate" class="gate">
 				<div class="gateCard">
-					<div class="gateTitle">enter a name</div>
-					<div class="gateSub">no accounts. no emails. no servers.<br />just pick a name to start chatting.</div>
+					<div class="gateTitle" data-i18n="name_gate.title">enter a name</div>
+					<div class="gateSub">
+						<span data-i18n="name_gate.subtitle_1">no accounts. no emails. no servers.</span><br />
+						<span data-i18n="name_gate.subtitle_2">just pick a name to start chatting.</span>
+					</div>
 
 					<form id="nameForm" autocomplete="off">
 						<div class="nameInputWrap">
@@ -36,46 +39,47 @@
 								autocorrect="off"
 								autocomplete="off"
 								placeholder="alias"
+								data-i18n-placeholder="name_gate.input_placeholder"
 							/>
 							<div id="nameHint" class="nameHint" aria-hidden="true"></div>
 						</div>
-						<button type="submit">enter</button>
-						<button type="button" id="randomBtn">random</button>
+						<button type="submit" data-i18n="name_gate.enter">enter</button>
+						<button type="button" id="randomBtn" data-i18n="name_gate.random">random</button>
 					</form>
 				</div>
 			</div>
 
 			<div id="settingsGate" class="gate">
 				<div class="gateCard">
-					<div class="gateTitle">settings</div>
-					<div class="gateSub">
+					<div class="gateTitle" data-i18n="settings.title">settings</div>
+					<div class="gateSub" data-i18n="settings.assist_description">
 						server assist pulls deep history and lowers bandwidth via an optional API. your client
 						still works fully on its own if it's off or unavailable.
 					</div>
 
 					<label class="settingRow" for="assistToggle">
-						<span>server assist</span>
+						<span data-i18n="settings.assist_label">server assist</span>
 						<input id="assistToggle" type="checkbox" class="assistCheck" />
 						<span class="toggleVisual" aria-hidden="true"></span>
 					</label>
 
-					<button id="settingsClose" type="button">done</button>
+					<button id="settingsClose" type="button" data-i18n="settings.done">done</button>
 				</div>
 			</div>
 
 			<div id="usersGate" class="gate">
 				<div class="usersPanel">
 					<div class="usersHeader">
-						<span id="usersTitle">users</span>
-						<strong id="usersClose" class="usersExit">[EXIT]</strong>
+						<span id="usersTitle" data-i18n="users.title_default">users</span>
+						<strong id="usersClose" class="usersExit" data-i18n="users.exit">[EXIT]</strong>
 					</div>
 					<div id="usersList" class="usersList"></div>
 				</div>
 			</div>
 
 			<div id="topbar">
-				<span id="brand" class="brand"><strong>CONNECTING...</strong></span>
-				<span id="status"><strong>RELAYS</strong>: --/--</span>
+				<span id="brand" class="brand"><strong data-i18n="topbar.connecting">CONNECTING...</strong></span>
+				<span id="status"><strong data-i18n="topbar.relays">RELAYS</strong>: --/--</span>
 			</div>
 
 			<div id="terminal"></div>
@@ -84,8 +88,8 @@
 				<div id="newMessagesBar" hidden>[ 0 new messages ]</div>
 
 				<div id="inputbar">
-					<input id="chatInput" type="text" enterkeyhint="send" spellcheck="true" autocomplete="off" placeholder="#channel message..." />
-					<button id="sendBtn" type="button">send</button>
+					<input id="chatInput" type="text" enterkeyhint="send" spellcheck="true" autocomplete="off" placeholder="#channel message..." data-i18n-placeholder="composer.placeholder_global" />
+					<button id="sendBtn" type="button" data-i18n="composer.send">send</button>
 				</div>
 			</div>
 		</div>

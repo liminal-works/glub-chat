@@ -13,6 +13,12 @@
 
 	--chrome-bg: #000000;
 	--chrome-border: rgba(48, 209, 88, 0.12);
+
+	/* css-generated labels, overridden by the i18n layer at runtime. english
+	   defaults here so they still read correctly if scripting is disabled. */
+	--label-toggle-on: "[ on ]";
+	--label-toggle-off: "[ off ]";
+	--label-no-users: "no one here yet";
 }
 
 html,
@@ -368,7 +374,7 @@ body {
 }
 
 .usersList:empty::before {
-	content: "no one here yet";
+	content: var(--label-no-users);
 	color: var(--muted);
 	font-size: 13px;
 }
@@ -516,12 +522,12 @@ body {
 }
 
 .toggleVisual::after {
-	content: "[ off ]";
+	content: var(--label-toggle-off);
 	color: var(--muted);
 }
 
 .assistCheck:checked ~ .toggleVisual::after {
-	content: "[ on ]";
+	content: var(--label-toggle-on);
 	color: var(--accent);
 }
 

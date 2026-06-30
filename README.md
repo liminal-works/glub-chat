@@ -99,6 +99,8 @@ public/   the client. identity, relay connections, signing — all in the browse
   js/nostr/relayList.js   fetch + parse bitchat's relay csv
   js/nostr/protocol.js    build / read bitchat-flavored nostr events
   js/nostr/relayPool.js   manage relay sockets, subscriptions, reconnects
+  js/i18n/index.js        tiny i18n engine (t(), plurals, relative time)
+  js/i18n/en.js           english base dictionary (the fallback)
   js/app.js               wires it all into the ui
 api/      optional assist service — its own process, never holds keys
   store.mjs       sqlite rolling buffer (insert + history queries)
@@ -115,5 +117,26 @@ image previews, send confirmation with automatic rebroadcast, and the optional
 server assist above.
 
 it's intentionally focused. the kitchen sink from the old prototype (themes, the
-message board, translation, the ai persona, cashu wallet/betting, and the rest)
-is left out, to come back — if at all — as deliberate pieces on top of this base.
+message board, the ai persona, cashu wallet/betting, and the rest) is left out,
+to come back — if at all — as deliberate pieces on top of this base.
+
+## translations
+
+all user-facing copy lives behind intent-named keys in `public/js/i18n/`, the
+same shape native bitchat uses (a base dictionary + per-locale overrides, with
+plural rules handled separately). english (`en.js`) is the base and fallback;
+the locale is auto-detected from the browser. the browser does the hard parts —
+`Intl.PluralRules` for plurals, `Intl.RelativeTimeFormat` for "x ago".
+
+right now english is the only bundled language — the scaffolding is in place and
+we'd rather ship one well-worded language than several machine-translated ones.
+to add a language:
+
+1. copy `public/js/i18n/en.js` to `<code>.js` (e.g. `es.js`)
+2. translate the values — **keep the keys and `{placeholders}` exactly**, and
+   keep the `{ one, other, … }` plural shape (your locale may need more forms;
+   see [Intl.PluralRules](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/Intl/PluralRules))
+3. register it in `public/js/i18n/index.js` under `LOADERS`
+
+prefer keys that already exist, and keep the casual lowercase voice — that tone
+is part of the app, so a faithful translation matters more than a literal one.

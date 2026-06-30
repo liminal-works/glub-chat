@@ -2,6 +2,7 @@ import { loadOrCreateIdentity, regenerateIdentity, getStoredName, setStoredName 
 import { fetchRelayList } from "./nostr/relayList.js";
 import { RelayPool } from "./nostr/relayPool.js";
 import { makeChatMessage, getGeohash, getName, CHAT_KIND, PRESENCE_KIND, sortRelaysByGeohash, verifyEvent } from "./nostr/protocol.js";
+import { t, formatAgo, setLocale, detectLocale, onLocaleChange } from "./i18n/index.js";
 
 const MAX_LINES = 600;
 const NEAR_BOTTOM_PX = 60;
@@ -46,6 +47,12 @@ const statusEl = document.getElementById("status");
 const chatInput = document.getElementById("chatInput");
 const sendBtn = document.getElementById("sendBtn");
 const newMessagesBar = document.getElementById("newMessagesBar");
+
+// pick the locale and fill the static markup before anything renders. en is the
+// only bundled language today, so this is english; it's wired so adding a locale
+// file is a drop-in. (no callbacks registered yet, so this only does the dom
+// fill - dynamic views are re-rendered via onLocaleChange, registered below.)
+setLocale(detectLocale());
 
 // "server assist": optional API-backed history/low-bandwidth mode. Phase 0 only
 // persists the preference - nothing reads it yet. Defaults ON (per the plan:
@@ -106,18 +113,6 @@ function clipText(str, max) {
 	return str.length > max ? str.slice(0, max - 3) + "..." : str;
 }
 
-// short relative-time label from an epoch-seconds timestamp ("now", "5s", "3m",
-// "2h", "4d"). Computed at render time, so it's a snapshot when the list opens.
-function agoLabel(tsSeconds) {
-	const s = Math.max(0, Math.floor(Date.now() / 1000) - tsSeconds);
-	if (s < 5) return "now";
-	if (s < 60) return `${s}s ago`;
-	const m = Math.floor(s / 60);
-	if (m < 60) return `${m}m ago`;
-	const h = Math.floor(m / 60);
-	if (h < 24) return `${h}h ago`;
-	return `${Math.floor(h / 24)}d ago`;
-}
 
 function clipWithEllipsis(str, max) {
 	if (!str) return "";
@@ -218,7 +213,7 @@ function messageInnerHtml(entry) {
 	}
 
 	if (needsToggle) {
-		body += `<span class="toggleMore" data-toggle="${escapeHtml(entry.id)}">${expanded ? "less" : "more"}</span>`;
+		body += `<span class="toggleMore" data-toggle="${escapeHtml(entry.id)}">${escapeHtml(t(expanded ? "message.less" : "message.more"))}</span>`;
 	}
 
 	body += renderImagePreviews(entry);
@@ -234,10 +229,11 @@ function messageInnerHtml(entry) {
 function ackTag(entry) {
 	if (!entry.mine) return "";
 	if (entry.ackSecs != null) {
-		return ` <span class="ts ack">${entry.ackSecs === 0 ? "&lt;1s" : `${entry.ackSecs}s`}</span>`;
+		const latency = entry.ackSecs === 0 ? t("ack.latency_lt1s") : t("ack.latency_secs", { count: entry.ackSecs });
+		return ` <span class="ts ack">${escapeHtml(latency)}</span>`;
 	}
-	if (entry.ackFailed) return ` <span class="ts ack ackFail">[!] failed</span>`;
-	if (entry.resending) return ` <span class="ts ack">resending…</span>`;
+	if (entry.ackFailed) return ` <span class="ts ack ackFail">${escapeHtml(t("ack.failed"))}</span>`;
+	if (entry.resending) return ` <span class="ts ack">${escapeHtml(t("ack.resending"))}</span>`;
 	return ""; // first attempt in flight: stay blank until it confirms / retries / fails
 }
 
@@ -262,7 +258,7 @@ function renderImagePreviews(entry) {
 			return (
 				`<div class="mediaPreview" data-img-toggle="${escapeHtml(key)}">` +
 				`<img class="chatImagePreview chatImagePreviewCensored" src="${safeUrl}" alt="image preview" loading="lazy">` +
-				`<div class="mediaCensorOverlay">[reveal]</div></div>`
+				`<div class="mediaCensorOverlay">${escapeHtml(t("message.reveal"))}</div></div>`
 			);
 		})
 		.join("");
@@ -309,7 +305,7 @@ function updateNewMessagesBar() {
 		return;
 	}
 	newMessagesBar.hidden = false;
-	newMessagesBar.textContent = `[ ${unreadCount} new message${unreadCount === 1 ? "" : "s"} ]`;
+	newMessagesBar.textContent = t("message.new_messages", { count: unreadCount });
 }
 
 function clearUnread() {
@@ -529,8 +525,7 @@ function renderTopbar() {
 		const clippedGeo = clipText(focusedGeo, 12);
 		brandEl.innerHTML = `<strong>#${escapeHtml(clippedGeo)}</strong>/<span class="handle">@${escapeHtml(clipText(name || "anon", 12))}</span>`;
 
-		const userWord = focusedUserCount === 1 ? "USER" : "USERS";
-		statusEl.innerHTML = `<span class="tapUsers">${focusedUserCount} ${userWord}</span> - <strong>[EXIT]</strong>`;
+		statusEl.innerHTML = `<span class="tapUsers">${escapeHtml(t("topbar.users", { count: focusedUserCount }))}</span> - <strong>${escapeHtml(t("topbar.exit"))}</strong>`;
 		statusEl.classList.add("tapExit");
 	} else {
 		brandEl.innerHTML = `<strong>GLUB.CHAT</strong>/<span class="handle">@${escapeHtml(clipText(name || "anon", 12))}</span>`;
@@ -541,13 +536,13 @@ function renderTopbar() {
 			const r = apiHealth?.relays;
 			const left = r?.connected == null ? "--" : r.connected;
 			const right = r?.monitored == null ? "--" : r.monitored;
-			statusEl.innerHTML = `<strong>RELAYS</strong>: ${left}/${right}`;
+			statusEl.innerHTML = `<strong>${escapeHtml(t("topbar.relays"))}</strong>: ${left}/${right}`;
 		} else {
 			const connected = pool.connectedCount;
 			const total = pool.total;
 			const left = connected === 0 ? "--" : connected;
 			const right = total === 0 ? "--" : total;
-			statusEl.innerHTML = `<strong>RELAYS</strong>: ${left}/${right}`;
+			statusEl.innerHTML = `<strong>${escapeHtml(t("topbar.relays"))}</strong>: ${left}/${right}`;
 		}
 	}
 }
@@ -592,14 +587,15 @@ function closeSettings() {
 }
 
 function userRowHtml(u) {
-	const ago = u.ts ? `<span class="userAgo">${agoLabel(u.ts)}</span>` : "";
+	const ago = u.ts ? `<span class="userAgo">${escapeHtml(formatAgo(u.ts))}</span>` : "";
+	const origin = u.teleport ? t("origin.teleport") : t("origin.local");
 	return (
 		`<div class="userRow">` +
 		`<span class="userMeta">` +
 		`<span style="color:${u.color}">@${escapeHtml(clipText(u.who, 22))}<span class="sfx">#${escapeHtml(u.tag)}</span></span>` +
 		ago +
 		`</span>` +
-		`<span class="userOrigin ${u.teleport ? "teleport" : "local"}">${u.teleport ? "teleport" : "local"}</span>` +
+		`<span class="userOrigin ${u.teleport ? "teleport" : "local"}">${escapeHtml(origin)}</span>` +
 		`</div>`
 	);
 }
@@ -621,7 +617,7 @@ function presentRows(snapshot, excludePubkeys) {
 function renderUsers(talking, present) {
 	let html = talking.map(userRowHtml).join("");
 	if (present.length) {
-		html += `<div class="usersBarrier">${present.length === 1 ? "ghost" : "ghosts"}</div>`;
+		html += `<div class="usersBarrier">${escapeHtml(t("users.ghosts", { count: present.length }))}</div>`;
 		html += present.map(userRowHtml).join("");
 	}
 	usersList.innerHTML = html;
@@ -645,7 +641,7 @@ async function openUsers() {
 	const talking = [...latest.values()].sort((a, b) => b.ts - a.ts);
 	const talkingPubkeys = new Set(latest.keys());
 
-	usersTitle.textContent = `users in #${clipText(geo, 14)}`;
+	usersTitle.textContent = t("users.title", { geo: clipText(geo, 14) });
 	renderUsers(talking, presentRows(localPresence(geo), talkingPubkeys));
 	usersGate.classList.add("show");
 
@@ -973,7 +969,7 @@ function showBeginningBarrier(events) {
 		geo: null,
 		system: true,
 		pubkey: null,
-		html: `<span class="barrier">——— ** beginning of chat ** ———</span>`,
+		html: `<span class="barrier">——— ** ${escapeHtml(t("message.beginning_of_chat"))} ** ———</span>`,
 		el: null,
 	});
 }
@@ -1038,7 +1034,7 @@ function enterAssistMode() {
 	// announce the genuine activation (api reachable + switched over), not the
 	// mere toggle state - fires on first connect, toggle-on, and recovery. The
 	// relay count is already in the topbar, so keep the notice clean.
-	appendSystem("server assist is active");
+	appendSystem(t("system.assist_active"));
 }
 
 // pure-client mode: live reads from direct relay subscriptions (today's behavior).
@@ -1060,15 +1056,15 @@ function enterRelayMode() {
 			// non-geocodable channel: it isn't a decodable location, so there's no
 			// local set to compute - use the global set instead.
 			pool.connectAll(allRelays.map((r) => r.url));
-			appendSystem(`#${focusedGeo}: not a location, connecting to global relay set...`);
+			appendSystem(t("system.relay_global_teleport", { geo: focusedGeo }));
 			renderTopbar();
 			return;
 		}
 		pool.connectNearest(sorted);
-		appendSystem(`#${focusedGeo}: connecting to local relay set...`);
+		appendSystem(t("system.relay_local", { geo: focusedGeo }));
 	} else {
 		pool.connectAll(allRelays.map((r) => r.url));
-		appendSystem(`connecting to global relay set...`);
+		appendSystem(t("system.relay_global"));
 	}
 	renderTopbar();
 }
@@ -1084,6 +1080,16 @@ function startAssistMaintain() {
 	}, ASSIST_MAINTAIN_MS);
 }
 
+// re-render the dynamic views when the locale changes at runtime (a future
+// language picker / override calls setLocale). Registered here, after the views
+// and `pool` exist, so it never fires against an uninitialized binding.
+onLocaleChange(() => {
+	renderTopbar();
+	updatePlaceholder();
+	updateNewMessagesBar();
+	rerenderTerminal();
+});
+
 // initial paint - done after `pool` exists since renderTopbar reads its counts
 renderTopbar();
 
@@ -1091,7 +1097,7 @@ renderTopbar();
 	try {
 		allRelays = await fetchRelayList();
 	} catch (err) {
-		appendSystem(`failed to load relays: ${err.message}`);
+		appendSystem(t("system.relay_failed", { error: err.message }));
 	}
 
 	if (getAssistEnabled() && (await checkApiHealth())) enterAssistMode();
@@ -1101,7 +1107,9 @@ renderTopbar();
 })();
 
 function updatePlaceholder() {
-	chatInput.placeholder = focusedGeo ? `message -> #${focusedGeo}` : "#channel message...";
+	chatInput.placeholder = focusedGeo
+		? t("composer.placeholder_focused", { geo: focusedGeo })
+		: t("composer.placeholder_global");
 }
 
 function focusChannel(geo) {

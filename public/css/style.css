@@ -437,6 +437,7 @@ body {
 }
 
 .settingRow {
+	position: relative; /* contains the visually-hidden checkbox */
 	display: flex;
 	align-items: center;
 	justify-content: space-between;
@@ -447,40 +448,30 @@ body {
 	cursor: pointer;
 }
 
-/* iOS-style toggle, themed with the accent green */
-.switch {
-	appearance: none;
-	-webkit-appearance: none;
-	position: relative;
-	flex: none;
-	width: 44px;
-	height: 26px;
-	border-radius: 999px;
-	border: 1px solid var(--chrome-border);
-	background: rgba(255, 255, 255, 0.12);
-	cursor: pointer;
-	transition: background 0.15s ease;
-}
-
-.switch:checked {
-	background: var(--accent);
-	border-color: var(--accent);
-}
-
-.switch::after {
-	content: "";
+/* bracketed text toggle in the terminal style ([ on ] / [ off ]) - the real
+   checkbox is hidden and driven by the label; the visual reflects its state. */
+.assistCheck {
 	position: absolute;
-	top: 2px;
-	left: 2px;
-	width: 20px;
-	height: 20px;
-	border-radius: 50%;
-	background: #fff;
-	transition: transform 0.15s ease;
+	width: 1px;
+	height: 1px;
+	opacity: 0;
+	pointer-events: none;
 }
 
-.switch:checked::after {
-	transform: translateX(18px);
+.toggleVisual {
+	flex: none;
+	font-weight: 700;
+	letter-spacing: 0.06em;
+}
+
+.toggleVisual::after {
+	content: "[ off ]";
+	color: var(--muted);
+}
+
+.assistCheck:checked ~ .toggleVisual::after {
+	content: "[ on ]";
+	color: var(--accent);
 }
 
 #settingsClose {

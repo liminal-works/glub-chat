@@ -1,7 +1,7 @@
 import { loadOrCreateIdentity, getStoredName, setStoredName } from "./nostr/identity.js";
 import { fetchRelayList } from "./nostr/relayList.js";
 import { RelayPool } from "./nostr/relayPool.js";
-import { makeChatMessage, getGeohash, getName, CHAT_KIND, sortRelaysByGeohash, verifyEvent } from "./nostr/protocol.js";
+import { makeChatMessage, getGeohash, getName, CHAT_KIND, PRESENCE_KIND, sortRelaysByGeohash, verifyEvent } from "./nostr/protocol.js";
 
 const MAX_LINES = 600;
 const NEAR_BOTTOM_PX = 60;
@@ -70,6 +70,13 @@ const ASSIST_FALLBACK_MS = 12_000; // grace period before a dead stream falls ba
 const ASSIST_MAINTAIN_MS = 30_000; // health re-check cadence (status freshness + recovery)
 const ACK_TIMEOUT_MS = 15_000; // wait this long for an echo before rebroadcasting / giving up
 const MAX_SEND_ATTEMPTS = 3; // initial broadcast + up to 2 automatic rebroadcasts
+const PRESENCE_FRESH_MS = 5 * 60_000; // a detected presence is "live" within this window
+
+// presences we've detected from kind-20001 events on the relays we read (relay
+// mode only - in assist mode the api tracks these and we fetch a snapshot).
+// geo -> Map<pubkey, { name, teleport, lastSeen }>. Used to list "lurkers" who
+// announce their presence without sending a message.
+const presence = new Map();
 
 // our own sent messages awaiting echo-back confirmation, keyed by event id:
 // { event, firstSentAt, attempts, timer }. When a live source (the api stream or
@@ -546,31 +553,72 @@ function closeSettings() {
 	settingsGate.classList.remove("show");
 }
 
-// snapshot of who's in the focused channel: latest message per pubkey, most
-// recently active first, each tagged local (physically present) or teleport.
-function openUsers() {
+function userRowHtml(u) {
+	return (
+		`<div class="userRow">` +
+		`<span style="color:${u.color}">@${escapeHtml(clipText(u.who, 22))}<span class="sfx">#${escapeHtml(u.tag)}</span></span>` +
+		`<span class="userOrigin ${u.teleport ? "teleport" : "local"}">${u.teleport ? "teleport" : "local"}</span>` +
+		`</div>`
+	);
+}
+
+// present (lurking) users come from kind-20001 snapshots; shape them like talking
+// rows and drop anyone already shown above as actively talking.
+function presentRows(snapshot, excludePubkeys) {
+	return snapshot
+		.filter((p) => p && typeof p.pubkey === "string" && !excludePubkeys.has(p.pubkey))
+		.map((p) => ({
+			who: p.name || "anon",
+			tag: p.pubkey.slice(-4),
+			color: pubkeyColor(p.pubkey),
+			teleport: !!p.teleport,
+		}));
+}
+
+function renderUsers(talking, present) {
+	let html = talking.map(userRowHtml).join("");
+	if (present.length) {
+		html += `<div class="usersBarrier">present</div>`;
+		html += present.map(userRowHtml).join("");
+	}
+	usersList.innerHTML = html;
+}
+
+// snapshot of who's in the focused channel: actively-talking users (latest
+// message per pubkey, freshest first) at the top, then a barrier, then users
+// we've only detected via presence (kind-20001) heartbeats - "lurkers". In assist
+// mode the api supplies the presence snapshot; in relay mode we use the 20001
+// events we read directly.
+async function openUsers() {
 	if (!focusedGeo) return;
+	const geo = focusedGeo;
 
 	const latest = new Map(); // pubkey -> entry (their most recent message here)
 	for (const e of entries) {
-		if (e.system || e.geo !== focusedGeo) continue;
+		if (e.system || e.geo !== geo) continue;
 		const prev = latest.get(e.pubkey);
 		if (!prev || e.ts >= prev.ts) latest.set(e.pubkey, e);
 	}
+	const talking = [...latest.values()].sort((a, b) => b.ts - a.ts);
+	const talkingPubkeys = new Set(latest.keys());
 
-	const rows = [...latest.values()].sort((a, b) => b.ts - a.ts);
-	usersTitle.textContent = `users in #${clipText(focusedGeo, 14)}`;
-	usersList.innerHTML = rows
-		.map(
-			(u) =>
-				`<div class="userRow">` +
-				`<span style="color:${u.color}">@${escapeHtml(clipText(u.who, 22))}<span class="sfx">#${escapeHtml(u.tag)}</span></span>` +
-				`<span class="userOrigin ${u.teleport ? "teleport" : "local"}">${u.teleport ? "teleport" : "local"}</span>` +
-				`</div>`
-		)
-		.join("");
-
+	usersTitle.textContent = `users in #${clipText(geo, 14)}`;
+	renderUsers(talking, presentRows(localPresence(geo), talkingPubkeys));
 	usersGate.classList.add("show");
+
+	if (liveSource === "assist") {
+		try {
+			const res = await fetch(`${API_BASE}/api/presence?geo=${encodeURIComponent(geo)}`, { cache: "no-store" });
+			if (!res.ok) return;
+			const data = await res.json();
+			// still on the same channel + panel open? then merge the api snapshot
+			if (focusedGeo === geo && usersGate.classList.contains("show") && Array.isArray(data.users)) {
+				renderUsers(talking, presentRows(data.users, talkingPubkeys));
+			}
+		} catch {
+			// keep the synchronous (local) render
+		}
+	}
 }
 
 function closeUsers() {
@@ -747,7 +795,38 @@ function confirmSent(id) {
 	rerenderEntryEl(entry);
 }
 
+// record a kind-20001 presence heartbeat from a relay we read. Kept latest-per-
+// pubkey-per-channel and aged out by PRESENCE_FRESH_MS at read time.
+function trackPresence(ev) {
+	if (typeof ev.pubkey !== "string") return;
+	if (ev.created_at > Math.floor(Date.now() / 1000) + MAX_FUTURE_SECS) return;
+	const geo = getGeohash(ev);
+	if (!geo) return;
+	let chan = presence.get(geo);
+	if (!chan) presence.set(geo, (chan = new Map()));
+	const teleport = Array.isArray(ev.tags) && ev.tags.some((t) => t[0] === "t" && t[1] === "teleport");
+	chan.set(ev.pubkey, { name: getName(ev) || "anon", teleport, lastSeen: Date.now() });
+}
+
+// fresh presences for a channel, freshest first (stale entries skipped).
+function localPresence(geo) {
+	const chan = presence.get(geo);
+	if (!chan) return [];
+	const cutoff = Date.now() - PRESENCE_FRESH_MS;
+	const out = [];
+	for (const [pubkey, p] of chan) {
+		if (p.lastSeen < cutoff) continue;
+		out.push({ pubkey, name: p.name, teleport: p.teleport, lastSeen: p.lastSeen });
+	}
+	out.sort((a, b) => b.lastSeen - a.lastSeen);
+	return out;
+}
+
 function ingestEvent(ev) {
+	if (ev.kind === PRESENCE_KIND) {
+		trackPresence(ev);
+		return;
+	}
 	if (ev.kind !== CHAT_KIND) return;
 	if (!getGeohash(ev)) return;
 	// reject far-future timestamps (a skewed/forged clock) - they'd otherwise sit

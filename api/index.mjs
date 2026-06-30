@@ -74,6 +74,14 @@ app.post("/api/publish", express.json({ limit: "32kb" }), (req, res) => {
 	res.json({ ok: true, relays });
 });
 
+// live presences for a channel (kind-20001 heartbeats the api has seen recently).
+// The client merges this with its own talking list to show who's lurking. Requires
+// `?geo=` - presence is meaningless without a channel.
+app.get("/api/presence", (req, res) => {
+	const geo = typeof req.query.geo === "string" ? req.query.geo : "";
+	res.json({ users: geo ? aggregator.presenceFor(geo) : [] });
+});
+
 // newest-first history, optionally scoped to a geohash and paged with `before`.
 app.get("/api/history", (req, res) => {
 	const geo = typeof req.query.geo === "string" ? req.query.geo : "";

@@ -357,6 +357,27 @@ body {
 	font-size: 13px;
 }
 
+/* divider between actively-talking users (above) and users we've only detected
+   via presence heartbeats / "lurkers" (below) */
+.usersBarrier {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	color: var(--muted);
+	font-size: 0.8em;
+	text-transform: uppercase;
+	letter-spacing: 0.08em;
+	margin: 4px 0;
+}
+
+.usersBarrier::before,
+.usersBarrier::after {
+	content: "";
+	flex: 1;
+	height: 1px;
+	background: var(--chrome-border);
+}
+
 .userRow {
 	display: flex;
 	align-items: baseline;

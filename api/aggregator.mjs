@@ -1,6 +1,6 @@
 import WebSocket from "ws";
 import { fetchRelayList } from "../public/js/nostr/relayList.js";
-import { CHAT_KIND, getGeohash, verifyEvent } from "./nostr.mjs";
+import { CHAT_KIND, PRESENCE_KIND, getGeohash, getName, verifyEvent } from "./nostr.mjs";
 
 // Use the `ws` library (not Node's built-in/undici WebSocket): it's the
 // battle-tested standard the nostr ecosystem relies on and holds far more
@@ -12,6 +12,8 @@ const MAX_FUTURE_SECS = 120; // drop events timestamped more than this far in th
 const MAX_BACKOFF_MS = 60_000;
 const REFRESH_MS = 24 * 60 * 60_000; // re-scrape the relay list daily to pick up list changes
 const RETRY_MS = 5 * 60_000; // until we have any relays (e.g. a failed startup fetch), retry sooner
+const PRESENCE_FRESH_MS = 5 * 60_000; // a presence is "live" if seen within this window
+const PRESENCE_PRUNE_MS = 60_000; // sweep stale presences this often
 
 // The relay aggregator: subscribes to every relay it can, signature-verifies
 // events, and stores geohash chat events. Unlike the browser client (which caps
@@ -23,6 +25,7 @@ const RETRY_MS = 5 * 60_000; // until we have any relays (e.g. a failed startup 
 export function createAggregator(store, { onStored } = {}) {
 	const sockets = new Map(); // url -> WebSocket (live attempts)
 	const managed = new Set(); // every url we're keeping connected (incl. mid-backoff)
+	const presence = new Map(); // geo -> Map<pubkey, { name, teleport, lastSeen }>
 
 	// returns an event's geohash if it's acceptable to store/relay, else "".
 	// Only signed kind-20000 chat events with a sane geohash and a non-future
@@ -46,6 +49,49 @@ export function createAggregator(store, { onStored } = {}) {
 		const inserted = store.insert(ev, geo);
 		if (inserted && onStored) onStored(ev, geo);
 		return inserted;
+	}
+
+	// record a presence (kind-20001) heartbeat. Like chat events these are signed
+	// and carry a geohash; we keep only the latest sighting per pubkey per channel
+	// and let prunePresence() age them out.
+	function trackPresence(ev) {
+		if (!ev || ev.kind !== PRESENCE_KIND) return false;
+		if (typeof ev.pubkey !== "string") return false;
+		if (ev.created_at > Math.floor(Date.now() / 1000) + MAX_FUTURE_SECS) return false;
+		const geo = getGeohash(ev);
+		if (!geo || geo.length > MAX_GEOHASH_LEN) return false;
+		if (!verifyEvent(ev)) return false;
+
+		let chan = presence.get(geo);
+		if (!chan) presence.set(geo, (chan = new Map()));
+		const teleport = Array.isArray(ev.tags) && ev.tags.some((t) => t[0] === "t" && t[1] === "teleport");
+		chan.set(ev.pubkey, { name: getName(ev), teleport, lastSeen: Date.now() });
+		return true;
+	}
+
+	// live presences for a channel, freshest first. Stale entries are skipped here
+	// too so a snapshot is never stale even between prune sweeps.
+	function presenceFor(geo) {
+		const chan = presence.get(geo);
+		if (!chan) return [];
+		const cutoff = Date.now() - PRESENCE_FRESH_MS;
+		const out = [];
+		for (const [pubkey, p] of chan) {
+			if (p.lastSeen < cutoff) continue;
+			out.push({ pubkey, name: p.name, teleport: p.teleport, lastSeen: p.lastSeen });
+		}
+		out.sort((a, b) => b.lastSeen - a.lastSeen);
+		return out;
+	}
+
+	function prunePresence() {
+		const cutoff = Date.now() - PRESENCE_FRESH_MS;
+		for (const [geo, chan] of presence) {
+			for (const [pubkey, p] of chan) {
+				if (p.lastSeen < cutoff) chan.delete(pubkey);
+			}
+			if (chan.size === 0) presence.delete(geo);
+		}
 	}
 
 	// publish a client-signed event: validate, store + stream to subscribers
@@ -76,7 +122,9 @@ export function createAggregator(store, { onStored } = {}) {
 			return;
 		}
 		if (!Array.isArray(frame) || frame[0] !== "EVENT") return;
-		ingest(frame[2]);
+		const ev = frame[2];
+		if (ev && ev.kind === PRESENCE_KIND) trackPresence(ev);
+		else ingest(ev);
 	}
 
 	function connectRelay(url, attempt = 0) {
@@ -101,7 +149,7 @@ export function createAggregator(store, { onStored } = {}) {
 		// event would crash the process. No `limit` on the REQ, matching what the
 		// prototype subscribed with.
 		ws.on("open", () => {
-			ws.send(JSON.stringify(["REQ", SUB_ID, { kinds: [CHAT_KIND] }]));
+			ws.send(JSON.stringify(["REQ", SUB_ID, { kinds: [CHAT_KIND, PRESENCE_KIND] }]));
 		});
 		ws.on("message", (data) => handleFrame(data.toString()));
 		ws.on("error", () => {});
@@ -147,6 +195,7 @@ export function createAggregator(store, { onStored } = {}) {
 	async function start() {
 		await loadAndConnect();
 		scheduleRefresh();
+		setInterval(prunePresence, PRESENCE_PRUNE_MS).unref();
 	}
 
 	function stats() {
@@ -157,5 +206,5 @@ export function createAggregator(store, { onStored } = {}) {
 		return { monitored: managed.size, connected };
 	}
 
-	return { start, stats, ingest, publish, handleFrame };
+	return { start, stats, ingest, publish, handleFrame, trackPresence, presenceFor };
 }

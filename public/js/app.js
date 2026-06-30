@@ -224,15 +224,18 @@ function messageInnerHtml(entry) {
 }
 
 // send-confirmation badge for our own messages, styled like the timestamp:
-// "…" while awaiting echo-back, the round-trip latency once a source replays it
-// ("<1s" / "4s"), or "?" if it never came back (possible delivery problem).
+// blank on the first in-flight attempt, "resending…" once we start rebroadcasting
+// (the first attempt timed out without an echo), the round-trip latency once a
+// source replays it ("<1s" / "4s"), or "failed" if every attempt was exhausted
+// and it never came back.
 function ackTag(entry) {
 	if (!entry.mine) return "";
 	if (entry.ackSecs != null) {
 		return ` <span class="ts ack">${entry.ackSecs === 0 ? "&lt;1s" : `${entry.ackSecs}s`}</span>`;
 	}
-	if (entry.ackFailed) return ` <span class="ts ack">?</span>`;
-	return ""; // pending: show nothing until it confirms (latency) or fails (?)
+	if (entry.ackFailed) return ` <span class="ts ack">failed</span>`;
+	if (entry.resending) return ` <span class="ts ack">resending…</span>`;
+	return ""; // first attempt in flight: stay blank until it confirms / retries / fails
 }
 
 // one preview block per image url in the message, blurred by default with a
@@ -784,17 +787,25 @@ function attemptBroadcast(id) {
 }
 
 // no echo in time: rebroadcast the identical signed event (relays have warmed /
-// the broadcast set has healed since) until attempts run out, then flag it.
+// the broadcast set has healed since) until attempts run out, then flag it. The
+// entry shows "resending…" for the duration of the retries and "failed" if they
+// all come up empty.
 function onSendTimeout(id) {
 	const rec = pending.get(id);
 	if (!rec) return;
 	if (rec.attempts < MAX_SEND_ATTEMPTS) {
+		const entry = entries.find((e) => e.id === id);
+		if (entry && !entry.resending) {
+			entry.resending = true;
+			rerenderEntryEl(entry);
+		}
 		attemptBroadcast(id);
 		return;
 	}
 	pending.delete(id);
 	const entry = entries.find((e) => e.id === id);
 	if (entry) {
+		entry.resending = false;
 		entry.ackFailed = true;
 		rerenderEntryEl(entry);
 	}
@@ -809,6 +820,7 @@ function confirmSent(id) {
 	pending.delete(id);
 	const entry = entries.find((e) => e.id === id);
 	if (!entry) return;
+	entry.resending = false;
 	entry.ackSecs = Math.max(0, Math.floor((Date.now() - rec.firstSentAt) / 1000));
 	rerenderEntryEl(entry);
 }

@@ -233,7 +233,7 @@ function ackTag(entry) {
 	if (entry.ackSecs != null) {
 		return ` <span class="ts ack">${entry.ackSecs === 0 ? "&lt;1s" : `${entry.ackSecs}s`}</span>`;
 	}
-	if (entry.ackFailed) return ` <span class="ts ack">failed</span>`;
+	if (entry.ackFailed) return ` <span class="ts ack ackFail">[!] failed</span>`;
 	if (entry.resending) return ` <span class="ts ack">resending…</span>`;
 	return ""; // first attempt in flight: stay blank until it confirms / retries / fails
 }

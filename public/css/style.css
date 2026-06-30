@@ -151,6 +151,13 @@ body {
 	margin-left: 2px;
 }
 
+/* a send that exhausted all rebroadcasts: a soft red "[!] failed" that's visible
+   without shouting, so it reads as a real problem rather than a muted aside. */
+.ackFail {
+	color: #ff7b72;
+	font-weight: 700;
+}
+
 .toggleMore {
 	color: var(--muted);
 	font-size: 0.8em;

@@ -1,16 +1,15 @@
 import { lookup } from "node:dns/promises";
 import net from "node:net";
-import { Readable } from "node:stream";
 
-// Streams a profile's avatar through the api so the browser never hits the image
+// Proxies a profile's avatar through the api so the browser never hits the image
 // host directly (keeps the viewer's IP private - the whole point of routing this
 // server-side). Because the picture url comes from an untrusted profile, this is
 // an outbound proxy and must be guarded against SSRF: http(s) only, no private/
 // loopback targets (checked after DNS resolution, and on every redirect hop),
-// image content-types only, and a hard size cap.
-const MAX_BYTES = 512 * 1024;
-const TIMEOUT_MS = 6000;
-const MAX_REDIRECTS = 2;
+// image content-types only, and a hard size cap. gifs (image/gif) pass fine.
+const MAX_BYTES = 5 * 1024 * 1024; // generous enough for real avatars incl. animated gifs
+const TIMEOUT_MS = 10_000;
+const MAX_REDIRECTS = 4;
 
 // is this a resolved IP we must never proxy to? (loopback, private, link-local,
 // unique-local, CGNAT, multicast/reserved, v4-mapped v6).
@@ -84,20 +83,26 @@ export async function proxyAvatar(rawUrl, res) {
 			return;
 		}
 
+		// buffer with a hard cap: an over-cap image fails cleanly (broken <img> ->
+		// no avatar) instead of streaming a truncated, corrupt body.
+		const reader = upstream.body.getReader();
+		const chunks = [];
+		let total = 0;
+		for (;;) {
+			const { done, value } = await reader.read();
+			if (done) break;
+			total += value.length;
+			if (total > MAX_BYTES) {
+				await reader.cancel();
+				res.status(413).end();
+				return;
+			}
+			chunks.push(Buffer.from(value));
+		}
+
 		res.set("Content-Type", type);
 		res.set("Cache-Control", "public, max-age=86400");
-
-		let total = 0;
-		const stream = Readable.fromWeb(upstream.body);
-		stream.on("data", (chunk) => {
-			total += chunk.length;
-			if (total > MAX_BYTES) stream.destroy(); // truncate anything lying about its size
-		});
-		stream.on("error", () => {
-			if (!res.headersSent) res.status(502).end();
-			else res.end();
-		});
-		stream.pipe(res);
+		res.end(Buffer.concat(chunks));
 	} catch {
 		if (!res.headersSent) res.status(502).end();
 	}

@@ -10,6 +10,8 @@
 	--user: #8ef29c;
 	/* bitchat's dark-mode green (SwiftUI Color.green ~ systemGreen #30D158) */
 	--accent: #30d158;
+	/* soft red for problem states (failed send, assist off) */
+	--danger: #ff7b72;
 
 	--chrome-bg: #000000;
 	--chrome-border: rgba(48, 209, 88, 0.12);
@@ -169,7 +171,7 @@ body {
 /* a send that exhausted all rebroadcasts: a soft red "[!] failed" that's visible
    without shouting, so it reads as a real problem rather than a muted aside. */
 .ackFail {
-	color: #ff7b72;
+	color: var(--danger);
 	font-weight: 700;
 }
 
@@ -513,6 +515,16 @@ body {
 	height: 1px;
 	opacity: 0;
 	pointer-events: none;
+}
+
+/* the assist label tracks the toggle: danger-red when off, accent-green when on
+   (checkbox precedes it in the dom so the sibling selector can reach it). */
+.settingLabel {
+	color: var(--danger);
+}
+
+.assistCheck:checked ~ .settingLabel {
+	color: var(--accent);
 }
 
 .toggleVisual {

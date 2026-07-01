@@ -363,11 +363,6 @@ body {
 	display: none;
 }
 
-#mediaBtn.busy {
-	color: var(--muted);
-	pointer-events: none;
-}
-
 .gate {
 	position: fixed;
 	inset: 0;

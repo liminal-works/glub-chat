@@ -1429,7 +1429,10 @@ function transmit(content, geo, displayName = name) {
 	pending.set(event.id, { event, firstSentAt: Date.now(), attempts: 0, timer: null });
 	renderEvent(event);
 	attemptBroadcast(event.id);
-	jumpToBottom(); // sending always returns you to the live bottom
+	// sending returns you to the live bottom - but only when the message lands in
+	// the view you're looking at (a background send, e.g. an upload finishing
+	// after you hopped channels, shouldn't yank your scroll position).
+	if (!focusedGeo || geo === focusedGeo) jumpToBottom();
 }
 
 // --- media upload (assist-only) ----------------------------------------------
@@ -1464,7 +1467,11 @@ async function uploadMedia(file) {
 		appendSystem(t("system.upload_too_large", { max: MEDIA_MAX_MB }));
 		return;
 	}
-	mediaBtn.classList.add("busy");
+	// bind the destination NOW: the upload auto-sends to the channel it was
+	// started in, even if the user hops channels or exits to global before it
+	// finishes. Uploads are fire-and-forget - several can run concurrently, the
+	// button never blocks.
+	const targetGeo = focusedGeo;
 	try {
 		const blob = await cleanEncodeImage(file);
 		const res = await fetch(`${API_BASE}/api/media`, {
@@ -1476,20 +1483,18 @@ async function uploadMedia(file) {
 		const data = await res.json();
 		if (!data.ok || !data.url) throw new Error("bad response");
 
-		// "[image] {url}" is the marker native bitchat clients recognize. In a
-		// focused channel it sends immediately; in global view we drop it in the
-		// composer so the user can target a #channel themselves.
+		// "[image] {url}" is the marker native bitchat clients recognize. Started
+		// in a channel -> send there; started in global view (no target) -> drop
+		// it in the composer so the user can aim it at a #channel.
 		const content = `[image] ${data.url}`;
-		if (focusedGeo) {
-			transmit(content, focusedGeo);
+		if (targetGeo) {
+			transmit(content, targetGeo);
 		} else {
 			chatInput.value = chatInput.value ? `${chatInput.value} ${content}` : content;
 			chatInput.focus();
 		}
 	} catch {
 		appendSystem(t("system.upload_failed"));
-	} finally {
-		mediaBtn.classList.remove("busy");
 	}
 }
 

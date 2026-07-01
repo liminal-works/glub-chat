@@ -1306,8 +1306,10 @@ const COMMANDS = [
 			const lines = [...COMMANDS]
 				.sort((a, b) => a.name.localeCompare(b.name))
 				.map((c) => `${`/${c.name}`.padEnd(width)} - ${commandDesc(c.name)}`);
+			// header in the * emote * style, then the aligned list beneath it.
+			const header = `* ${t("system.commands_header")} *`;
 			// persist longer than a status blip - give the reader time to scan it.
-			pushSystem(`<span class="ts">${escapeHtml(lines.join("\n"))}</span>`, SYSTEM_TTL_LONG_MS);
+			pushSystem(`<span class="ts">${escapeHtml([header, ...lines].join("\n"))}</span>`, SYSTEM_TTL_LONG_MS);
 		},
 	},
 ];

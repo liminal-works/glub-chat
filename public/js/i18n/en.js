@@ -84,6 +84,7 @@ export default {
 		cleared: "cleared",
 		uncleared: "restored cleared messages",
 		unknown_command: "unknown command: /{name}",
+		commands_header: "available commands",
 		assist_active: "server assist is active",
 		relay_global_teleport: "#{geo}: not a location, connecting to global relay set...",
 		relay_local: "#{geo}: connecting to local relay set...",

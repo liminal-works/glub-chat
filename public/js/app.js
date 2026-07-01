@@ -1437,10 +1437,11 @@ function transmit(content, geo, displayName = name) {
 
 // --- media upload (assist-only) ----------------------------------------------
 
-// the "+" button exists only while assist mode is live: uploads go to the api,
-// so without it we hide the button and pretend the feature doesn't exist.
+// the "+" button shows only while assist mode is live (uploads go to the api)
+// AND you're focused in a channel (there's a target to send to); otherwise it's
+// hidden and the feature effectively doesn't exist.
 function syncMediaBtn() {
-	mediaBtn.hidden = liveSource !== "assist";
+	mediaBtn.hidden = liveSource !== "assist" || !focusedGeo;
 }
 
 // clean-slate a static image client-side: repaint onto a canvas and export fresh

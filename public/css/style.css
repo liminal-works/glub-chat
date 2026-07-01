@@ -347,7 +347,9 @@ body {
 	padding: 6px 0;
 }
 
-/* media upload "+": only visible while server assist is live (it needs the api) */
+/* media upload "+": sits on the right, just left of "send" but with a generous
+   gap so the two don't read as one control. only shown in a focused channel with
+   assist live (js toggles [hidden]). */
 #mediaBtn {
 	border: 0;
 	background: transparent;
@@ -357,6 +359,7 @@ body {
 	font-weight: 700;
 	cursor: pointer;
 	padding: 6px 0;
+	margin-right: 12px; /* on top of the 12px inputbar gap -> ~24px from "send" */
 }
 
 #mediaBtn[hidden] {

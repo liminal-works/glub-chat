@@ -100,27 +100,31 @@ function profilesActive() {
 
 // pubkey -> { name, about, nip05, hasAvatar } | null (null = looked up, none found)
 const profileCache = new Map();
-const profileInflight = new Set();
+const profileInflight = new Map(); // pubkey -> Promise (shared, so concurrent callers all get the result)
 
-// fetch + cache a pubkey's profile via the api. returns null (and caches nothing)
-// when profiles are inactive or in flight, so callers can re-request after a render.
-async function fetchProfile(pubkey) {
-	if (!profilesActive()) return null;
-	if (profileCache.has(pubkey)) return profileCache.get(pubkey);
-	if (profileInflight.has(pubkey)) return null;
-	profileInflight.add(pubkey);
-	try {
-		const res = await fetch(`${API_BASE}/api/profile?pubkey=${pubkey}`, { cache: "no-store" });
-		if (!res.ok) return null;
-		const data = await res.json();
-		const profile = data.profile || null;
-		profileCache.set(pubkey, profile);
-		return profile;
-	} catch {
-		return null;
-	} finally {
-		profileInflight.delete(pubkey);
-	}
+// fetch + cache a pubkey's profile via the api. concurrent calls share one
+// request; resolved profiles (incl. "none" as null) are cached for the session.
+function fetchProfile(pubkey) {
+	if (!profilesActive()) return Promise.resolve(null);
+	if (profileCache.has(pubkey)) return Promise.resolve(profileCache.get(pubkey));
+	if (profileInflight.has(pubkey)) return profileInflight.get(pubkey);
+
+	const promise = (async () => {
+		try {
+			const res = await fetch(`${API_BASE}/api/profile?pubkey=${pubkey}`, { cache: "no-store" });
+			if (!res.ok) return null; // transient - not cached, so it can retry later
+			const data = await res.json();
+			const profile = data.profile || null;
+			profileCache.set(pubkey, profile);
+			return profile;
+		} catch {
+			return null;
+		} finally {
+			profileInflight.delete(pubkey);
+		}
+	})();
+	profileInflight.set(pubkey, promise);
+	return promise;
 }
 
 // the optional "server assist" history API. Same-origin "/api" by default
@@ -269,6 +273,7 @@ function messageInnerHtml(entry) {
 		const who = expanded ? entry.who : clipWithEllipsis(entry.who, MAX_NAME_LEN);
 		needsToggle = needsToggle || entry.who.length > MAX_NAME_LEN;
 		body =
+			avatarHtml(entry.pubkey, { inline: true }) + // nostr avatar prefixing the name, if any
 			`<span class="bracket" style="color:${color}">&lt;</span>` +
 			`<span class="user" style="color:${color}">@${escapeHtml(who)}</span>` +
 			`<span class="tag" style="color:${color}">#${escapeHtml(entry.tag)}</span>` +
@@ -548,7 +553,7 @@ function renderEvent(ev) {
 	// native bitchat client physically present omits it = "local")
 	const teleport = Array.isArray(ev.tags) && ev.tags.some((t) => t[0] === "t" && t[1] === "teleport");
 
-	insertEntry({
+	const entry = {
 		ts: ev.created_at,
 		geo,
 		system: false,
@@ -568,7 +573,17 @@ function renderEvent(ev) {
 		images: extractImageUrls(text),
 		expanded: false,
 		el: null,
-	});
+	};
+	insertEntry(entry);
+
+	// inline avatar: if profiles are on and we don't know this author yet, fetch
+	// their profile and repaint the line once it (maybe) has an avatar. concurrent
+	// messages from the same author share one request via fetchProfile.
+	if (!entry.action && profilesActive() && !profileCache.has(ev.pubkey)) {
+		fetchProfile(ev.pubkey).then((p) => {
+			if (p && p.hasAvatar && entry.el) rerenderEntryEl(entry);
+		});
+	}
 }
 
 // pubkey -> their latest message entry in `geo`. Pass `withinMs` to keep only
@@ -676,15 +691,17 @@ function closeSettings() {
 	settingsGate.classList.remove("show");
 }
 
-// tiny avatar for a user row: the cached profile's proxied image if it has one,
-// a blank space-holder while profiles are active but unresolved, nothing if off.
-function avatarHtml(pubkey) {
+// avatar for a pubkey: the cached profile's proxied image if it has one. `inline`
+// styles it for a chat line (vs a users-tab row). `placeholder` reserves blank
+// space when there's no avatar (for row alignment); off (chat) shows nothing.
+function avatarHtml(pubkey, { inline = false, placeholder = false } = {}) {
 	if (!profilesActive()) return "";
+	const cls = inline ? "avatar avatarInline" : "avatar";
 	const cached = profileCache.get(pubkey);
 	if (cached && cached.hasAvatar) {
-		return `<img class="avatar" src="${API_BASE}/api/avatar?pubkey=${pubkey}" alt="" loading="lazy" />`;
+		return `<img class="${cls}" src="${API_BASE}/api/avatar?pubkey=${pubkey}" alt="" loading="lazy" />`;
 	}
-	return `<span class="avatar avatarBlank"></span>`;
+	return placeholder ? `<span class="avatar avatarBlank"></span>` : "";
 }
 
 function userRowHtml(u) {
@@ -693,7 +710,7 @@ function userRowHtml(u) {
 	return (
 		`<div class="userRow" data-pubkey="${escapeHtml(u.pubkey)}">` +
 		`<span class="userMeta">` +
-		avatarHtml(u.pubkey) +
+		avatarHtml(u.pubkey, { placeholder: true }) +
 		`<span style="color:${u.color}">@${escapeHtml(clipText(u.who, 22))}<span class="sfx">#${escapeHtml(u.tag)}</span></span>` +
 		ago +
 		`</span>` +

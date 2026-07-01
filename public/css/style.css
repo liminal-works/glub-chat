@@ -478,6 +478,16 @@ body {
 	background: transparent;
 }
 
+/* inline avatar prefixing a name in the chat stream: smaller, sat on the text
+   baseline, with a little breathing room before the name. */
+.avatarInline {
+	width: 15px;
+	height: 15px;
+	vertical-align: -3px;
+	margin-right: 5px;
+	align-self: auto;
+}
+
 /* name + "x ago" travel together on the left; origin stays pinned right */
 .userMeta {
 	display: flex;
@@ -650,13 +660,6 @@ body {
 .settingRow.disabled {
 	opacity: 0.4;
 	pointer-events: none;
-}
-
-.settingNote {
-	color: var(--muted);
-	font-size: 12px;
-	line-height: 1.35;
-	margin: -8px 0 16px;
 }
 
 /* bracketed text toggle in the terminal style ([ on ] / [ off ]) - the real

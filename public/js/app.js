@@ -710,13 +710,13 @@ function avatarHtml(pubkey, { inline = false, placeholder = false } = {}) {
 	return placeholder ? `<span class="avatar avatarBlank"></span>` : "";
 }
 
-function userRowHtml(u) {
+function userRowHtml(u, avatarColumn) {
 	const ago = u.ts ? `<span class="userAgo">${escapeHtml(formatAgo(u.ts))}</span>` : "";
 	const origin = u.teleport ? t("origin.teleport") : t("origin.local");
 	return (
 		`<div class="userRow" data-pubkey="${escapeHtml(u.pubkey)}">` +
 		`<span class="userMeta">` +
-		avatarHtml(u.pubkey, { placeholder: true }) +
+		avatarHtml(u.pubkey, { placeholder: avatarColumn }) +
 		`<span style="color:${u.color}">@${escapeHtml(clipText(u.who, 22))}<span class="sfx">#${escapeHtml(u.tag)}</span></span>` +
 		ago +
 		`</span>` +
@@ -741,14 +741,22 @@ function presentRows(snapshot, excludePubkeys) {
 }
 
 function renderUsers(talking, present) {
+	// only reserve the left avatar column when someone in the list actually has a
+	// picture. most users are burner keys with no nostr profile, so without this
+	// the whole list would be permanently indented for avatars nobody has.
+	const avatarColumn = [...talking, ...present].some((u) => {
+		const cached = profileCache.get(u.pubkey);
+		return cached && cached.hasAvatar;
+	});
+
 	let html = "";
 	if (talking.length) {
 		html += `<div class="usersBarrier">${escapeHtml(t("users.present"))}</div>`;
-		html += talking.map(userRowHtml).join("");
+		html += talking.map((u) => userRowHtml(u, avatarColumn)).join("");
 	}
 	if (present.length) {
 		html += `<div class="usersBarrier">${escapeHtml(t("users.ghosts", { count: present.length }))}</div>`;
-		html += present.map(userRowHtml).join("");
+		html += present.map((u) => userRowHtml(u, avatarColumn)).join("");
 	}
 	usersList.innerHTML = html;
 }

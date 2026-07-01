@@ -296,12 +296,22 @@ body {
 	-webkit-tap-highlight-color: transparent;
 }
 
+/* the active row samples its own --row-accent (e.g. a user's assigned color) so
+   the highlight never clashes with the label; --accent (terminal green) is the
+   fallback for accent-less items like future /command hints. */
 .suggestRow.active {
-	background: color-mix(in srgb, var(--accent) 12%, transparent);
+	background: color-mix(in srgb, var(--row-accent, var(--accent)) 16%, transparent);
 }
 
 .suggestRow .sfx {
 	opacity: 0.6;
+}
+
+/* optional dim secondary label (e.g. a command description); unused by mentions */
+.suggestMeta {
+	color: var(--muted);
+	margin-left: 8px;
+	font-size: 0.85em;
 }
 
 /* flat, borderless composer to match native bitchat: just the input text and a

@@ -1,7 +1,17 @@
 // generic autocomplete/suggestion popup. purely presentational + input handling:
 // it knows nothing about mentions or commands. the caller detects a trigger,
-// hands it a list of items ({ html, insert }) and an onPick callback, and this
-// renders them, tracks the active row, and handles keyboard + pointer selection.
+// hands it a list of items and an onPick callback, and this renders them, tracks
+// the active row, and handles keyboard + pointer selection.
+//
+// each item: {
+//   html:   trusted markup for the row's main label (caller escapes it)
+//   insert: string committed to the input when picked
+//   accent: (optional) a color the active-row highlight samples, so a row can
+//           glow in its own color (e.g. a user's assigned color) instead of one
+//           fixed hue; falls back to the css default when absent
+//   meta:   (optional) trusted markup for a dim secondary label (e.g. a command
+//           description); unused by mentions
+// }
 //
 // the box is styled (css) to sit above the composer and grow upward, so items[0]
 // - the best/nearest match - lands at the bottom, closest to the keyboard.
@@ -13,10 +23,14 @@ export function createSuggest(boxEl) {
 
 	function render() {
 		boxEl.innerHTML = items
-			.map(
-				(it, i) =>
-					`<div class="suggestRow${i === active ? " active" : ""}" data-idx="${i}">${it.html}</div>`
-			)
+			.map((it, i) => {
+				const cls = `suggestRow${i === active ? " active" : ""}`;
+				// per-row highlight tint: the active row samples this color (css
+				// color-mix), so a row glows in its own color rather than one fixed hue.
+				const accent = it.accent ? ` style="--row-accent:${it.accent}"` : "";
+				const meta = it.meta ? `<span class="suggestMeta">${it.meta}</span>` : "";
+				return `<div class="${cls}"${accent} data-idx="${i}">${it.html}${meta}</div>`;
+			})
 			.join("");
 		const activeEl = boxEl.querySelector(".suggestRow.active");
 		if (activeEl) activeEl.scrollIntoView({ block: "nearest" });

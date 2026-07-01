@@ -1288,6 +1288,7 @@ function mentionProvider(value, caret) {
 		.sort((a, b) => a.who.toLowerCase().localeCompare(b.who.toLowerCase()))
 		.map((u) => ({
 			insert: `@${u.who} `,
+			accent: u.color, // active-row highlight samples the user's own color
 			html: `<span style="color:${u.color}">@${escapeHtml(u.who)}<span class="sfx">#${escapeHtml(u.tag)}</span></span>`,
 		}));
 	return { start, end: caret, items };

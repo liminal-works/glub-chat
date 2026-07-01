@@ -30,6 +30,7 @@ export default {
 		title_default: "users",
 		exit: "[EXIT]",
 		empty: "no one here yet",
+		present: "present",
 		ghosts: { one: "ghost", other: "ghosts" },
 	},
 

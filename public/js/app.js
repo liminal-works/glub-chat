@@ -625,7 +625,11 @@ function presentRows(snapshot, excludePubkeys) {
 }
 
 function renderUsers(talking, present) {
-	let html = talking.map(userRowHtml).join("");
+	let html = "";
+	if (talking.length) {
+		html += `<div class="usersBarrier">${escapeHtml(t("users.present"))}</div>`;
+		html += talking.map(userRowHtml).join("");
+	}
 	if (present.length) {
 		html += `<div class="usersBarrier">${escapeHtml(t("users.ghosts", { count: present.length }))}</div>`;
 		html += present.map(userRowHtml).join("");

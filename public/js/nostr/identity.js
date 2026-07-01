@@ -1,6 +1,7 @@
 import { getPublicKey } from "https://esm.sh/nostr-tools@2";
 
 const STORAGE_NAME_KEY = "glub_name";
+const STORAGE_NAME_GEN_KEY = "glub_name_generated"; // was the stored name auto-generated (anon####) vs chosen?
 const STORAGE_SK_KEY = "glub_sk";
 
 function randomHex(len) {
@@ -42,6 +43,13 @@ export function getStoredName() {
 	return localStorage.getItem(STORAGE_NAME_KEY);
 }
 
-export function setStoredName(name) {
+// whether the stored name was auto-generated for the user (vs a name they chose).
+// drives whether "random" re-rolls the name or keeps it.
+export function isStoredNameGenerated() {
+	return localStorage.getItem(STORAGE_NAME_GEN_KEY) === "1";
+}
+
+export function setStoredName(name, generated) {
 	localStorage.setItem(STORAGE_NAME_KEY, name);
+	localStorage.setItem(STORAGE_NAME_GEN_KEY, generated ? "1" : "0");
 }

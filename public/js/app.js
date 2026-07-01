@@ -1,4 +1,4 @@
-import { loadOrCreateIdentity, regenerateIdentity, getStoredName, setStoredName } from "./nostr/identity.js";
+import { loadOrCreateIdentity, regenerateIdentity, getStoredName, setStoredName, isStoredNameGenerated } from "./nostr/identity.js";
 import { fetchRelayList } from "./nostr/relayList.js";
 import { RelayPool } from "./nostr/relayPool.js";
 import { makeChatMessage, getGeohash, getName, CHAT_KIND, PRESENCE_KIND, sortRelaysByGeohash, verifyEvent } from "./nostr/protocol.js";
@@ -22,6 +22,10 @@ const revealedImages = new Set(); // "entryId:idx" keys for images tapped open
 
 let identity = loadOrCreateIdentity(); // mutable: the "random" button mints a fresh one
 let name = getStoredName();
+// tracks whether the name currently in play was auto-generated (anon####) vs
+// chosen. kept in sync with the input while the gate is open; decides whether
+// "random" re-rolls the name too or just the keypair.
+let nameGenerated = isStoredNameGenerated();
 let focusedGeo = null;
 let focusedUserCount = 0;
 let allRelays = []; // [{ url, lat, lon }], populated after the CSV fetch resolves
@@ -564,10 +568,16 @@ function updateNameHint() {
 		`<span class="sfx">#${escapeHtml(ownSuffix)}</span>`;
 }
 
-nameInput.addEventListener("input", updateNameHint);
+// typing (as opposed to the programmatic "random" fill, which doesn't fire
+// "input") means the name is now a chosen/custom one.
+nameInput.addEventListener("input", () => {
+	nameGenerated = false;
+	updateNameHint();
+});
 
 function openNameGate() {
 	nameInput.value = name || "";
+	nameGenerated = isStoredNameGenerated(); // re-sync to the committed state
 	updateNameHint();
 	nameGate.classList.add("show");
 	setTimeout(() => nameInput.focus(), 0);
@@ -761,20 +771,31 @@ nameForm.addEventListener("submit", (e) => {
 	e.preventDefault();
 
 	const value = nameInput.value.trim().slice(0, 24);
-	name = value || randomAnonName();
+	if (value) {
+		name = value;
+		// nameGenerated already reflects the input's origin: true if it came from
+		// "random" untouched, false if typed.
+	} else {
+		name = randomAnonName();
+		nameGenerated = true; // no input -> we generated one
+	}
 
-	setStoredName(name);
+	setStoredName(name, nameGenerated);
 	renderTopbar();
 	closeNameGate();
 });
 
-// "random": mint a brand new keypair and drop a fresh anon#### name into the
-// field, live - the new identity (name + #suffix) previews right in the gate so
-// you can re-roll until you like it, then commit with "enter".
+// "random": mint a brand new keypair. If your name was auto-generated (or the
+// field is empty), re-roll a fresh anon#### too; if you chose a custom name,
+// keep it and only change the keypair. Previews live in the gate; commit with
+// "enter".
 randomBtn.addEventListener("click", () => {
 	identity = regenerateIdentity();
 	ownSuffix = identity.pk.slice(-4);
-	nameInput.value = randomAnonName();
+	if (nameGenerated || !nameInput.value.trim()) {
+		nameInput.value = randomAnonName();
+		nameGenerated = true;
+	}
 	updateNameHint();
 });
 

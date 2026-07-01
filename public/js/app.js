@@ -802,6 +802,7 @@ nameForm.addEventListener("submit", (e) => {
 	setStoredName(name, nameGenerated);
 	renderTopbar();
 	closeNameGate();
+	appendSystem(t("system.welcome", { name })); // ephemeral greeting (fades like other notices)
 });
 
 // "random": mint a brand new keypair. If your name was auto-generated (or the

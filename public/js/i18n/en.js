@@ -72,6 +72,7 @@ export default {
 	},
 
 	system: {
+		welcome: "welcome to the glub, {name}",
 		assist_active: "server assist is active",
 		relay_global_teleport: "#{geo}: not a location, connecting to global relay set...",
 		relay_local: "#{geo}: connecting to local relay set...",

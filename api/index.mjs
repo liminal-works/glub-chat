@@ -4,6 +4,8 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { openStore } from "./store.mjs";
 import { createAggregator } from "./aggregator.mjs";
+import { createProfiles } from "./profiles.mjs";
+import { proxyAvatar } from "./avatar.mjs";
 
 // The optional "server assist" API. Deliberately separate from the static file
 // server (server/index.mjs) so its failure modes - a wedged relay pool, a full
@@ -41,6 +43,7 @@ function broadcast(ev, geo) {
 }
 
 const aggregator = createAggregator(store, { onStored: broadcast });
+const profiles = createProfiles();
 
 const app = express();
 
@@ -80,6 +83,41 @@ app.post("/api/publish", express.json({ limit: "32kb" }), (req, res) => {
 app.get("/api/presence", (req, res) => {
 	const geo = typeof req.query.geo === "string" ? req.query.geo : "";
 	res.json({ users: geo ? aggregator.presenceFor(geo) : [] });
+});
+
+// a pubkey's nostr profile metadata (kind 0), fetched from profile relays and
+// cached. the raw picture url stays server-side (the browser fetches the image
+// via /api/avatar so its IP never reaches the image host); we only report whether
+// an avatar exists. null when no profile is found.
+app.get("/api/profile", async (req, res) => {
+	const pubkey = String(req.query.pubkey || "").toLowerCase();
+	if (!/^[0-9a-f]{64}$/.test(pubkey)) {
+		res.status(400).json({ error: "bad pubkey" });
+		return;
+	}
+	const profile = await profiles.get(pubkey);
+	res.set("Cache-Control", "public, max-age=1800");
+	res.json({
+		profile: profile
+			? { name: profile.name, about: profile.about, nip05: profile.nip05, hasAvatar: !!profile.picture }
+			: null,
+	});
+});
+
+// proxy a pubkey's avatar image (privacy: keeps the viewer's IP off the image
+// host). The url is looked up server-side from the cached profile and SSRF-guarded.
+app.get("/api/avatar", async (req, res) => {
+	const pubkey = String(req.query.pubkey || "").toLowerCase();
+	if (!/^[0-9a-f]{64}$/.test(pubkey)) {
+		res.status(400).end();
+		return;
+	}
+	const profile = await profiles.get(pubkey);
+	if (!profile || !profile.picture) {
+		res.status(404).end();
+		return;
+	}
+	await proxyAvatar(profile.picture, res);
 });
 
 // newest-first history, optionally scoped to a geohash and paged with `before`.
@@ -124,3 +162,4 @@ app.listen(PORT, () => {
 });
 
 aggregator.start();
+profiles.start();

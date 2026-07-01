@@ -20,9 +20,17 @@ export default {
 		assist_description:
 			"server assist pulls deep history and lowers bandwidth via an optional API. your client still works fully on its own if it's off or unavailable.",
 		assist_label: "server assist",
+		profiles_label: "nostr profiles",
+		profiles_note: "requires server assist. shows nostr avatars + bios, fetched via the api so your ip stays off the image hosts.",
 		done: "done",
 		toggle_on: "[ on ]",
 		toggle_off: "[ off ]",
+	},
+
+	profile: {
+		close: "close",
+		loading: "loading profile…",
+		none: "no nostr profile",
 	},
 
 	users: {

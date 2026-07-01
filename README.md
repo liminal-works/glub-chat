@@ -106,6 +106,8 @@ public/   the client. identity, relay connections, signing — all in the browse
 api/      optional assist service — its own process, never holds keys
   store.mjs       sqlite rolling buffer (insert + history queries)
   aggregator.mjs  relay subscriber → verify → store + presence tracking
+  profiles.mjs    on-demand nostr profile (kind 0) fetch + cache
+  avatar.mjs      ssrf-guarded avatar image proxy (keeps your ip off image hosts)
   index.mjs       read-only http endpoints + live stream + publish fanout
 ```
 
@@ -117,8 +119,9 @@ a channel user list (who's talking, plus detected "ghosts") backed by presence
 heartbeats we both read and broadcast (a semi-random ~47–60s announce, only while
 viewing a channel), @-mention autocomplete, blurred tap-to-reveal image previews,
 send confirmation with automatic rebroadcast, local slash commands (/help, /clear,
-/unclear, /echo) — some of which broadcast as your ".bot" — and the optional
-server assist above.
+/unclear, /echo) — some of which broadcast as your ".bot" — optional nostr profiles
+(opt-in, assist-only: avatars + bios, with the image proxied through the api so
+your ip stays off the hosts), and the optional server assist above.
 
 it's intentionally focused. the kitchen sink from the old prototype (themes, the
 message board, the ai persona, cashu wallet/betting, and the rest) is left out,

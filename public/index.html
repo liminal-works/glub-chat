@@ -63,6 +63,13 @@
 						<span class="toggleVisual" aria-hidden="true"></span>
 					</label>
 
+					<label id="profilesRow" class="settingRow" for="profilesToggle">
+						<span data-i18n="settings.profiles_label">nostr profiles</span>
+						<input id="profilesToggle" type="checkbox" class="assistCheck" />
+						<span class="toggleVisual" aria-hidden="true"></span>
+					</label>
+					<div class="settingNote" data-i18n="settings.profiles_note">requires server assist</div>
+
 					<button id="settingsClose" type="button" data-i18n="settings.done">done</button>
 				</div>
 			</div>
@@ -74,6 +81,20 @@
 						<strong id="usersClose" class="usersExit" data-i18n="users.exit">[EXIT]</strong>
 					</div>
 					<div id="usersList" class="usersList"></div>
+				</div>
+			</div>
+
+			<div id="profileGate" class="gate">
+				<div class="gateCard profileCard">
+					<div class="profileHead">
+						<img id="profileAvatar" class="profileAvatar" alt="" hidden />
+						<div class="profileIdent">
+							<div id="profileName" class="profileName"></div>
+							<div id="profileNip05" class="profileNip05"></div>
+						</div>
+					</div>
+					<div id="profileAbout" class="profileAbout"></div>
+					<button id="profileClose" type="button" data-i18n="profile.close">close</button>
 				</div>
 			</div>
 

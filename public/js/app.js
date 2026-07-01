@@ -41,11 +41,19 @@ const nameHint = document.getElementById("nameHint");
 const randomBtn = document.getElementById("randomBtn");
 const settingsGate = document.getElementById("settingsGate");
 const assistToggle = document.getElementById("assistToggle");
+const profilesToggle = document.getElementById("profilesToggle");
+const profilesRow = document.getElementById("profilesRow");
 const settingsClose = document.getElementById("settingsClose");
 const usersGate = document.getElementById("usersGate");
 const usersTitle = document.getElementById("usersTitle");
 const usersList = document.getElementById("usersList");
 const usersClose = document.getElementById("usersClose");
+const profileGate = document.getElementById("profileGate");
+const profileAvatar = document.getElementById("profileAvatar");
+const profileName = document.getElementById("profileName");
+const profileNip05 = document.getElementById("profileNip05");
+const profileAbout = document.getElementById("profileAbout");
+const profileClose = document.getElementById("profileClose");
 const terminal = document.getElementById("terminal");
 const brandEl = document.getElementById("brand");
 const statusEl = document.getElementById("status");
@@ -71,6 +79,48 @@ function getAssistEnabled() {
 
 function setAssistEnabled(on) {
 	localStorage.setItem(STORAGE_ASSIST_KEY, on ? "true" : "false");
+}
+
+// nostr profiles (avatars + bios) are an opt-in extra that relies entirely on the
+// api, so they're only ever enabled when server assist is too - and only actually
+// usable once the api is reachable. off by default.
+const STORAGE_PROFILES_KEY = "glub_profiles";
+
+function getProfilesEnabled() {
+	return getAssistEnabled() && localStorage.getItem(STORAGE_PROFILES_KEY) === "true";
+}
+
+function setProfilesEnabled(on) {
+	localStorage.setItem(STORAGE_PROFILES_KEY, on ? "true" : "false");
+}
+
+function profilesActive() {
+	return getProfilesEnabled() && apiAvailable;
+}
+
+// pubkey -> { name, about, nip05, hasAvatar } | null (null = looked up, none found)
+const profileCache = new Map();
+const profileInflight = new Set();
+
+// fetch + cache a pubkey's profile via the api. returns null (and caches nothing)
+// when profiles are inactive or in flight, so callers can re-request after a render.
+async function fetchProfile(pubkey) {
+	if (!profilesActive()) return null;
+	if (profileCache.has(pubkey)) return profileCache.get(pubkey);
+	if (profileInflight.has(pubkey)) return null;
+	profileInflight.add(pubkey);
+	try {
+		const res = await fetch(`${API_BASE}/api/profile?pubkey=${pubkey}`, { cache: "no-store" });
+		if (!res.ok) return null;
+		const data = await res.json();
+		const profile = data.profile || null;
+		profileCache.set(pubkey, profile);
+		return profile;
+	} catch {
+		return null;
+	} finally {
+		profileInflight.delete(pubkey);
+	}
 }
 
 // the optional "server assist" history API. Same-origin "/api" by default
@@ -608,8 +658,17 @@ function closeNameGate() {
 	nameGate.classList.remove("show");
 }
 
+// the nostr-profiles row is inert unless server assist is on (it relies on the api)
+function syncProfilesRow() {
+	const enabled = getAssistEnabled();
+	profilesToggle.disabled = !enabled;
+	profilesRow.classList.toggle("disabled", !enabled);
+}
+
 function openSettings() {
 	assistToggle.checked = getAssistEnabled();
+	profilesToggle.checked = getProfilesEnabled();
+	syncProfilesRow();
 	settingsGate.classList.add("show");
 }
 
@@ -617,12 +676,24 @@ function closeSettings() {
 	settingsGate.classList.remove("show");
 }
 
+// tiny avatar for a user row: the cached profile's proxied image if it has one,
+// a blank space-holder while profiles are active but unresolved, nothing if off.
+function avatarHtml(pubkey) {
+	if (!profilesActive()) return "";
+	const cached = profileCache.get(pubkey);
+	if (cached && cached.hasAvatar) {
+		return `<img class="avatar" src="${API_BASE}/api/avatar?pubkey=${pubkey}" alt="" loading="lazy" />`;
+	}
+	return `<span class="avatar avatarBlank"></span>`;
+}
+
 function userRowHtml(u) {
 	const ago = u.ts ? `<span class="userAgo">${escapeHtml(formatAgo(u.ts))}</span>` : "";
 	const origin = u.teleport ? t("origin.teleport") : t("origin.local");
 	return (
-		`<div class="userRow">` +
+		`<div class="userRow" data-pubkey="${escapeHtml(u.pubkey)}">` +
 		`<span class="userMeta">` +
+		avatarHtml(u.pubkey) +
 		`<span style="color:${u.color}">@${escapeHtml(clipText(u.who, 22))}<span class="sfx">#${escapeHtml(u.tag)}</span></span>` +
 		ago +
 		`</span>` +
@@ -637,6 +708,7 @@ function presentRows(snapshot, excludePubkeys) {
 	return snapshot
 		.filter((p) => p && typeof p.pubkey === "string" && !excludePubkeys.has(p.pubkey))
 		.map((p) => ({
+			pubkey: p.pubkey,
 			who: p.name || "anon",
 			tag: p.pubkey.slice(-4),
 			color: pubkeyColor(p.pubkey),
@@ -673,7 +745,7 @@ async function openUsers() {
 	talkingPubkeys.add(identity.pk); // never show yourself as a ghost (assist snapshot includes you)
 
 	usersTitle.textContent = t("users.title", { geo: clipText(geo, 14) });
-	renderUsers(talking, presentRows(localPresence(geo), talkingPubkeys));
+	showUsers(geo, talking, presentRows(localPresence(geo), talkingPubkeys));
 	usersGate.classList.add("show");
 
 	if (liveSource === "assist") {
@@ -683,12 +755,64 @@ async function openUsers() {
 			const data = await res.json();
 			// still on the same channel + panel open? then merge the api snapshot
 			if (focusedGeo === geo && usersGate.classList.contains("show") && Array.isArray(data.users)) {
-				renderUsers(talking, presentRows(data.users, talkingPubkeys));
+				showUsers(geo, talking, presentRows(data.users, talkingPubkeys));
 			}
 		} catch {
 			// keep the synchronous (local) render
 		}
 	}
+}
+
+// the users panel's current state, so async profile hydration always re-renders
+// the latest lists (not a stale snapshot captured before the api presence merge).
+let currentUsers = { geo: null, talking: [], present: [] };
+
+function showUsers(geo, talking, present) {
+	currentUsers = { geo, talking, present };
+	renderUsers(talking, present);
+	hydrateProfiles();
+}
+
+// fetch profiles for the users shown, then re-render once so their avatars appear.
+// no-op when profiles are inactive or everyone's already cached.
+function hydrateProfiles() {
+	if (!profilesActive()) return;
+	const { geo, talking, present } = currentUsers;
+	const pubkeys = [...new Set([...talking, ...present].map((u) => u.pubkey))].filter((pk) => !profileCache.has(pk));
+	if (!pubkeys.length) return;
+	Promise.allSettled(pubkeys.map(fetchProfile)).then(() => {
+		if (focusedGeo === currentUsers.geo && usersGate.classList.contains("show")) {
+			renderUsers(currentUsers.talking, currentUsers.present);
+		}
+	});
+}
+
+// nostr profile card: tap a user to see their avatar + bio (profiles must be on).
+async function openProfileCard(pubkey) {
+	if (!profilesActive()) return;
+	const entry = entries.find((e) => !e.system && e.pubkey === pubkey);
+	const who = entry ? entry.who : profileCache.get(pubkey)?.name || "anon";
+	profileName.innerHTML =
+		`<span style="color:${pubkeyColor(pubkey)}">@${escapeHtml(clipText(who, 24))}` +
+		`<span class="sfx">#${escapeHtml(pubkey.slice(-4))}</span></span>`;
+	profileNip05.textContent = "";
+	profileAbout.textContent = t("profile.loading");
+	profileAvatar.hidden = true;
+	profileGate.classList.add("show");
+
+	const profile = await fetchProfile(pubkey);
+	if (!profileGate.classList.contains("show")) return; // dismissed while loading
+	if (profile && profile.hasAvatar) {
+		profileAvatar.src = `${API_BASE}/api/avatar?pubkey=${pubkey}`;
+		profileAvatar.hidden = false;
+	}
+	profileNip05.textContent = profile && profile.nip05 ? profile.nip05 : "";
+	profileAbout.textContent = profile && profile.about ? profile.about : t("profile.none");
+}
+
+function closeProfileCard() {
+	profileGate.classList.remove("show");
+	profileAvatar.removeAttribute("src"); // stop/release the image
 }
 
 function closeUsers() {
@@ -717,6 +841,7 @@ statusEl.addEventListener("click", (e) => {
 
 assistToggle.addEventListener("change", async () => {
 	setAssistEnabled(assistToggle.checked);
+	syncProfilesRow(); // profiles depend on assist, so reflect that immediately
 	if (assistToggle.checked) {
 		// flip to assist if the api is reachable; otherwise stay on relays and let
 		// the maintain loop promote us once it comes up. Re-check the toggle after
@@ -729,6 +854,13 @@ assistToggle.addEventListener("change", async () => {
 		enterRelayMode();
 	}
 });
+
+profilesToggle.addEventListener("change", () => {
+	if (profilesToggle.disabled) return;
+	setProfilesEnabled(profilesToggle.checked);
+	if (usersGate.classList.contains("show")) openUsers(); // reflect avatars on/off
+});
+
 settingsClose.addEventListener("click", closeSettings);
 // tapping the dimmed backdrop (outside the card) dismisses settings
 settingsGate.addEventListener("click", (e) => {
@@ -738,6 +870,17 @@ settingsGate.addEventListener("click", (e) => {
 usersClose.addEventListener("click", closeUsers);
 usersGate.addEventListener("click", (e) => {
 	if (e.target === usersGate) closeUsers();
+});
+// tap a user row to open their nostr profile card (when profiles are on)
+usersList.addEventListener("click", (e) => {
+	if (!profilesActive()) return;
+	const row = e.target.closest(".userRow");
+	if (row && row.dataset.pubkey) openProfileCard(row.dataset.pubkey);
+});
+
+profileClose.addEventListener("click", closeProfileCard);
+profileGate.addEventListener("click", (e) => {
+	if (e.target === profileGate) closeProfileCard();
 });
 
 // once the user scrolls up to read history, stop yanking them back to the

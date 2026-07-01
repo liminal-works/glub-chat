@@ -462,6 +462,22 @@ body {
 	gap: 12px;
 }
 
+/* tiny nostr avatar prefixing a user row (only when nostr profiles is on). the
+   blank variant reserves the same space so rows without an avatar stay aligned. */
+.avatar {
+	flex: none;
+	width: 18px;
+	height: 18px;
+	border-radius: 50%;
+	object-fit: cover;
+	align-self: center;
+	background: var(--chrome-border);
+}
+
+.avatarBlank {
+	background: transparent;
+}
+
 /* name + "x ago" travel together on the left; origin stays pinned right */
 .userMeta {
 	display: flex;
@@ -490,6 +506,75 @@ body {
 
 .userOrigin.local {
 	color: var(--accent); /* physically-present users stand out */
+}
+
+/* nostr profile card (tap a user to see their avatar + bio) */
+.profileCard {
+	display: flex;
+	flex-direction: column;
+	gap: 14px;
+}
+
+.profileHead {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+}
+
+.profileAvatar {
+	flex: none;
+	width: 56px;
+	height: 56px;
+	border-radius: 50%;
+	object-fit: cover;
+	background: var(--chrome-border);
+	border: 1px solid var(--chrome-border);
+}
+
+.profileAvatar[hidden] {
+	display: none;
+}
+
+.profileIdent {
+	min-width: 0;
+}
+
+.profileName {
+	font-size: 15px;
+	font-weight: 700;
+	word-break: break-word;
+}
+
+.profileName .sfx {
+	opacity: 0.6;
+}
+
+.profileNip05 {
+	color: var(--muted);
+	font-size: 12px;
+	margin-top: 2px;
+	word-break: break-word;
+}
+
+.profileAbout {
+	color: var(--fg);
+	font-size: 14px;
+	line-height: 1.4;
+	white-space: pre-wrap;
+	word-break: break-word;
+	max-height: 40vh;
+	overflow-y: auto;
+}
+
+.profileCard #profileClose {
+	width: 100%;
+	border: 1px solid var(--chrome-border);
+	background: transparent;
+	color: var(--accent);
+	font: inherit;
+	font-weight: 700;
+	padding: 10px 12px;
+	cursor: pointer;
 }
 
 #nameForm {
@@ -558,6 +643,20 @@ body {
 	color: var(--fg);
 	font-size: 14px;
 	cursor: pointer;
+}
+
+/* a setting that depends on another (e.g. nostr profiles needs server assist):
+   dimmed and inert until its dependency is on. */
+.settingRow.disabled {
+	opacity: 0.4;
+	pointer-events: none;
+}
+
+.settingNote {
+	color: var(--muted);
+	font-size: 12px;
+	line-height: 1.35;
+	margin: -8px 0 16px;
 }
 
 /* bracketed text toggle in the terminal style ([ on ] / [ off ]) - the real

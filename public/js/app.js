@@ -82,7 +82,8 @@ const ASSIST_FALLBACK_MS = 12_000; // grace period before a dead stream falls ba
 const ASSIST_MAINTAIN_MS = 30_000; // health re-check cadence (status freshness + recovery)
 const ACK_TIMEOUT_MS = 15_000; // wait this long for an echo before rebroadcasting / giving up
 const MAX_SEND_ATTEMPTS = 3; // initial broadcast + up to 2 automatic rebroadcasts
-const PRESENCE_FRESH_MS = 5 * 60_000; // a detected presence is "live" within this window
+const PRESENCE_FRESH_MS = 5 * 60_000; // a user counts as "present" within this window (fresh message or presence)
+const PRESENCE_TICK_MS = 30_000; // re-evaluate presence/count on this cadence so stale users drop off without new activity
 const SYSTEM_TTL_MS = 7_000; // how long an ephemeral status notice stays before fading out
 const SYSTEM_FADE_MS = 300; // fade-out duration before the faded line is removed (matches css)
 
@@ -512,15 +513,29 @@ function renderEvent(ev) {
 	});
 }
 
+// pubkey -> their latest message entry in `geo`, but only messages within the
+// freshness window. someone who chatted hours ago (and isn't sending presence)
+// is treated as gone, so they fall out of the count and the "present" list.
+function freshTalkers(geo) {
+	const cutoff = Math.floor(Date.now() / 1000) - PRESENCE_FRESH_MS / 1000;
+	const latest = new Map();
+	for (const e of entries) {
+		if (e.system || e.geo !== geo || e.ts < cutoff) continue;
+		const prev = latest.get(e.pubkey);
+		if (!prev || e.ts >= prev.ts) latest.set(e.pubkey, e);
+	}
+	return latest;
+}
+
 function updateFocusedUserCount() {
 	if (!focusedGeo) {
 		focusedUserCount = 0;
 		return;
 	}
-	const users = new Set();
-	for (const entry of entries) {
-		if (!entry.system && entry.geo === focusedGeo) users.add(entry.pubkey);
-	}
+	// present = active in the last few minutes: a fresh message OR a recent
+	// presence heartbeat. anyone with neither is considered gone.
+	const users = new Set(freshTalkers(focusedGeo).keys());
+	for (const p of localPresence(focusedGeo)) users.add(p.pubkey);
 	focusedUserCount = users.size;
 }
 
@@ -646,12 +661,7 @@ async function openUsers() {
 	if (!focusedGeo) return;
 	const geo = focusedGeo;
 
-	const latest = new Map(); // pubkey -> entry (their most recent message here)
-	for (const e of entries) {
-		if (e.system || e.geo !== geo) continue;
-		const prev = latest.get(e.pubkey);
-		if (!prev || e.ts >= prev.ts) latest.set(e.pubkey, e);
-	}
+	const latest = freshTalkers(geo); // fresh messages only; stale chatters drop off
 	const talking = [...latest.values()].sort((a, b) => b.ts - a.ts);
 	const talkingPubkeys = new Set(latest.keys());
 
@@ -1114,6 +1124,16 @@ onLocaleChange(() => {
 	updateNewMessagesBar();
 	rerenderTerminal();
 });
+
+// presence/activity decays with time, so re-evaluate the focused channel on a
+// timer - the count drops as users go stale even when no new messages arrive,
+// and an open user list refreshes with them.
+setInterval(() => {
+	if (!focusedGeo) return;
+	updateFocusedUserCount();
+	renderTopbar();
+	if (usersGate.classList.contains("show")) openUsers();
+}, PRESENCE_TICK_MS);
 
 // initial paint - done after `pool` exists since renderTopbar reads its counts
 renderTopbar();

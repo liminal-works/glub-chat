@@ -73,6 +73,10 @@ export default {
 
 	system: {
 		welcome: "welcome to the glub, {name}",
+		cleared: "cleared",
+		name_set: "you are now {name}",
+		help: "commands: {list}",
+		unknown_command: "unknown command: /{name}",
 		assist_active: "server assist is active",
 		relay_global_teleport: "#{geo}: not a location, connecting to global relay set...",
 		relay_local: "#{geo}: connecting to local relay set...",

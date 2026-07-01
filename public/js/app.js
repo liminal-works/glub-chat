@@ -111,6 +111,7 @@ let liveSource = "relays"; // "relays" | "assist" - where live events currently 
 let eventSource = null; // the SSE connection while in assist mode
 let assistFallbackTimer = null;
 let barrierShown = false; // "beginning of chat" marker rendered once per session
+let clearedBefore = 0; // /clear cutoff (epoch secs): entries older than this are filtered from view
 
 function escapeHtml(s) {
 	return String(s).replace(
@@ -195,6 +196,7 @@ function linkify(safe) {
 }
 
 function entryVisible(entry) {
+	if (entry.ts < clearedBefore) return false; // hidden by /clear (local view filter)
 	return entry.system || !focusedGeo || entry.geo === focusedGeo;
 }
 
@@ -1238,6 +1240,13 @@ function parseDraft(raw) {
 }
 
 function send() {
+	// intercept local slash commands before anything is parsed as a message
+	if (runCommand(chatInput.value)) {
+		chatInput.value = "";
+		suggest.hide();
+		return;
+	}
+
 	const draft = parseDraft(chatInput.value);
 	chatInput.value = "";
 	suggest.hide();
@@ -1258,6 +1267,76 @@ function send() {
 	renderEvent(event);
 	attemptBroadcast(event.id);
 	jumpToBottom(); // sending always returns you to the live bottom
+}
+
+// --- local slash commands ----------------------------------------------------
+// client-only commands (no protocol traffic). add one here and it's instantly
+// runnable from the composer and discoverable via the "/" autocomplete below.
+// each: { name, description, run(arg) }.
+const COMMANDS = [
+	{
+		name: "clear",
+		description: "clear the view",
+		run() {
+			// filter out everything up to now; new messages (ts >= cutoff) repopulate.
+			clearedBefore = Math.floor(Date.now() / 1000);
+			rerenderTerminal();
+			appendSystem(t("system.cleared"));
+		},
+	},
+	{
+		name: "name",
+		description: "set your display name",
+		run(arg) {
+			const next = arg.slice(0, 24).trim();
+			if (!next) {
+				openNameGate(); // no argument -> open the picker
+				return;
+			}
+			name = next;
+			nameGenerated = false; // explicitly chosen
+			setStoredName(name, false);
+			renderTopbar();
+			appendSystem(t("system.name_set", { name }));
+		},
+	},
+	{
+		name: "help",
+		description: "list commands",
+		run() {
+			appendSystem(t("system.help", { list: COMMANDS.map((c) => `/${c.name}`).join(" ") }));
+		},
+	},
+];
+
+// run a "/command ..." line locally. returns true if it matched a known command
+// (so send() won't also transmit it). an unknown "/..." returns false and falls
+// through as a normal message, so a literal slash message still works.
+function runCommand(raw) {
+	const text = raw.trim();
+	if (!text.startsWith("/")) return false;
+	const [word, ...rest] = text.slice(1).split(/\s+/);
+	const cmd = COMMANDS.find((c) => c.name === word.toLowerCase());
+	if (!cmd) return false;
+	cmd.run(rest.join(" ").trim());
+	return true;
+}
+
+// suggest provider: a "/command" typed at the very start of the composer. unlike
+// mentions this isn't gated to a focused channel - commands work anywhere.
+function commandProvider(value, caret) {
+	const before = value.slice(0, caret);
+	const m = before.match(/^\/(\w*)$/);
+	if (!m) return null;
+	const query = m[1].toLowerCase();
+	const items = COMMANDS.filter((c) => c.name.startsWith(query))
+		.sort((a, b) => a.name.localeCompare(b.name))
+		.map((c) => ({
+			insert: `/${c.name} `,
+			html: `<strong>/${escapeHtml(c.name)}</strong>`,
+			meta: escapeHtml(c.description), // dim description in the reusable meta slot
+		}));
+	return { start: 0, end: caret, items };
 }
 
 // --- @mention (and future /command) autocomplete ----------------------------
@@ -1294,7 +1373,7 @@ function mentionProvider(value, caret) {
 	return { start, end: caret, items };
 }
 
-const SUGGEST_PROVIDERS = [mentionProvider];
+const SUGGEST_PROVIDERS = [commandProvider, mentionProvider];
 
 function refreshSuggest() {
 	const value = chatInput.value;

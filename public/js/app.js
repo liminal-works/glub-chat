@@ -1239,6 +1239,27 @@ function parseDraft(raw) {
 	return { geo: first, content: rest };
 }
 
+// the display name for command/bot output: your name suffixed with ".bot", so
+// broadcasted command results read as "carson.bot" - clearly automated, still
+// signed by (and attributed to) your own key.
+function botName() {
+	return `${name || "anon"}.bot`;
+}
+
+// build, sign, render, and broadcast a chat message under `displayName` (your
+// name by default). shared by normal sends and bot-output commands, so command
+// broadcasts get the same echo-confirmation + rebroadcast treatment as any send.
+function transmit(content, geo, displayName = name) {
+	const event = makeChatMessage({ content, geohash: geo, name: displayName, sk: identity.sk, pk: identity.pk });
+	seen.add(event.id);
+	// track before rendering so renderEvent's pendingAck picks it up, then
+	// broadcast + arm the confirm/rebroadcast timer.
+	pending.set(event.id, { event, firstSentAt: Date.now(), attempts: 0, timer: null });
+	renderEvent(event);
+	attemptBroadcast(event.id);
+	jumpToBottom(); // sending always returns you to the live bottom
+}
+
 function send() {
 	// intercept local slash commands before anything is parsed as a message
 	if (runCommand(chatInput.value)) {
@@ -1251,22 +1272,7 @@ function send() {
 	chatInput.value = "";
 	suggest.hide();
 	if (!draft) return;
-
-	const event = makeChatMessage({
-		content: draft.content,
-		geohash: draft.geo,
-		name,
-		sk: identity.sk,
-		pk: identity.pk,
-	});
-
-	seen.add(event.id);
-	// track before rendering so renderEvent's pendingAck picks it up ("…"), then
-	// broadcast + arm the confirm/rebroadcast timer.
-	pending.set(event.id, { event, firstSentAt: Date.now(), attempts: 0, timer: null });
-	renderEvent(event);
-	attemptBroadcast(event.id);
-	jumpToBottom(); // sending always returns you to the live bottom
+	transmit(draft.content, draft.geo);
 }
 
 // --- local slash commands ----------------------------------------------------
@@ -1295,6 +1301,19 @@ const COMMANDS = [
 			clearedBefore = 0;
 			rerenderTerminal();
 			appendSystem(t("system.uncleared"));
+		},
+	},
+	{
+		name: "echo",
+		run(arg) {
+			// a broadcast command: posts a real message to the channel as your ".bot".
+			if (!focusedGeo) {
+				appendSystem(t("system.needs_channel")); // no channel = no broadcast target
+				return;
+			}
+			const msg = arg.trim();
+			if (!msg) return;
+			transmit(msg, focusedGeo, botName());
 		},
 	},
 	{

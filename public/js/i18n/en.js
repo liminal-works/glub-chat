@@ -76,6 +76,7 @@ export default {
 	commands: {
 		clear: "clear the view",
 		unclear: "restore cleared messages",
+		echo: "echo a message via your bot",
 		help: "list commands",
 	},
 
@@ -83,6 +84,7 @@ export default {
 		welcome: "welcome to the glub, {name}",
 		cleared: "cleared",
 		uncleared: "restored cleared messages",
+		needs_channel: "join a channel first",
 		unknown_command: "unknown command: /{name}",
 		commands_header: "available commands",
 		assist_active: "server assist is active",

@@ -115,8 +115,10 @@ what works today: keypair identity, relay discovery, joining a geohash channel,
 sending and receiving chat, per-user colors ported from bitchat's exact algorithm,
 a channel user list (who's talking, plus detected "ghosts") backed by presence
 heartbeats we both read and broadcast (a semi-random ~47–60s announce, only while
-viewing a channel), blurred tap-to-reveal image previews, send confirmation with
-automatic rebroadcast, and the optional server assist above.
+viewing a channel), @-mention autocomplete, blurred tap-to-reveal image previews,
+send confirmation with automatic rebroadcast, local slash commands (/help, /clear,
+/unclear, /echo) — some of which broadcast as your ".bot" — and the optional
+server assist above.
 
 it's intentionally focused. the kitchen sink from the old prototype (themes, the
 message board, the ai persona, cashu wallet/betting, and the rest) is left out,

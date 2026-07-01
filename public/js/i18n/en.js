@@ -12,7 +12,7 @@ export default {
 		subtitle_2: "just pick a name to start chatting.",
 		input_placeholder: "alias",
 		enter: "enter",
-		random: "random",
+		burner: "burner",
 	},
 
 	settings: {

@@ -38,7 +38,7 @@ const nameGate = document.getElementById("nameGate");
 const nameForm = document.getElementById("nameForm");
 const nameInput = document.getElementById("nameInput");
 const nameHint = document.getElementById("nameHint");
-const randomBtn = document.getElementById("randomBtn");
+const burnerBtn = document.getElementById("burnerBtn");
 const settingsGate = document.getElementById("settingsGate");
 const assistToggle = document.getElementById("assistToggle");
 const profilesToggle = document.getElementById("profilesToggle");
@@ -979,11 +979,11 @@ nameForm.addEventListener("submit", (e) => {
 	appendSystem(t("system.welcome", { name })); // ephemeral greeting (fades like other notices)
 });
 
-// "random": mint a brand new keypair. If your name was auto-generated (or the
-// field is empty), re-roll a fresh anon#### too; if you chose a custom name,
-// keep it and only change the keypair. Previews live in the gate; commit with
-// "enter".
-randomBtn.addEventListener("click", () => {
+// "burner": mint a brand new keypair (a fresh throwaway identity). If your name
+// was auto-generated (or the field is empty), re-roll a fresh anon#### too; if
+// you chose a custom name, keep it and only change the keypair. Previews live in
+// the gate; commit with "enter".
+burnerBtn.addEventListener("click", () => {
 	identity = regenerateIdentity();
 	ownSuffix = identity.pk.slice(-4);
 	if (nameGenerated || !nameInput.value.trim()) {

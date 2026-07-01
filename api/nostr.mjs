@@ -25,6 +25,7 @@ export function parseProfile(ev) {
 		name: str(data.display_name || data.displayName || data.name, 64),
 		about: str(data.about, 500),
 		picture: str(data.picture, 512),
+		banner: str(data.banner, 512),
 		nip05: str(data.nip05, 128),
 	};
 }

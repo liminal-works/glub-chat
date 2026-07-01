@@ -6,6 +6,7 @@ import { openStore } from "./store.mjs";
 import { createAggregator } from "./aggregator.mjs";
 import { createProfiles } from "./profiles.mjs";
 import { proxyAvatar } from "./avatar.mjs";
+import { createMediaStore } from "./media.mjs";
 
 // The optional "server assist" API. Deliberately separate from the static file
 // server (server/index.mjs) so its failure modes - a wedged relay pool, a full
@@ -24,6 +25,13 @@ const HEARTBEAT_MS = 25_000; // SSE keep-alive comment, under common proxy idle 
 // generous enough that busy channels don't crowd out quiet ones. Tune via env.
 const BUFFER_MAX = Number(process.env.API_BUFFER_MAX) || 2000;
 const PRUNE_INTERVAL_MS = 60_000;
+// ephemeral media uploads: size + item caps (anti-flood), 24h TTL in media.mjs.
+const MEDIA_MAX_BYTES = Number(process.env.API_MEDIA_MAX_BYTES) || 10 * 1024 * 1024;
+const MEDIA_MAX_ITEMS = Number(process.env.API_MEDIA_MAX_ITEMS) || 50;
+const MEDIA_DIR = process.env.API_MEDIA_DIR || path.join(__dirname, "media-tmp");
+// the public origin baked into shared media urls (they're read by other clients,
+// so they must be absolute). Falls back to the request's forwarded host.
+const PUBLIC_ORIGIN = (process.env.API_PUBLIC_ORIGIN || "").replace(/\/+$/, "");
 
 const store = openStore(DB_PATH);
 
@@ -44,6 +52,7 @@ function broadcast(ev, geo) {
 
 const aggregator = createAggregator(store, { onStored: broadcast });
 const profiles = createProfiles();
+const media = createMediaStore({ dir: MEDIA_DIR, maxItems: MEDIA_MAX_ITEMS });
 
 const app = express();
 
@@ -99,25 +108,71 @@ app.get("/api/profile", async (req, res) => {
 	res.set("Cache-Control", "public, max-age=1800");
 	res.json({
 		profile: profile
-			? { name: profile.name, about: profile.about, nip05: profile.nip05, hasAvatar: !!profile.picture }
+			? {
+					name: profile.name,
+					about: profile.about,
+					nip05: profile.nip05,
+					hasAvatar: !!profile.picture,
+					hasBanner: !!profile.banner,
+			  }
 			: null,
 	});
 });
 
-// proxy a pubkey's avatar image (privacy: keeps the viewer's IP off the image
-// host). The url is looked up server-side from the cached profile and SSRF-guarded.
-app.get("/api/avatar", async (req, res) => {
+// proxy a profile image (avatar or banner) by pubkey (privacy: keeps the
+// viewer's IP off the image host). The url is looked up server-side from the
+// cached profile and SSRF-guarded; the raw url never reaches the client.
+async function serveProfileImage(req, res, field) {
 	const pubkey = String(req.query.pubkey || "").toLowerCase();
 	if (!/^[0-9a-f]{64}$/.test(pubkey)) {
 		res.status(400).end();
 		return;
 	}
 	const profile = await profiles.get(pubkey);
-	if (!profile || !profile.picture) {
+	if (!profile || !profile[field]) {
 		res.status(404).end();
 		return;
 	}
-	await proxyAvatar(profile.picture, res);
+	await proxyAvatar(profile[field], res);
+}
+
+app.get("/api/avatar", (req, res) => serveProfileImage(req, res, "picture"));
+app.get("/api/banner", (req, res) => serveProfileImage(req, res, "banner"));
+
+// upload an image for ephemeral hosting (~24h, capped item count). The payload
+// is rebuilt from scratch (see media.mjs) so no EXIF/GPS/metadata survives, then
+// hosted at a plain extension-suffixed url the client drops into chat as
+// "[image] {url}" (the marker native bitchat clients recognize).
+app.post(
+	"/api/media",
+	express.raw({ type: ["image/jpeg", "image/png", "image/gif"], limit: MEDIA_MAX_BYTES }),
+	(req, res) => {
+		if (!Buffer.isBuffer(req.body) || req.body.length === 0) {
+			res.status(415).json({ ok: false, error: "unsupported media type" });
+			return;
+		}
+		const file = media.put(req.body, (req.headers["content-type"] || "").split(";")[0]);
+		if (!file) {
+			res.status(415).json({ ok: false, error: "not a valid image" });
+			return;
+		}
+		// media urls are shared into chat, so they must be absolute for other clients
+		const proto = req.headers["x-forwarded-proto"] || req.protocol;
+		const host = req.headers["x-forwarded-host"] || req.headers.host;
+		const origin = PUBLIC_ORIGIN || `${proto}://${host}`;
+		res.json({ ok: true, url: `${origin}/api/media/${file}` });
+	}
+);
+
+app.get("/api/media/:file", (req, res) => {
+	const item = media.get(String(req.params.file || ""));
+	if (!item) {
+		res.status(404).end();
+		return;
+	}
+	res.set("Content-Type", item.mime);
+	res.set("Cache-Control", "public, max-age=86400, immutable");
+	res.sendFile(item.path);
 });
 
 // newest-first history, optionally scoped to a geohash and paged with `before`.

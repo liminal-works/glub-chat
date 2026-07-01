@@ -107,7 +107,8 @@ api/      optional assist service — its own process, never holds keys
   store.mjs       sqlite rolling buffer (insert + history queries)
   aggregator.mjs  relay subscriber → verify → store + presence tracking
   profiles.mjs    on-demand nostr profile (kind 0) fetch + cache
-  avatar.mjs      ssrf-guarded avatar image proxy (keeps your ip off image hosts)
+  avatar.mjs      ssrf-guarded profile image proxy (keeps your ip off image hosts)
+  media.mjs       ephemeral upload hosting - rebuilds images so no metadata survives
   index.mjs       read-only http endpoints + live stream + publish fanout
 ```
 
@@ -120,8 +121,11 @@ heartbeats we both read and broadcast (a semi-random ~47–60s announce, only wh
 viewing a channel), @-mention autocomplete, blurred tap-to-reveal image previews,
 send confirmation with automatic rebroadcast, local slash commands (/help, /clear,
 /unclear, /echo) — some of which broadcast as your ".bot" — optional nostr profiles
-(opt-in, assist-only: avatars + bios, with the image proxied through the api so
-your ip stays off the hosts), and the optional server assist above.
+(opt-in, assist-only: avatars + banners + bios, with images proxied through the api
+so your ip stays off the hosts), media uploads (assist-only "+" button: images are
+re-encoded to a clean slate so no EXIF/GPS survives, hosted ephemerally ~24h and
+shared as a native-friendly "[image] url" message), and the optional server assist
+above.
 
 it's intentionally focused. the kitchen sink from the old prototype (themes, the
 message board, the ai persona, cashu wallet/betting, and the rest) is left out,

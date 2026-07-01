@@ -92,6 +92,8 @@ export default {
 		cleared: "cleared",
 		uncleared: "restored cleared messages",
 		needs_channel: "join a channel first",
+		upload_too_large: "file too large (max {max}mb)",
+		upload_failed: "upload failed",
 		unknown_command: "unknown command: /{name}",
 		commands_header: "available commands",
 		assist_active: "server assist is active",

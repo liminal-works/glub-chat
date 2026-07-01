@@ -49,6 +49,7 @@ const usersTitle = document.getElementById("usersTitle");
 const usersList = document.getElementById("usersList");
 const usersClose = document.getElementById("usersClose");
 const profileGate = document.getElementById("profileGate");
+const profileBanner = document.getElementById("profileBanner");
 const profileAvatar = document.getElementById("profileAvatar");
 const profileName = document.getElementById("profileName");
 const profileNip05 = document.getElementById("profileNip05");
@@ -59,6 +60,8 @@ const brandEl = document.getElementById("brand");
 const statusEl = document.getElementById("status");
 const chatInput = document.getElementById("chatInput");
 const sendBtn = document.getElementById("sendBtn");
+const mediaBtn = document.getElementById("mediaBtn");
+const mediaFile = document.getElementById("mediaFile");
 const newMessagesBar = document.getElementById("newMessagesBar");
 const suggestBox = document.getElementById("suggestBox");
 
@@ -144,6 +147,8 @@ const PRESENCE_TICK_MS = 30_000; // re-evaluate presence/count on this cadence s
 // random interval (per bitchat) so clients don't all heartbeat in lockstep.
 const PRESENCE_BROADCAST_MIN_MS = 47_000;
 const PRESENCE_BROADCAST_MAX_MS = 60_000;
+const MEDIA_MAX_MB = 10; // client-side pre-check; the api enforces its own limit too
+const MEDIA_MAX_DIMENSION = 2048; // static images are downscaled to fit this before upload
 const SYSTEM_TTL_MS = 7_000; // default lifetime of an ephemeral status notice before it fades
 const SYSTEM_TTL_LONG_MS = 30_000; // for notices worth reading unrushed (e.g. /help output)
 const SYSTEM_FADE_MS = 300; // fade-out duration before the faded line is removed (matches css)
@@ -611,6 +616,7 @@ function updateFocusedUserCount() {
 }
 
 function renderTopbar() {
+	syncMediaBtn(); // renderTopbar fires on every mode/status change, so piggyback
 	if (focusedGeo) {
 		const clippedGeo = clipText(focusedGeo, 12);
 		brandEl.innerHTML = `<strong>#${escapeHtml(clippedGeo)}</strong>/<span class="handle">@${escapeHtml(clipText(name || "anon", 12))}</span>`;
@@ -815,6 +821,7 @@ async function openProfileCard(pubkey) {
 	profileNip05.textContent = "";
 	profileAbout.textContent = t("profile.loading");
 	profileAvatar.hidden = true;
+	profileBanner.hidden = true;
 	profileGate.classList.add("show");
 
 	const profile = await fetchProfile(pubkey);
@@ -823,13 +830,18 @@ async function openProfileCard(pubkey) {
 		profileAvatar.src = `${API_BASE}/api/avatar?pubkey=${pubkey}`;
 		profileAvatar.hidden = false;
 	}
+	if (profile && profile.hasBanner) {
+		profileBanner.src = `${API_BASE}/api/banner?pubkey=${pubkey}`;
+		profileBanner.hidden = false;
+	}
 	profileNip05.textContent = profile && profile.nip05 ? profile.nip05 : "";
 	profileAbout.textContent = profile && profile.about ? profile.about : t("profile.none");
 }
 
 function closeProfileCard() {
 	profileGate.classList.remove("show");
-	profileAvatar.removeAttribute("src"); // stop/release the image
+	profileAvatar.removeAttribute("src"); // stop/release the images
+	profileBanner.removeAttribute("src");
 }
 
 function closeUsers() {
@@ -1419,6 +1431,74 @@ function transmit(content, geo, displayName = name) {
 	attemptBroadcast(event.id);
 	jumpToBottom(); // sending always returns you to the live bottom
 }
+
+// --- media upload (assist-only) ----------------------------------------------
+
+// the "+" button exists only while assist mode is live: uploads go to the api,
+// so without it we hide the button and pretend the feature doesn't exist.
+function syncMediaBtn() {
+	mediaBtn.hidden = liveSource !== "assist";
+}
+
+// clean-slate a static image client-side: repaint onto a canvas and export fresh
+// bytes. EXIF/GPS never even leaves the device. GIFs skip this (canvas would
+// drop the animation) - the api rebuilds their container instead.
+async function cleanEncodeImage(file) {
+	if (file.type === "image/gif") return file;
+	const bitmap = await createImageBitmap(file);
+	const scale = Math.min(1, MEDIA_MAX_DIMENSION / Math.max(bitmap.width, bitmap.height));
+	const canvas = document.createElement("canvas");
+	canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+	canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+	canvas.getContext("2d").drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+	bitmap.close();
+	// png stays png (screenshots/text stay crisp); everything else becomes jpeg
+	const type = file.type === "image/png" ? "image/png" : "image/jpeg";
+	const blob = await new Promise((resolve) => canvas.toBlob(resolve, type, 0.9));
+	if (!blob) throw new Error("encode failed");
+	return blob;
+}
+
+async function uploadMedia(file) {
+	if (file.size > MEDIA_MAX_MB * 1024 * 1024) {
+		appendSystem(t("system.upload_too_large", { max: MEDIA_MAX_MB }));
+		return;
+	}
+	mediaBtn.classList.add("busy");
+	try {
+		const blob = await cleanEncodeImage(file);
+		const res = await fetch(`${API_BASE}/api/media`, {
+			method: "POST",
+			headers: { "Content-Type": blob.type },
+			body: blob,
+		});
+		if (!res.ok) throw new Error(`http ${res.status}`);
+		const data = await res.json();
+		if (!data.ok || !data.url) throw new Error("bad response");
+
+		// "[image] {url}" is the marker native bitchat clients recognize. In a
+		// focused channel it sends immediately; in global view we drop it in the
+		// composer so the user can target a #channel themselves.
+		const content = `[image] ${data.url}`;
+		if (focusedGeo) {
+			transmit(content, focusedGeo);
+		} else {
+			chatInput.value = chatInput.value ? `${chatInput.value} ${content}` : content;
+			chatInput.focus();
+		}
+	} catch {
+		appendSystem(t("system.upload_failed"));
+	} finally {
+		mediaBtn.classList.remove("busy");
+	}
+}
+
+mediaBtn.addEventListener("click", () => mediaFile.click());
+mediaFile.addEventListener("change", () => {
+	const file = mediaFile.files && mediaFile.files[0];
+	mediaFile.value = ""; // allow re-picking the same file
+	if (file) uploadMedia(file);
+});
 
 function send() {
 	// intercept local slash commands before anything is parsed as a message

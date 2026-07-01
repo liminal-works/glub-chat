@@ -85,6 +85,7 @@
 
 			<div id="profileGate" class="gate">
 				<div class="gateCard profileCard">
+					<img id="profileBanner" class="profileBanner" alt="" hidden />
 					<div class="profileHead">
 						<img id="profileAvatar" class="profileAvatar" alt="" hidden />
 						<div class="profileIdent">
@@ -109,6 +110,8 @@
 				<div id="suggestBox" hidden></div>
 
 				<div id="inputbar">
+					<button id="mediaBtn" type="button" hidden>+</button>
+					<input id="mediaFile" type="file" accept="image/*" hidden />
 					<input id="chatInput" type="text" enterkeyhint="send" spellcheck="true" autocomplete="off" placeholder="#channel message..." data-i18n-placeholder="composer.placeholder_global" />
 					<button id="sendBtn" type="button" data-i18n="composer.send">send</button>
 				</div>

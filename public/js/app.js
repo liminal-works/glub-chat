@@ -90,7 +90,8 @@ const PRESENCE_TICK_MS = 30_000; // re-evaluate presence/count on this cadence s
 // random interval (per bitchat) so clients don't all heartbeat in lockstep.
 const PRESENCE_BROADCAST_MIN_MS = 47_000;
 const PRESENCE_BROADCAST_MAX_MS = 60_000;
-const SYSTEM_TTL_MS = 7_000; // how long an ephemeral status notice stays before fading out
+const SYSTEM_TTL_MS = 7_000; // default lifetime of an ephemeral status notice before it fades
+const SYSTEM_TTL_LONG_MS = 30_000; // for notices worth reading unrushed (e.g. /help output)
 const SYSTEM_FADE_MS = 300; // fade-out duration before the faded line is removed (matches css)
 
 // presences we've detected from kind-20001 events on the relays we read (relay
@@ -378,19 +379,21 @@ function insertEntry(entry) {
 
 // low-level: push an ephemeral system entry with pre-built html. these auto-
 // dismiss with a short fade so hopping between channels doesn't pile up a wall of
-// stale notices. The "beginning of chat" barrier is inserted directly (not here)
-// and is intentionally not affected.
-function pushSystem(html) {
+// stale notices. `ttl` (ms) overrides how long it persists before fading; omit it
+// for the default. The "beginning of chat" barrier is inserted directly (not
+// here) and is intentionally not affected.
+function pushSystem(html, ttl = SYSTEM_TTL_MS) {
 	const entry = { ts: Date.now() / 1000, geo: null, system: true, pubkey: null, html, el: null };
 	insertEntry(entry);
-	setTimeout(() => dismissEntry(entry), SYSTEM_TTL_MS);
+	setTimeout(() => dismissEntry(entry), ttl);
 	return entry;
 }
 
-// a one-line status notice in bitchat's emote style (* muted text *).
-function appendSystem(text) {
+// a one-line status notice in bitchat's emote style (* muted text *). `ttl` (ms)
+// optionally overrides the default lifetime.
+function appendSystem(text, ttl) {
 	const ts = Date.now() / 1000;
-	pushSystem(`<span class="ts">* ${escapeHtml(text)} *</span>${timeTag(ts)}`);
+	pushSystem(`<span class="ts">* ${escapeHtml(text)} *</span>${timeTag(ts)}`, ttl);
 }
 
 // fade an entry out and drop it from the log. No-ops if it's already gone (e.g.
@@ -1318,7 +1321,8 @@ const COMMANDS = [
 			const lines = [...COMMANDS]
 				.sort((a, b) => a.name.localeCompare(b.name))
 				.map((c) => `${`/${c.name}`.padEnd(width)} - ${commandDesc(c.name)}`);
-			pushSystem(`<span class="ts">${escapeHtml(lines.join("\n"))}</span>`);
+			// persist longer than a status blip - give the reader time to scan it.
+			pushSystem(`<span class="ts">${escapeHtml(lines.join("\n"))}</span>`, SYSTEM_TTL_LONG_MS);
 		},
 	},
 ];

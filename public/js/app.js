@@ -1483,10 +1483,16 @@ async function uploadMedia(file) {
 		const data = await res.json();
 		if (!data.ok || !data.url) throw new Error("bad response");
 
+		// absolutize the (usually relative) media path against our own origin - the
+		// browser knows the real scheme (https), so shared links are never http and
+		// won't get mixed-content-blocked. resolves against the api's origin when
+		// it's separately hosted; leaves an already-absolute url (PUBLIC_ORIGIN) as is.
+		const url = new URL(data.url, API_BASE || location.href).href;
+
 		// "[image] {url}" is the marker native bitchat clients recognize. Started
 		// in a channel -> send there; started in global view (no target) -> drop
 		// it in the composer so the user can aim it at a #channel.
-		const content = `[image] ${data.url}`;
+		const content = `[image] ${url}`;
 		if (targetGeo) {
 			transmit(content, targetGeo);
 		} else {

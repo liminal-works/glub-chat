@@ -25,14 +25,7 @@ if (API_ORIGIN) {
 				port: target.port,
 				path: req.originalUrl, // includes /api/... and the query string
 				method: req.method,
-				// preserve the client-facing host/proto so the api can build absolute
-				// urls (e.g. shared media links) that point at the public origin.
-				headers: {
-					...req.headers,
-					host: target.host,
-					"x-forwarded-host": req.headers["x-forwarded-host"] || req.headers.host,
-					"x-forwarded-proto": req.headers["x-forwarded-proto"] || req.protocol,
-				},
+				headers: { ...req.headers, host: target.host },
 			},
 			(proxyRes) => {
 				// stream the response straight through - keeps SSE (/api/stream) live

@@ -156,11 +156,12 @@ app.post(
 			res.status(415).json({ ok: false, error: "not a valid image" });
 			return;
 		}
-		// media urls are shared into chat, so they must be absolute for other clients
-		const proto = req.headers["x-forwarded-proto"] || req.protocol;
-		const host = req.headers["x-forwarded-host"] || req.headers.host;
-		const origin = PUBLIC_ORIGIN || `${proto}://${host}`;
-		res.json({ ok: true, url: `${origin}/api/media/${file}` });
+		// return a relative path by default and let the client absolutize it against
+		// its own (authoritative) origin - so https just works without guessing at
+		// the scheme from proxy headers. PUBLIC_ORIGIN forces an absolute url only
+		// when media should live on a different origin than the browsing one.
+		const url = PUBLIC_ORIGIN ? `${PUBLIC_ORIGIN}/api/media/${file}` : `/api/media/${file}`;
+		res.json({ ok: true, url });
 	}
 );
 

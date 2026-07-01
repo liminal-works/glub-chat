@@ -1298,24 +1298,9 @@ const COMMANDS = [
 		},
 	},
 	{
-		name: "name",
-		run(arg) {
-			const next = arg.slice(0, 24).trim();
-			if (!next) {
-				openNameGate(); // no argument -> open the picker
-				return;
-			}
-			name = next;
-			nameGenerated = false; // explicitly chosen
-			setStoredName(name, false);
-			renderTopbar();
-			appendSystem(t("system.name_set", { name }));
-		},
-	},
-	{
 		name: "help",
 		run() {
-			// generated from the command list, alphabetical: one "/name - description"
+			// generated from the command list, alphabetical: one "/cmd - description"
 			// per line, with names padded so the dashes line up (monospace does the rest).
 			const width = Math.max(...COMMANDS.map((c) => c.name.length + 1)); // +1 for the "/"
 			const lines = [...COMMANDS]

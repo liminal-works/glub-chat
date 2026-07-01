@@ -76,7 +76,6 @@ export default {
 	commands: {
 		clear: "clear the view",
 		unclear: "restore cleared messages",
-		name: "set your display name",
 		help: "list commands",
 	},
 
@@ -84,7 +83,6 @@ export default {
 		welcome: "welcome to the glub, {name}",
 		cleared: "cleared",
 		uncleared: "restored cleared messages",
-		name_set: "you are now {name}",
 		unknown_command: "unknown command: /{name}",
 		assist_active: "server assist is active",
 		relay_global_teleport: "#{geo}: not a location, connecting to global relay set...",

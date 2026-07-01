@@ -517,16 +517,6 @@ body {
 	pointer-events: none;
 }
 
-/* the assist label tracks the toggle: danger-red when off, accent-green when on
-   (checkbox precedes it in the dom so the sibling selector can reach it). */
-.settingLabel {
-	color: var(--danger);
-}
-
-.assistCheck:checked ~ .settingLabel {
-	color: var(--accent);
-}
-
 .toggleVisual {
 	flex: none;
 	font-weight: 700;

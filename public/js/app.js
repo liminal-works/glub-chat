@@ -536,11 +536,9 @@ function updateFocusedUserCount() {
 		focusedUserCount = 0;
 		return;
 	}
-	// present = active in the last few minutes: a fresh message OR a recent
-	// presence heartbeat. anyone with neither is considered gone.
-	const users = new Set(freshTalkers(focusedGeo).keys());
-	for (const p of localPresence(focusedGeo)) users.add(p.pubkey);
-	focusedUserCount = users.size;
+	// count only the actively-present (recently-talking) users - the "present"
+	// list. detected-only "ghosts" are shown separately and don't count.
+	focusedUserCount = freshTalkers(focusedGeo).size;
 }
 
 function renderTopbar() {

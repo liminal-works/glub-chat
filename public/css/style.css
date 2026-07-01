@@ -494,13 +494,13 @@ body {
 	background: transparent;
 }
 
-/* inline avatar prefixing a name in the chat stream: smaller, sat on the text
-   baseline, with a little breathing room before the name. */
+/* inline avatar prefixing a name in the chat stream: big enough to actually read,
+   centered against the text line (which grows a bit taller to fit it - fine). */
 .avatarInline {
-	width: 15px;
-	height: 15px;
-	vertical-align: -3px;
-	margin-right: 5px;
+	width: 22px;
+	height: 22px;
+	vertical-align: middle;
+	margin-right: 6px;
 	align-self: auto;
 }
 

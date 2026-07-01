@@ -1312,12 +1312,12 @@ const COMMANDS = [
 	{
 		name: "help",
 		run() {
-			// generated from the command list: one "/name - description" per line,
-			// with names padded so the dashes line up (monospace does the rest).
+			// generated from the command list, alphabetical: one "/name - description"
+			// per line, with names padded so the dashes line up (monospace does the rest).
 			const width = Math.max(...COMMANDS.map((c) => c.name.length + 1)); // +1 for the "/"
-			const lines = COMMANDS.map(
-				(c) => `${`/${c.name}`.padEnd(width)} - ${commandDesc(c.name)}`
-			);
+			const lines = [...COMMANDS]
+				.sort((a, b) => a.name.localeCompare(b.name))
+				.map((c) => `${`/${c.name}`.padEnd(width)} - ${commandDesc(c.name)}`);
 			pushSystem(`<span class="ts">${escapeHtml(lines.join("\n"))}</span>`);
 		},
 	},

@@ -3,6 +3,7 @@ import { fetchRelayList } from "./nostr/relayList.js";
 import { RelayPool } from "./nostr/relayPool.js";
 import { makeChatMessage, makePresenceEvent, getGeohash, getName, CHAT_KIND, PRESENCE_KIND, sortRelaysByGeohash, verifyEvent } from "./nostr/protocol.js";
 import { t, formatAgo, setLocale, detectLocale, onLocaleChange } from "./i18n/index.js";
+import { createSuggest } from "./ui/suggest.js";
 
 const MAX_LINES = 600;
 const NEAR_BOTTOM_PX = 60;
@@ -51,6 +52,7 @@ const statusEl = document.getElementById("status");
 const chatInput = document.getElementById("chatInput");
 const sendBtn = document.getElementById("sendBtn");
 const newMessagesBar = document.getElementById("newMessagesBar");
+const suggestBox = document.getElementById("suggestBox");
 
 // pick the locale and fill the static markup before anything renders. en is the
 // only bundled language today, so this is english; it's wired so adding a locale
@@ -1204,6 +1206,7 @@ function focusChannel(geo) {
 
 function exitFocus() {
 	focusedGeo = null;
+	suggest.hide();
 	updatePlaceholder();
 	updateFocusedUserCount();
 	renderTopbar();
@@ -1237,6 +1240,7 @@ function parseDraft(raw) {
 function send() {
 	const draft = parseDraft(chatInput.value);
 	chatInput.value = "";
+	suggest.hide();
 	if (!draft) return;
 
 	const event = makeChatMessage({
@@ -1256,8 +1260,70 @@ function send() {
 	jumpToBottom(); // sending always returns you to the live bottom
 }
 
+// --- @mention (and future /command) autocomplete ----------------------------
+const suggest = createSuggest(suggestBox);
+
+// the roster we can @-mention: everyone in the focused channel's "present" list
+// (talkers), minus ourselves.
+function mentionRoster() {
+	if (!focusedGeo) return [];
+	return [...talkers(focusedGeo).values()]
+		.filter((u) => u.pubkey !== identity.pk)
+		.map((u) => ({ who: u.who, tag: u.tag, color: u.color }));
+}
+
+// a "provider" inspects the text before the caret; if it's a trigger context it
+// returns { start, end, items } - the range to replace and the ranked items.
+// mentions: an "@word" at the caret, only while focused in a channel. Add more
+// providers (e.g. a "/command" one) to SUGGEST_PROVIDERS; first with matches wins.
+function mentionProvider(value, caret) {
+	if (!focusedGeo) return null;
+	const before = value.slice(0, caret);
+	const m = before.match(/(?:^|\s)@(\S*)$/);
+	if (!m) return null;
+	const query = m[1].toLowerCase();
+	const start = caret - m[1].length - 1; // index of the "@"
+	const items = mentionRoster()
+		.filter((u) => u.who.toLowerCase().startsWith(query))
+		.sort((a, b) => a.who.toLowerCase().localeCompare(b.who.toLowerCase()))
+		.map((u) => ({
+			insert: `@${u.who} `,
+			html: `<span style="color:${u.color}">@${escapeHtml(u.who)}<span class="sfx">#${escapeHtml(u.tag)}</span></span>`,
+		}));
+	return { start, end: caret, items };
+}
+
+const SUGGEST_PROVIDERS = [mentionProvider];
+
+function refreshSuggest() {
+	const value = chatInput.value;
+	const caret = chatInput.selectionStart ?? value.length;
+	for (const provider of SUGGEST_PROVIDERS) {
+		const ctx = provider(value, caret);
+		if (ctx && ctx.items.length) {
+			suggest.show(ctx.items, (item) => applySuggest(ctx.start, ctx.end, item.insert));
+			return;
+		}
+	}
+	suggest.hide();
+}
+
+// replace [start, end) with the chosen completion, drop the caret after it, and
+// re-evaluate (which closes the popup - there's now a trailing space).
+function applySuggest(start, end, insert) {
+	const value = chatInput.value;
+	chatInput.value = value.slice(0, start) + insert + value.slice(end);
+	const caret = start + insert.length;
+	chatInput.focus();
+	chatInput.setSelectionRange(caret, caret);
+	refreshSuggest();
+}
+
 sendBtn.addEventListener("click", send);
+chatInput.addEventListener("input", refreshSuggest);
+chatInput.addEventListener("blur", () => suggest.hide());
 chatInput.addEventListener("keydown", (e) => {
+	if (suggest.handleKey(e)) return; // popup consumes nav/select/escape
 	if (e.key === "Enter") {
 		e.preventDefault();
 		send();

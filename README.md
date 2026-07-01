@@ -99,6 +99,7 @@ public/   the client. identity, relay connections, signing — all in the browse
   js/nostr/relayList.js   fetch + parse bitchat's relay csv
   js/nostr/protocol.js    build / read bitchat-flavored nostr events
   js/nostr/relayPool.js   manage relay sockets, subscriptions, reconnects
+  js/ui/suggest.js        reusable autocomplete popup (mentions, later commands)
   js/i18n/index.js        tiny i18n engine (t(), plurals, relative time)
   js/i18n/en.js           english base dictionary (the fallback)
   js/app.js               wires it all into the ui

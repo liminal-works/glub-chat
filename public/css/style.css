@@ -261,6 +261,49 @@ body {
 	display: none;
 }
 
+/* generic autocomplete popup (mentions now, local commands later): sits above
+   the composer and grows upward, so the best/nearest match is at the bottom by
+   the keyboard. blurred backdrop, just a hairline separator - no heavy borders. */
+#suggestBox {
+	position: absolute;
+	left: 0;
+	right: 0;
+	bottom: 100%;
+	z-index: 6;
+	display: flex;
+	flex-direction: column-reverse;
+	max-height: 42vh;
+	overflow-y: auto;
+	overscroll-behavior: contain;
+	background: color-mix(in srgb, var(--chrome-bg) 60%, transparent);
+	backdrop-filter: blur(10px);
+	-webkit-backdrop-filter: blur(10px);
+	border-top: 1px solid var(--chrome-border);
+	padding: 4px 0;
+	font-size: 14px;
+}
+
+#suggestBox[hidden] {
+	display: none;
+}
+
+.suggestRow {
+	padding: 7px 14px;
+	cursor: pointer;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	-webkit-tap-highlight-color: transparent;
+}
+
+.suggestRow.active {
+	background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.suggestRow .sfx {
+	opacity: 0.6;
+}
+
 /* flat, borderless composer to match native bitchat: just the input text and a
    "send" label sitting low above the home indicator, no boxes or separator. */
 #inputbar {

@@ -34,6 +34,25 @@ export function makeChatMessage({ content, geohash, name, sk, pk }) {
 	);
 }
 
+// a presence/announce heartbeat: "i'm in this geohash". Same tag conventions as
+// a chat message (g + teleport + n) but the ephemeral 20001 kind and empty
+// content - the name in the `n` tag is the whole payload.
+export function makePresenceEvent({ geohash, name, sk, pk }) {
+	const tags = [["g", geohash], ["t", "teleport"]];
+	if (name) tags.push(["n", name]);
+
+	return finalizeEvent(
+		{
+			kind: PRESENCE_KIND,
+			created_at: Math.floor(Date.now() / 1000),
+			tags,
+			content: "",
+			pubkey: pk,
+		},
+		sk
+	);
+}
+
 export function getTag(ev, key) {
 	const tags = Array.isArray(ev.tags) ? ev.tags : [];
 	return tags.find((t) => Array.isArray(t) && t[0] === key)?.[1] || "";

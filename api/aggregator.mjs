@@ -105,14 +105,25 @@ export function createAggregator(store, { onStored } = {}) {
 		}
 	}
 
-	// publish a client-signed event: validate, store + stream to subscribers
-	// (always, so a re-publish/retry can re-confirm), and fan it out to every
-	// connected relay. Returns the relay count, or -1 if the event is invalid.
+	// publish a client-signed event on the client's behalf (assist mode holds no
+	// relay sockets of its own): validate and fan it out to every connected relay.
+	// Accepts chat (stored + streamed to subscribers, always, so a re-publish can
+	// re-confirm) and presence (tracked, so we and other assist clients see it).
+	// Returns the relay count, or -1 if the event is invalid.
 	function publish(ev) {
-		const geo = acceptableGeo(ev);
-		if (!geo) return -1;
-		store.insert(ev, geo); // idempotent
-		if (onStored) onStored(ev, geo);
+		if (!ev || (ev.kind !== CHAT_KIND && ev.kind !== PRESENCE_KIND)) return -1;
+		if (typeof ev.id !== "string" || typeof ev.pubkey !== "string") return -1;
+		if (ev.created_at > Math.floor(Date.now() / 1000) + MAX_FUTURE_SECS) return -1;
+		const geo = getGeohash(ev);
+		if (!geo || geo.length > MAX_GEOHASH_LEN) return -1;
+		if (!verifyEvent(ev)) return -1;
+
+		if (ev.kind === CHAT_KIND) {
+			store.insert(ev, geo); // idempotent
+			if (onStored) onStored(ev, geo);
+		} else {
+			trackPresence(ev); // record our own presence like any relay-sourced one
+		}
 
 		const payload = JSON.stringify(["EVENT", ev]);
 		let sent = 0;

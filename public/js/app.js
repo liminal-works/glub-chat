@@ -1,7 +1,7 @@
 import { loadOrCreateIdentity, regenerateIdentity, getStoredName, setStoredName, isStoredNameGenerated } from "./nostr/identity.js";
 import { fetchRelayList } from "./nostr/relayList.js";
 import { RelayPool } from "./nostr/relayPool.js";
-import { makeChatMessage, getGeohash, getName, CHAT_KIND, PRESENCE_KIND, sortRelaysByGeohash, verifyEvent } from "./nostr/protocol.js";
+import { makeChatMessage, makePresenceEvent, getGeohash, getName, CHAT_KIND, PRESENCE_KIND, sortRelaysByGeohash, verifyEvent } from "./nostr/protocol.js";
 import { t, formatAgo, setLocale, detectLocale, onLocaleChange } from "./i18n/index.js";
 
 const MAX_LINES = 600;
@@ -84,6 +84,10 @@ const ACK_TIMEOUT_MS = 15_000; // wait this long for an echo before rebroadcasti
 const MAX_SEND_ATTEMPTS = 3; // initial broadcast + up to 2 automatic rebroadcasts
 const PRESENCE_FRESH_MS = 5 * 60_000; // a user counts as "present" within this window (fresh message or presence)
 const PRESENCE_TICK_MS = 30_000; // re-evaluate presence/count on this cadence so stale users drop off without new activity
+// how often WE announce our own presence in the channel we're viewing. a semi-
+// random interval (per bitchat) so clients don't all heartbeat in lockstep.
+const PRESENCE_BROADCAST_MIN_MS = 47_000;
+const PRESENCE_BROADCAST_MAX_MS = 60_000;
 const SYSTEM_TTL_MS = 7_000; // how long an ephemeral status notice stays before fading out
 const SYSTEM_FADE_MS = 300; // fade-out duration before the faded line is removed (matches css)
 
@@ -664,6 +668,7 @@ async function openUsers() {
 	const latest = freshTalkers(geo); // fresh messages only; stale chatters drop off
 	const talking = [...latest.values()].sort((a, b) => b.ts - a.ts);
 	const talkingPubkeys = new Set(latest.keys());
+	talkingPubkeys.add(identity.pk); // never show yourself as a ghost (assist snapshot includes you)
 
 	usersTitle.textContent = t("users.title", { geo: clipText(geo, 14) });
 	renderUsers(talking, presentRows(localPresence(geo), talkingPubkeys));
@@ -826,6 +831,31 @@ function deliver(event) {
 	else pool.broadcast(event);
 }
 
+// announce our presence in the channel we're currently viewing. purely timer-
+// driven (not on join): whatever channel you happen to be in when the timer
+// fires. in the global view there's no channel to announce, so we stay quiet.
+function broadcastPresence() {
+	if (!focusedGeo) return;
+	const event = makePresenceEvent({
+		geohash: focusedGeo,
+		name: name || "anon",
+		sk: identity.sk,
+		pk: identity.pk,
+	});
+	deliver(event);
+}
+
+// self-rescheduling heartbeat on a fresh semi-random interval each time, so a
+// room full of clients doesn't announce in lockstep.
+function schedulePresence() {
+	const span = PRESENCE_BROADCAST_MAX_MS - PRESENCE_BROADCAST_MIN_MS;
+	const delay = PRESENCE_BROADCAST_MIN_MS + Math.random() * span;
+	setTimeout(() => {
+		broadcastPresence();
+		schedulePresence();
+	}, delay);
+}
+
 // hand a signed event to the api to fan out. We POST the signed event only - the
 // key never leaves the browser. Confirmation still arrives via the SSE echo.
 async function publishViaApi(event) {
@@ -896,6 +926,7 @@ function confirmSent(id) {
 // pubkey-per-channel and aged out by PRESENCE_FRESH_MS at read time.
 function trackPresence(ev) {
 	if (typeof ev.pubkey !== "string") return;
+	if (ev.pubkey === identity.pk) return; // don't list ourselves as a detected "ghost"
 	if (ev.created_at > Math.floor(Date.now() / 1000) + MAX_FUTURE_SECS) return;
 	const geo = getGeohash(ev);
 	if (!geo) return;
@@ -1134,6 +1165,9 @@ setInterval(() => {
 	renderTopbar();
 	if (usersGate.classList.contains("show")) openUsers();
 }, PRESENCE_TICK_MS);
+
+// start our own presence heartbeat (announces only while viewing a channel)
+schedulePresence();
 
 // initial paint - done after `pool` exists since renderTopbar reads its counts
 renderTopbar();

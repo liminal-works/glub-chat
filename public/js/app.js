@@ -517,11 +517,11 @@ function renderEvent(ev) {
 	});
 }
 
-// pubkey -> their latest message entry in `geo`, but only messages within the
-// freshness window. someone who chatted hours ago (and isn't sending presence)
-// is treated as gone, so they fall out of the count and the "present" list.
-function freshTalkers(geo) {
-	const cutoff = Math.floor(Date.now() / 1000) - PRESENCE_FRESH_MS / 1000;
+// pubkey -> their latest message entry in `geo`. Pass `withinMs` to keep only
+// recent talkers (the "active now" count); omit it for the full roster - the
+// list shows everyone who's talked here, even if they've since gone quiet.
+function talkers(geo, withinMs) {
+	const cutoff = withinMs ? Math.floor(Date.now() / 1000) - withinMs / 1000 : -Infinity;
 	const latest = new Map();
 	for (const e of entries) {
 		if (e.system || e.geo !== geo || e.ts < cutoff) continue;
@@ -536,9 +536,9 @@ function updateFocusedUserCount() {
 		focusedUserCount = 0;
 		return;
 	}
-	// count only the actively-present (recently-talking) users - the "present"
-	// list. detected-only "ghosts" are shown separately and don't count.
-	focusedUserCount = freshTalkers(focusedGeo).size;
+	// count only the actively-present (talked within the freshness window) users;
+	// the list itself still shows quieter talkers, they just don't tally here.
+	focusedUserCount = talkers(focusedGeo, PRESENCE_FRESH_MS).size;
 }
 
 function renderTopbar() {
@@ -663,7 +663,7 @@ async function openUsers() {
 	if (!focusedGeo) return;
 	const geo = focusedGeo;
 
-	const latest = freshTalkers(geo); // fresh messages only; stale chatters drop off
+	const latest = talkers(geo); // full roster - everyone who's talked here stays listed
 	const talking = [...latest.values()].sort((a, b) => b.ts - a.ts);
 	const talkingPubkeys = new Set(latest.keys());
 	talkingPubkeys.add(identity.pk); // never show yourself as a ghost (assist snapshot includes you)

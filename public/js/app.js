@@ -376,24 +376,21 @@ function insertEntry(entry) {
 	}
 }
 
-// status notices (relay set, assist activation, etc.) are ephemeral: they auto-
+// low-level: push an ephemeral system entry with pre-built html. these auto-
 // dismiss with a short fade so hopping between channels doesn't pile up a wall of
-// stale "* connecting to ... *" lines. The "beginning of chat" barrier is a
-// separate system entry (inserted directly) and is intentionally not affected.
-function appendSystem(text) {
-	const ts = Date.now() / 1000;
-	const entry = {
-		ts,
-		geo: null,
-		system: true,
-		pubkey: null,
-		// render in bitchat's emote style (* muted text *) so system notices match
-		// the rest of the theming
-		html: `<span class="ts">* ${escapeHtml(text)} *</span>${timeTag(ts)}`,
-		el: null,
-	};
+// stale notices. The "beginning of chat" barrier is inserted directly (not here)
+// and is intentionally not affected.
+function pushSystem(html) {
+	const entry = { ts: Date.now() / 1000, geo: null, system: true, pubkey: null, html, el: null };
 	insertEntry(entry);
 	setTimeout(() => dismissEntry(entry), SYSTEM_TTL_MS);
+	return entry;
+}
+
+// a one-line status notice in bitchat's emote style (* muted text *).
+function appendSystem(text) {
+	const ts = Date.now() / 1000;
+	pushSystem(`<span class="ts">* ${escapeHtml(text)} *</span>${timeTag(ts)}`);
 }
 
 // fade an entry out and drop it from the log. No-ops if it's already gone (e.g.
@@ -1273,10 +1270,14 @@ function send() {
 // client-only commands (no protocol traffic). add one here and it's instantly
 // runnable from the composer and discoverable via the "/" autocomplete below.
 // each: { name, description, run(arg) }.
+// a command's one-line description, resolved from i18n by name (commands.<name>).
+function commandDesc(name) {
+	return t(`commands.${name}`);
+}
+
 const COMMANDS = [
 	{
 		name: "clear",
-		description: "clear the view",
 		run() {
 			// filter out everything up to now; new messages (ts >= cutoff) repopulate.
 			clearedBefore = Math.floor(Date.now() / 1000);
@@ -1285,8 +1286,16 @@ const COMMANDS = [
 		},
 	},
 	{
+		name: "unclear",
+		run() {
+			// drop the /clear cutoff so anything still in the buffer reappears.
+			clearedBefore = 0;
+			rerenderTerminal();
+			appendSystem(t("system.uncleared"));
+		},
+	},
+	{
 		name: "name",
-		description: "set your display name",
 		run(arg) {
 			const next = arg.slice(0, 24).trim();
 			if (!next) {
@@ -1302,9 +1311,14 @@ const COMMANDS = [
 	},
 	{
 		name: "help",
-		description: "list commands",
 		run() {
-			appendSystem(t("system.help", { list: COMMANDS.map((c) => `/${c.name}`).join(" ") }));
+			// generated from the command list: one "/name - description" per line,
+			// with names padded so the dashes line up (monospace does the rest).
+			const width = Math.max(...COMMANDS.map((c) => c.name.length + 1)); // +1 for the "/"
+			const lines = COMMANDS.map(
+				(c) => `${`/${c.name}`.padEnd(width)} - ${commandDesc(c.name)}`
+			);
+			pushSystem(`<span class="ts">${escapeHtml(lines.join("\n"))}</span>`);
 		},
 	},
 ];
@@ -1334,7 +1348,7 @@ function commandProvider(value, caret) {
 		.map((c) => ({
 			insert: `/${c.name} `,
 			html: `<strong>/${escapeHtml(c.name)}</strong>`,
-			meta: escapeHtml(c.description), // dim description in the reusable meta slot
+			meta: escapeHtml(commandDesc(c.name)), // dim description in the reusable meta slot
 		}));
 	return { start: 0, end: caret, items };
 }

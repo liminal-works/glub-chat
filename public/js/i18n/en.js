@@ -71,11 +71,20 @@ export default {
 		now: "now",
 	},
 
+	// one-line descriptions per command name; the source for both the "/" popup
+	// and /help, so command copy lives in exactly one place.
+	commands: {
+		clear: "clear the view",
+		unclear: "restore cleared messages",
+		name: "set your display name",
+		help: "list commands",
+	},
+
 	system: {
 		welcome: "welcome to the glub, {name}",
 		cleared: "cleared",
+		uncleared: "restored cleared messages",
 		name_set: "you are now {name}",
-		help: "commands: {list}",
 		unknown_command: "unknown command: /{name}",
 		assist_active: "server assist is active",
 		relay_global_teleport: "#{geo}: not a location, connecting to global relay set...",

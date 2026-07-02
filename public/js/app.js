@@ -1723,13 +1723,31 @@ chatInput.addEventListener("keydown", (e) => {
 	}
 });
 
-// iOS Safari doesn't honor interactive-widget=resizes-content yet, so when the
-// keyboard opens/closes it just scrolls the page instead of resizing it - pull
-// the latest messages back into view whenever the visual viewport changes.
+// size #app from the *measured* visual viewport instead of trusting css viewport
+// units. In installed/standalone mode iOS misreports 100dvh (the layout viewport
+// gets stuck short after the keyboard has been open), which stranded the composer
+// high above the bottom with a dead gap under it. visualViewport.height is the
+// authoritative number: the full screen when idle (gap gone), and the above-
+// keyboard height while typing (so the composer rides the keyboard structurally).
+// The css 100dvh remains as the no-visualViewport fallback.
+const appEl = document.getElementById("app");
+
+function fitViewport() {
+	const vv = window.visualViewport;
+	if (!vv) return;
+	appEl.style.height = `${Math.round(vv.height)}px`;
+	// iOS pans the page to reveal a focused input; with the app sized to the
+	// visible area the composer is already above the keyboard, so undo the pan.
+	if (window.scrollY) window.scrollTo(0, 0);
+	if (autoScroll) scrollToBottom();
+}
+
 if (window.visualViewport) {
-	window.visualViewport.addEventListener("resize", () => {
-		if (autoScroll) scrollToBottom();
-	});
+	window.visualViewport.addEventListener("resize", fitViewport);
+	window.visualViewport.addEventListener("scroll", fitViewport);
+	// orientation changes settle a beat after the event on iOS
+	window.addEventListener("orientationchange", () => setTimeout(fitViewport, 250));
+	fitViewport();
 }
 
 updatePlaceholder();

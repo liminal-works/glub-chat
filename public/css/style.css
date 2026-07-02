@@ -39,6 +39,8 @@ body {
 }
 
 #app {
+	/* fallback only: at runtime js sizes this to the measured visualViewport
+	   height, because ios standalone misreports dvh (see fitViewport in app.js) */
 	height: 100dvh;
 	display: flex;
 	flex-direction: column;

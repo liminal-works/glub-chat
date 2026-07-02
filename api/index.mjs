@@ -105,7 +105,7 @@ app.get("/api/profile", async (req, res) => {
 		return;
 	}
 	const profile = await profiles.get(pubkey);
-	res.set("Cache-Control", "public, max-age=1800");
+	res.set("Cache-Control", "public, max-age=60");
 	res.json({
 		profile: profile
 			? {
@@ -116,6 +116,7 @@ app.get("/api/profile", async (req, res) => {
 					lud16: profile.lud16,
 					hasAvatar: !!profile.picture,
 					hasBanner: !!profile.banner,
+					updated: profile.updated, // revision token; the client appends it to image urls to bust stale avatars/banners
 			  }
 			: null,
 	});

@@ -29,6 +29,7 @@ export function parseProfile(ev) {
 		nip05: str(data.nip05, 128),
 		website: str(data.website, 256),
 		lud16: str(data.lud16, 128), // lightning address
+		updated: typeof ev.created_at === "number" ? ev.created_at : 0, // revision token: bumps on every profile edit
 	};
 }
 

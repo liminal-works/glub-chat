@@ -113,33 +113,73 @@ function profilesActive() {
 	return getProfilesEnabled() && apiAvailable;
 }
 
-// pubkey -> { name, about, nip05, hasAvatar } | null (null = looked up, none found)
+// pubkey -> { name, about, nip05, hasAvatar, updated } | null (null = looked up, none found)
 const profileCache = new Map();
+const profileFetchedAt = new Map(); // pubkey -> ms we last resolved it (drives stale-while-revalidate)
 const profileInflight = new Map(); // pubkey -> Promise (shared, so concurrent callers all get the result)
+const CLIENT_FRESH_MS = 5 * 60_000; // re-check a cached profile at most this often, in the background
 
-// fetch + cache a pubkey's profile via the api. concurrent calls share one
-// request; resolved profiles (incl. "none" as null) are cached for the session.
+// fetch + cache a pubkey's profile via the api. stale-while-revalidate: a cached
+// entry is handed back instantly, but once it ages past CLIENT_FRESH_MS the next
+// call kicks a background refresh so profile edits surface without a session
+// reload. concurrent calls share one request.
 function fetchProfile(pubkey) {
 	if (!profilesActive()) return Promise.resolve(null);
-	if (profileCache.has(pubkey)) return Promise.resolve(profileCache.get(pubkey));
+	if (profileCache.has(pubkey)) {
+		const age = Date.now() - (profileFetchedAt.get(pubkey) || 0);
+		if (age >= CLIENT_FRESH_MS && !profileInflight.has(pubkey)) revalidateProfile(pubkey);
+		return Promise.resolve(profileCache.get(pubkey));
+	}
 	if (profileInflight.has(pubkey)) return profileInflight.get(pubkey);
+	return revalidateProfile(pubkey);
+}
 
+// (re)fetch a profile from the api and update the cache; if it changed under us,
+// repaint every surface showing it. shared across concurrent callers.
+function revalidateProfile(pubkey) {
 	const promise = (async () => {
 		try {
 			const res = await fetch(`${API_BASE}/api/profile?pubkey=${pubkey}`, { cache: "no-store" });
-			if (!res.ok) return null; // transient - not cached, so it can retry later
+			// on a transient failure keep whatever we already had (don't wipe it) and
+			// leave it "stale" so a later call retries.
+			if (!res.ok) return profileCache.has(pubkey) ? profileCache.get(pubkey) : null;
 			const data = await res.json();
 			const profile = data.profile || null;
+			const changed = profileChanged(profileCache.get(pubkey), profile);
 			profileCache.set(pubkey, profile);
+			profileFetchedAt.set(pubkey, Date.now());
+			if (changed) repaintProfile(pubkey);
 			return profile;
 		} catch {
-			return null;
+			return profileCache.has(pubkey) ? profileCache.get(pubkey) : null;
 		} finally {
 			profileInflight.delete(pubkey);
 		}
 	})();
 	profileInflight.set(pubkey, promise);
 	return promise;
+}
+
+// did a background refresh actually change what we'd render? `prev === undefined`
+// means this is the first load (callers handle that render themselves), so it's
+// not a "change". otherwise the profile's revision token (kind-0 created_at) is
+// the canonical signal - it bumps on every edit - plus any null<->profile flip.
+function profileChanged(prev, next) {
+	if (prev === undefined) return false;
+	if (!prev !== !next) return true; // gained or lost a profile entirely
+	if (!prev && !next) return false;
+	return (prev.updated || 0) !== (next.updated || 0);
+}
+
+// a profile changed under us (via background revalidation) - repaint the surfaces
+// that show it: chat lines by this author, the users list if open, and the
+// profile card if it's currently showing this pubkey.
+function repaintProfile(pubkey) {
+	for (const entry of entries) {
+		if (!entry.system && entry.pubkey === pubkey && entry.el) rerenderEntryEl(entry);
+	}
+	if (usersGate.classList.contains("show")) openUsers();
+	if (openProfilePubkey === pubkey && profileGate.classList.contains("show")) openProfileCard(pubkey);
 }
 
 // the optional "server assist" history API. Same-origin "/api" by default
@@ -776,7 +816,7 @@ function avatarHtml(pubkey, { inline = false, placeholder = false } = {}) {
 	const cls = inline ? "avatar avatarInline" : "avatar";
 	const cached = profileCache.get(pubkey);
 	if (cached && cached.hasAvatar) {
-		return `<img class="${cls}" src="${API_BASE}/api/avatar?pubkey=${pubkey}" alt="" loading="lazy" />`;
+		return `<img class="${cls}" src="${API_BASE}/api/avatar?pubkey=${pubkey}&v=${cached.updated || 0}" alt="" loading="lazy" />`;
 	}
 	return placeholder ? `<span class="avatar avatarBlank"></span>` : "";
 }
@@ -880,18 +920,26 @@ function showUsers(geo, talking, present) {
 function hydrateProfiles() {
 	if (!profilesActive()) return;
 	const { geo, talking, present } = currentUsers;
-	const pubkeys = [...new Set([...talking, ...present].map((u) => u.pubkey))].filter((pk) => !profileCache.has(pk));
-	if (!pubkeys.length) return;
-	Promise.allSettled(pubkeys.map(fetchProfile)).then(() => {
+	const all = [...new Set([...talking, ...present].map((u) => u.pubkey))];
+	// run every shown profile through fetchProfile: cold ones get fetched, warm-but-
+	// stale ones get a background revalidate (they repaint themselves on change).
+	all.forEach((pk) => fetchProfile(pk));
+	// the cold ones additionally need one render here so their avatars first appear.
+	const cold = all.filter((pk) => !profileCache.has(pk));
+	if (!cold.length) return;
+	Promise.allSettled(cold.map((pk) => fetchProfile(pk))).then(() => {
 		if (focusedGeo === currentUsers.geo && usersGate.classList.contains("show")) {
 			renderUsers(currentUsers.talking, currentUsers.present);
 		}
 	});
 }
 
+let openProfilePubkey = null; // pubkey the profile card is currently showing (for background repaints)
+
 // nostr profile card: tap a user to see their avatar + bio (profiles must be on).
 async function openProfileCard(pubkey) {
 	if (!profilesActive()) return;
+	openProfilePubkey = pubkey;
 	const entry = entries.find((e) => !e.system && e.pubkey === pubkey);
 	const who = entry ? entry.who : profileCache.get(pubkey)?.name || "anon";
 	profileName.innerHTML =
@@ -910,12 +958,13 @@ async function openProfileCard(pubkey) {
 	const profile = await fetchProfile(pubkey);
 	if (!profileGate.classList.contains("show")) return; // dismissed while loading
 
+	const rev = profile ? profile.updated || 0 : 0; // busts the browser image cache when the profile is edited
 	if (profile && profile.hasAvatar) {
-		profileAvatar.src = `${API_BASE}/api/avatar?pubkey=${pubkey}`;
+		profileAvatar.src = `${API_BASE}/api/avatar?pubkey=${pubkey}&v=${rev}`;
 		profileAvatar.hidden = false;
 	}
 	if (profile && profile.hasBanner) {
-		profileBanner.src = `${API_BASE}/api/banner?pubkey=${pubkey}`;
+		profileBanner.src = `${API_BASE}/api/banner?pubkey=${pubkey}&v=${rev}`;
 		profileBanner.hidden = false;
 		profileCard.classList.add("hasBanner"); // overlaps the avatar onto the banner
 	}
@@ -945,6 +994,7 @@ function profileMetaHtml(profile) {
 
 function closeProfileCard() {
 	profileGate.classList.remove("show");
+	openProfilePubkey = null;
 	profileAvatar.removeAttribute("src"); // stop/release the images
 	profileBanner.removeAttribute("src");
 }

@@ -12,7 +12,6 @@ export default {
 		subtitle_2: "just pick a name to start chatting.",
 		input_placeholder: "alias",
 		enter: "enter",
-		burner: "burner",
 	},
 
 	settings: {
@@ -84,6 +83,8 @@ export default {
 		clear: "clear the view",
 		unclear: "restore cleared messages",
 		echo: "echo a message via your bot",
+		rotate: "new keypair (optional hex vanity suffix)",
+		import: "use your own nostr identity (nsec)",
 		help: "list commands",
 	},
 
@@ -94,6 +95,16 @@ export default {
 		needs_channel: "join a channel first",
 		upload_too_large: "file too large (max {max}mb)",
 		upload_failed: "upload failed",
+		rotated: "new identity minted (#{tag})",
+		rotate_badhex: "vanity suffix must be 1-4 hex chars (0-9, a-f)",
+		rotate_searching: "searching for a #{suffix} identity... (may take a bit)",
+		rotate_found: "found it - you're now #{tag}",
+		rotate_giveup: "gave up searching for #{suffix}",
+		rotate_busy: "already searching for a vanity key",
+		import_usage: "usage: /import <nsec>",
+		import_bad: "invalid nsec",
+		imported: "imported your nostr identity (#{tag})",
+		nsec_blocked: "blocked - never paste your nsec into chat",
 		unknown_command: "unknown command: /{name}",
 		commands_header: "available commands",
 		assist_active: "server assist is active",

@@ -1,4 +1,12 @@
-import { loadOrCreateIdentity, regenerateIdentity, getStoredName, setStoredName, isStoredNameGenerated } from "./nostr/identity.js";
+import {
+	loadOrCreateIdentity,
+	regenerateIdentity,
+	candidateKeypair,
+	adoptIdentity,
+	skHexFromNsec,
+	getStoredName,
+	setStoredName,
+} from "./nostr/identity.js";
 import { fetchRelayList } from "./nostr/relayList.js";
 import { RelayPool } from "./nostr/relayPool.js";
 import { makeChatMessage, makePresenceEvent, getGeohash, getName, CHAT_KIND, PRESENCE_KIND, sortRelaysByGeohash, verifyEvent } from "./nostr/protocol.js";
@@ -21,12 +29,8 @@ const entries = []; // [{ ts, geo, system, pubkey, html, el }], ascending by ts 
 const mediaSettings = { censorImages: true };
 const revealedImages = new Set(); // "entryId:idx" keys for images tapped open
 
-let identity = loadOrCreateIdentity(); // mutable: the "random" button mints a fresh one
+let identity = loadOrCreateIdentity(); // mutable: /rotate and /import replace it
 let name = getStoredName();
-// tracks whether the name currently in play was auto-generated (anon####) vs
-// chosen. kept in sync with the input while the gate is open; decides whether
-// "random" re-rolls the name too or just the keypair.
-let nameGenerated = isStoredNameGenerated();
 let focusedGeo = null;
 let focusedUserCount = 0;
 let allRelays = []; // [{ url, lat, lon }], populated after the CSV fetch resolves
@@ -38,7 +42,6 @@ const nameGate = document.getElementById("nameGate");
 const nameForm = document.getElementById("nameForm");
 const nameInput = document.getElementById("nameInput");
 const nameHint = document.getElementById("nameHint");
-const burnerBtn = document.getElementById("burnerBtn");
 const settingsGate = document.getElementById("settingsGate");
 const assistToggle = document.getElementById("assistToggle");
 const profilesToggle = document.getElementById("profilesToggle");
@@ -663,16 +666,10 @@ function updateNameHint() {
 		`<span class="sfx">#${escapeHtml(ownSuffix)}</span>`;
 }
 
-// typing (as opposed to the programmatic "random" fill, which doesn't fire
-// "input") means the name is now a chosen/custom one.
-nameInput.addEventListener("input", () => {
-	nameGenerated = false;
-	updateNameHint();
-});
+nameInput.addEventListener("input", updateNameHint);
 
 function openNameGate() {
 	nameInput.value = name || "";
-	nameGenerated = isStoredNameGenerated(); // re-sync to the committed state
 	updateNameHint();
 	nameGate.classList.add("show");
 	setTimeout(() => nameInput.focus(), 0);
@@ -1001,33 +998,12 @@ nameForm.addEventListener("submit", (e) => {
 	e.preventDefault();
 
 	const value = nameInput.value.trim().slice(0, 24);
-	if (value) {
-		name = value;
-		// nameGenerated already reflects the input's origin: true if it came from
-		// "random" untouched, false if typed.
-	} else {
-		name = randomAnonName();
-		nameGenerated = true; // no input -> we generated one
-	}
+	name = value || randomAnonName();
 
-	setStoredName(name, nameGenerated);
+	setStoredName(name);
 	renderTopbar();
 	closeNameGate();
 	appendSystem(t("system.welcome", { name })); // ephemeral greeting (fades like other notices)
-});
-
-// "burner": mint a brand new keypair (a fresh throwaway identity). If your name
-// was auto-generated (or the field is empty), re-roll a fresh anon#### too; if
-// you chose a custom name, keep it and only change the keypair. Previews live in
-// the gate; commit with "enter".
-burnerBtn.addEventListener("click", () => {
-	identity = regenerateIdentity();
-	ownSuffix = identity.pk.slice(-4);
-	if (nameGenerated || !nameInput.value.trim()) {
-		nameInput.value = randomAnonName();
-		nameGenerated = true;
-	}
-	updateNameHint();
 });
 
 // single entry point for every event source (relays + history api): filter to
@@ -1458,7 +1434,15 @@ function botName() {
 // build, sign, render, and broadcast a chat message under `displayName` (your
 // name by default). shared by normal sends and bot-output commands, so command
 // broadcasts get the same echo-confirmation + rebroadcast treatment as any send.
+// never let a secret key go out over the wire, no matter how it got into the
+// composer (e.g. a mistyped "/import"). this is the single broadcast chokepoint.
+const NSEC_RE = /nsec1[0-9a-z]{20,}/i;
+
 function transmit(content, geo, displayName = name) {
+	if (NSEC_RE.test(content)) {
+		appendSystem(t("system.nsec_blocked"));
+		return;
+	}
 	const event = makeChatMessage({ content, geohash: geo, name: displayName, sk: identity.sk, pk: identity.pk });
 	seen.add(event.id);
 	// track before rendering so renderEvent's pendingAck picks it up, then
@@ -1573,6 +1557,51 @@ function commandDesc(name) {
 	return t(`commands.${name}`);
 }
 
+// --- identity rotation / import (replaces the old name-gate "burner" button) --
+let rotating = false; // a vanity search is in flight; guards against a second one
+
+// swap in a new identity. a new keypair means a new color + #suffix, but the
+// display name is kept (rotate/import the key, not who you are here).
+function applyIdentity(next) {
+	identity = next;
+	ownSuffix = identity.pk.slice(-4);
+	updateNameHint(); // harmless if the gate is closed
+	renderTopbar();
+}
+
+// brute-force keypairs until the pubkey ends in `suffix` (a vanity #tag). runs in
+// short time slices so the ui never freezes, and is bounded so it can't run away.
+async function rotateVanity(suffix) {
+	if (rotating) {
+		appendSystem(t("system.rotate_busy"));
+		return;
+	}
+	rotating = true;
+	appendSystem(t("system.rotate_searching", { suffix }), SYSTEM_TTL_LONG_MS);
+	const MAX_ATTEMPTS = 2_000_000; // ~30x the average for a 4-hex suffix - a safe ceiling
+	let attempts = 0;
+	try {
+		while (attempts < MAX_ATTEMPTS) {
+			const start = performance.now();
+			while (performance.now() - start < 20) {
+				// ~20ms work slice, then yield to keep the frame responsive
+				const cand = candidateKeypair();
+				attempts++;
+				if (cand.pk.endsWith(suffix)) {
+					applyIdentity(adoptIdentity(cand.skHex));
+					appendSystem(t("system.rotate_found", { tag: ownSuffix }));
+					return;
+				}
+				if (attempts >= MAX_ATTEMPTS) break;
+			}
+			await new Promise((r) => setTimeout(r, 0));
+		}
+		appendSystem(t("system.rotate_giveup", { suffix }));
+	} finally {
+		rotating = false;
+	}
+}
+
 const COMMANDS = [
 	{
 		name: "clear",
@@ -1603,6 +1632,40 @@ const COMMANDS = [
 			const msg = arg.trim();
 			if (!msg) return;
 			transmit(msg, focusedGeo, botName());
+		},
+	},
+	{
+		name: "rotate",
+		run(arg) {
+			// no arg -> a fresh random keypair; a 1-4 char hex arg -> vanity #suffix.
+			const suffix = arg.trim().toLowerCase();
+			if (!suffix) {
+				applyIdentity(regenerateIdentity());
+				appendSystem(t("system.rotated", { tag: ownSuffix }));
+				return;
+			}
+			if (!/^[0-9a-f]{1,4}$/.test(suffix)) {
+				appendSystem(t("system.rotate_badhex"));
+				return;
+			}
+			rotateVanity(suffix);
+		},
+	},
+	{
+		name: "import",
+		run(arg) {
+			// adopt your own nostr identity from an nsec (stays client-side, like any key).
+			const nsec = arg.trim();
+			if (!nsec) {
+				appendSystem(t("system.import_usage"));
+				return;
+			}
+			try {
+				applyIdentity(adoptIdentity(skHexFromNsec(nsec)));
+				appendSystem(t("system.imported", { tag: ownSuffix }));
+			} catch {
+				appendSystem(t("system.import_bad"));
+			}
 		},
 	},
 	{

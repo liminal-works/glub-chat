@@ -47,9 +47,10 @@ const settingsGate = document.getElementById("settingsGate");
 const assistToggle = document.getElementById("assistToggle");
 const profilesToggle = document.getElementById("profilesToggle");
 const profilesRow = document.getElementById("profilesRow");
-const copyNsecBtn = document.getElementById("copyNsecBtn");
 const nsecInput = document.getElementById("nsecInput");
-const importNsecBtn = document.getElementById("importNsecBtn");
+const revealNsecBtn = document.getElementById("revealNsecBtn");
+const copyNsecBtn = document.getElementById("copyNsecBtn");
+const pasteNsecBtn = document.getElementById("pasteNsecBtn");
 const nsecStatus = document.getElementById("nsecStatus");
 const settingsClose = document.getElementById("settingsClose");
 const usersGate = document.getElementById("usersGate");
@@ -695,20 +696,30 @@ function openSettings() {
 	assistToggle.checked = getAssistEnabled();
 	profilesToggle.checked = getProfilesEnabled();
 	syncProfilesRow();
-	clearNsecField();
+	nsecRevealed = false;
+	renderNsecField();
+	setNsecStatus("");
 	settingsGate.classList.add("show");
 }
 
 function closeSettings() {
 	settingsGate.classList.remove("show");
-	clearNsecField(); // don't leave a pasted secret sitting in the dom
+	nsecRevealed = false;
+	renderNsecField(); // re-censor so a revealed key isn't left in the dom
 }
 
-// reset the import field + status (called on open/close and after an import)
-function clearNsecField() {
-	nsecInput.value = "";
-	nsecStatus.textContent = "";
-	nsecStatus.className = "idStatus";
+// the nsec field always shows your current key, censored to the last 4 chars;
+// "reveal" toggles the full value.
+let nsecRevealed = false;
+
+function censorNsec(nsec) {
+	return "•".repeat(12) + nsec.slice(-4);
+}
+
+function renderNsecField() {
+	const nsec = skToNsec(identity.sk);
+	nsecInput.value = nsecRevealed ? nsec : censorNsec(nsec);
+	revealNsecBtn.textContent = t(nsecRevealed ? "settings.hide_nsec" : "settings.reveal_nsec");
 }
 
 function setNsecStatus(text, kind) {
@@ -716,8 +727,13 @@ function setNsecStatus(text, kind) {
 	nsecStatus.className = `idStatus ${kind || ""}`;
 }
 
-// copy the current identity's nsec to the clipboard (backup / move to another
-// client). the raw key only ever touches the clipboard on this explicit tap.
+revealNsecBtn.addEventListener("click", () => {
+	nsecRevealed = !nsecRevealed;
+	renderNsecField();
+});
+
+// copy the current identity's nsec (backup / move to another client). the raw key
+// only touches the clipboard on this explicit tap.
 copyNsecBtn.addEventListener("click", async () => {
 	try {
 		await navigator.clipboard.writeText(skToNsec(identity.sk));
@@ -727,16 +743,23 @@ copyNsecBtn.addEventListener("click", async () => {
 	}
 });
 
-// import a pasted nsec: decode + adopt it, keep the display name, then close and
-// confirm. stays entirely client-side; the field is masked and cleared after.
-importNsecBtn.addEventListener("click", () => {
-	const nsec = nsecInput.value.trim();
+// paste an nsec from the clipboard and adopt it - keeps your display name, stays
+// entirely client-side. the field re-renders (re-censored) to the new key.
+pasteNsecBtn.addEventListener("click", async () => {
+	let text;
+	try {
+		text = await navigator.clipboard.readText();
+	} catch {
+		setNsecStatus(t("system.nsec_paste_failed"), "err");
+		return;
+	}
+	const nsec = (text || "").trim();
 	if (!nsec) return;
 	try {
 		applyIdentity(adoptIdentity(skHexFromNsec(nsec)));
-		clearNsecField();
-		closeSettings();
-		appendSystem(t("system.imported", { tag: ownSuffix }));
+		nsecRevealed = false;
+		renderNsecField();
+		setNsecStatus(t("system.nsec_imported"), "ok");
 	} catch {
 		setNsecStatus(t("system.nsec_invalid"), "err");
 	}

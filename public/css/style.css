@@ -776,7 +776,9 @@ body {
    out of the public composer on purpose - a secret key has no business in a
    broadcast box. sits right under the toggles (no divider) on the same rhythm. */
 .idSection {
-	margin-bottom: 16px;
+	/* match the field->buttons gap (.idButtons margin-top) so the button row sits
+	   the same distance above "done" as it does below the nsec field. */
+	margin-bottom: 8px;
 }
 
 .idHeading {
@@ -840,9 +842,14 @@ body {
 	cursor: pointer;
 }
 
-/* reveal is borderless to break up the row of boxes; copy/paste keep theirs */
+/* reveal is set apart from the two bordered utility buttons: no border, lighter
+   weight, and left-aligned so it reads as a plain inline toggle rather than a
+   third button in the row. */
 #revealNsecBtn {
 	border-color: transparent;
+	font-weight: 400;
+	text-align: left;
+	padding-left: 0;
 }
 
 #settingsClose {

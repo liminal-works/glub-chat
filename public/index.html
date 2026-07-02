@@ -68,6 +68,28 @@
 						<span class="toggleVisual" aria-hidden="true"></span>
 					</label>
 
+					<div class="idSection">
+						<div class="idHeading" data-i18n="settings.identity_label">identity</div>
+						<div class="idNote" data-i18n="settings.identity_note">
+							your nsec is your account — back it up, never share it.
+						</div>
+						<button id="copyNsecBtn" class="idBtn" type="button" data-i18n="settings.copy_nsec">copy your nsec</button>
+						<div class="idImport">
+							<input
+								id="nsecInput"
+								type="password"
+								autocomplete="off"
+								autocapitalize="none"
+								autocorrect="off"
+								spellcheck="false"
+								placeholder="paste an nsec"
+								data-i18n-placeholder="settings.nsec_placeholder"
+							/>
+							<button id="importNsecBtn" class="idBtn" type="button" data-i18n="settings.import_nsec">import</button>
+						</div>
+						<div id="nsecStatus" class="idStatus" aria-live="polite"></div>
+					</div>
+
 					<button id="settingsClose" type="button" data-i18n="settings.done">done</button>
 				</div>
 			</div>

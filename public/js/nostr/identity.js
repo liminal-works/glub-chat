@@ -64,6 +64,11 @@ export function skHexFromNsec(nsec) {
 	return bytesToHex(data);
 }
 
+// encode a secret key (Uint8Array) as a bech32 nsec, for backup/export.
+export function skToNsec(sk) {
+	return nip19.nsecEncode(sk);
+}
+
 export function getStoredName() {
 	return localStorage.getItem(STORAGE_NAME_KEY);
 }

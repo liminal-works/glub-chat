@@ -4,6 +4,7 @@ import {
 	candidateKeypair,
 	adoptIdentity,
 	skHexFromNsec,
+	skToNsec,
 	getStoredName,
 	setStoredName,
 } from "./nostr/identity.js";
@@ -46,6 +47,10 @@ const settingsGate = document.getElementById("settingsGate");
 const assistToggle = document.getElementById("assistToggle");
 const profilesToggle = document.getElementById("profilesToggle");
 const profilesRow = document.getElementById("profilesRow");
+const copyNsecBtn = document.getElementById("copyNsecBtn");
+const nsecInput = document.getElementById("nsecInput");
+const importNsecBtn = document.getElementById("importNsecBtn");
+const nsecStatus = document.getElementById("nsecStatus");
 const settingsClose = document.getElementById("settingsClose");
 const usersGate = document.getElementById("usersGate");
 const usersTitle = document.getElementById("usersTitle");
@@ -690,12 +695,52 @@ function openSettings() {
 	assistToggle.checked = getAssistEnabled();
 	profilesToggle.checked = getProfilesEnabled();
 	syncProfilesRow();
+	clearNsecField();
 	settingsGate.classList.add("show");
 }
 
 function closeSettings() {
 	settingsGate.classList.remove("show");
+	clearNsecField(); // don't leave a pasted secret sitting in the dom
 }
+
+// reset the import field + status (called on open/close and after an import)
+function clearNsecField() {
+	nsecInput.value = "";
+	nsecStatus.textContent = "";
+	nsecStatus.className = "idStatus";
+}
+
+function setNsecStatus(text, kind) {
+	nsecStatus.textContent = text;
+	nsecStatus.className = `idStatus ${kind || ""}`;
+}
+
+// copy the current identity's nsec to the clipboard (backup / move to another
+// client). the raw key only ever touches the clipboard on this explicit tap.
+copyNsecBtn.addEventListener("click", async () => {
+	try {
+		await navigator.clipboard.writeText(skToNsec(identity.sk));
+		setNsecStatus(t("system.nsec_copied"), "ok");
+	} catch {
+		setNsecStatus(t("system.nsec_copy_failed"), "err");
+	}
+});
+
+// import a pasted nsec: decode + adopt it, keep the display name, then close and
+// confirm. stays entirely client-side; the field is masked and cleared after.
+importNsecBtn.addEventListener("click", () => {
+	const nsec = nsecInput.value.trim();
+	if (!nsec) return;
+	try {
+		applyIdentity(adoptIdentity(skHexFromNsec(nsec)));
+		clearNsecField();
+		closeSettings();
+		appendSystem(t("system.imported", { tag: ownSuffix }));
+	} catch {
+		setNsecStatus(t("system.nsec_invalid"), "err");
+	}
+});
 
 // avatar for a pubkey: the cached profile's proxied image if it has one. `inline`
 // styles it for a chat line (vs a users-tab row). `placeholder` reserves blank
@@ -1649,23 +1694,6 @@ const COMMANDS = [
 				return;
 			}
 			rotateVanity(suffix);
-		},
-	},
-	{
-		name: "import",
-		run(arg) {
-			// adopt your own nostr identity from an nsec (stays client-side, like any key).
-			const nsec = arg.trim();
-			if (!nsec) {
-				appendSystem(t("system.import_usage"));
-				return;
-			}
-			try {
-				applyIdentity(adoptIdentity(skHexFromNsec(nsec)));
-				appendSystem(t("system.imported", { tag: ownSuffix }));
-			} catch {
-				appendSystem(t("system.import_bad"));
-			}
 		},
 	},
 	{

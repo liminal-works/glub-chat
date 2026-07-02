@@ -53,6 +53,7 @@ const profileCard = document.getElementById("profileCard");
 const profileBanner = document.getElementById("profileBanner");
 const profileAvatar = document.getElementById("profileAvatar");
 const profileName = document.getElementById("profileName");
+const profileNostrName = document.getElementById("profileNostrName");
 const profileNip05 = document.getElementById("profileNip05");
 const profileAbout = document.getElementById("profileAbout");
 const profileMeta = document.getElementById("profileMeta");
@@ -828,6 +829,7 @@ async function openProfileCard(pubkey) {
 	profileName.innerHTML =
 		`<span style="color:${pubkeyColor(pubkey)}">@${escapeHtml(clipText(who, 24))}` +
 		`<span class="sfx">#${escapeHtml(pubkey.slice(-4))}</span></span>`;
+	profileNostrName.textContent = "";
 	profileNip05.textContent = "";
 	profileAbout.textContent = t("profile.loading");
 	profileMeta.innerHTML = "";
@@ -849,6 +851,10 @@ async function openProfileCard(pubkey) {
 		profileBanner.hidden = false;
 		profileCard.classList.add("hasBanner"); // overlaps the avatar onto the banner
 	}
+	// their actual nostr display name as a secondary line - but only when it adds
+	// something (present and not just the same as the channel handle they go by here)
+	const nostrName = (profile && profile.name) || "";
+	profileNostrName.textContent = nostrName && nostrName.toLowerCase() !== who.toLowerCase() ? nostrName : "";
 	profileNip05.textContent = profile && profile.nip05 ? profile.nip05 : "";
 	profileAbout.textContent = profile && profile.about ? profile.about : t("profile.none");
 	profileMeta.innerHTML = profile ? profileMetaHtml(profile) : "";

@@ -597,6 +597,20 @@ body {
 	opacity: 0.6;
 }
 
+/* their actual nostr display name, shown under the channel handle (which stays
+   primary - it's how everyone sees them in chat). collapses if absent/redundant. */
+.profileNostrName {
+	color: var(--fg);
+	opacity: 0.7;
+	font-size: 13px;
+	margin-top: 3px;
+	word-break: break-word;
+}
+
+.profileNostrName:empty {
+	display: none;
+}
+
 .profileNip05 {
 	color: var(--muted);
 	font-size: 12px;

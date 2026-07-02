@@ -974,6 +974,7 @@ async function openProfileCard(pubkey) {
 	profileMeta.innerHTML = "";
 	profileAvatar.hidden = true;
 	profileBanner.hidden = true;
+	profileBanner.classList.remove("bannerTall"); // recomputed per banner once it loads
 	profileCard.classList.remove("hasBanner");
 	profileCard.scrollTop = 0;
 	profileGate.classList.add("show");
@@ -987,6 +988,14 @@ async function openProfileCard(pubkey) {
 		profileAvatar.hidden = false;
 	}
 	if (profile && profile.hasBanner) {
+		// once we know the banner's real dimensions, tall (portrait) ones switch to
+		// fit-to-width so they show fully without side bars; wide ones keep the
+		// default capped/contain rendering untouched.
+		profileBanner.onload = () => {
+			// anything not strictly wider than it is tall (portrait or square) would
+			// otherwise get side bars - fit those to the width instead.
+			profileBanner.classList.toggle("bannerTall", profileBanner.naturalHeight >= profileBanner.naturalWidth);
+		};
 		profileBanner.src = `${API_BASE}/api/banner?pubkey=${pubkey}&v=${rev}`;
 		profileBanner.hidden = false;
 		profileCard.classList.add("hasBanner"); // overlaps the avatar onto the banner

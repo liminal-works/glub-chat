@@ -568,6 +568,14 @@ body {
 	display: none;
 }
 
+/* tall (portrait) banners: taller than they are wide, so contain+cap would pillar-
+   box them behind side bars. drop the cap and let them fill the full width at their
+   natural height instead - whole image, no bars, nothing cropped. the card scrolls
+   if the result is very tall. applied via JS once the intrinsic size is known. */
+.profileBanner.bannerTall {
+	max-height: none;
+}
+
 /* avatar: standalone, and when a banner is present it's pulled up to overlap the
    banner's bottom edge (with a ring in the card color to separate them). */
 .profileAvatar {

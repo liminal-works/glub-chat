@@ -713,7 +713,9 @@ function closeSettings() {
 let nsecRevealed = false;
 
 function censorNsec(nsec) {
-	return "•".repeat(12) + nsec.slice(-4);
+	// reveal the first few chars (every nsec starts "nsec1", so this leaks almost
+	// nothing) and star out the rest - phosphor-terminal flavored.
+	return nsec.slice(0, 7) + "*".repeat(14);
 }
 
 function renderNsecField() {
@@ -729,6 +731,7 @@ function setNsecStatus(text, kind) {
 
 revealNsecBtn.addEventListener("click", () => {
 	nsecRevealed = !nsecRevealed;
+	setNsecStatus(""); // don't leave feedback overlapping a revealed key
 	renderNsecField();
 });
 

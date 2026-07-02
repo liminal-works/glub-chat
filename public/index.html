@@ -69,14 +69,16 @@
 					</label>
 
 					<div class="idSection">
-						<div class="idHeading" data-i18n="settings.identity_label">identity</div>
-						<input id="nsecInput" class="idField" type="text" readonly autocomplete="off" spellcheck="false" aria-label="your nsec" />
+						<div class="idHeading" data-i18n="settings.identity_label">nostr identity</div>
+						<div class="idFieldWrap">
+							<input id="nsecInput" class="idField" type="text" readonly autocomplete="off" spellcheck="false" aria-label="your nsec" />
+							<span id="nsecStatus" class="idStatus" aria-live="polite"></span>
+						</div>
 						<div class="idButtons">
 							<button id="revealNsecBtn" class="idBtn" type="button" data-i18n="settings.reveal_nsec">reveal</button>
 							<button id="copyNsecBtn" class="idBtn" type="button" data-i18n="settings.copy_nsec">copy</button>
 							<button id="pasteNsecBtn" class="idBtn" type="button" data-i18n="settings.paste_nsec">paste</button>
 						</div>
-						<div id="nsecStatus" class="idStatus" aria-live="polite"></div>
 					</div>
 
 					<button id="settingsClose" type="button" data-i18n="settings.done">done</button>

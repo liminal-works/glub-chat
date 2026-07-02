@@ -774,18 +774,19 @@ body {
 
 /* identity section in settings: your (censored) nsec + reveal/copy/paste. kept
    out of the public composer on purpose - a secret key has no business in a
-   broadcast box. */
+   broadcast box. sits right under the toggles (no divider) on the same rhythm. */
 .idSection {
-	border-top: 1px solid var(--chrome-border);
-	padding-top: 14px;
 	margin-bottom: 16px;
 }
 
 .idHeading {
 	color: var(--fg);
 	font-size: 14px;
-	font-weight: 700;
 	margin-bottom: 8px;
+}
+
+.idFieldWrap {
+	position: relative;
 }
 
 .idField {
@@ -798,6 +799,28 @@ body {
 	font-size: 14px;
 	padding: 9px 12px;
 	outline: 0;
+}
+
+/* action feedback (copied / imported / errors) rides inside the field on the
+   right, over the empty tail of the censored key - frees the row below. */
+.idStatus {
+	position: absolute;
+	right: 12px;
+	top: 50%;
+	transform: translateY(-50%);
+	padding-left: 10px;
+	background: var(--chrome-bg); /* opaque chip matching the field, hides any text beneath */
+	font-size: 12px;
+	color: var(--muted);
+	pointer-events: none;
+}
+
+.idStatus.ok {
+	color: var(--accent);
+}
+
+.idStatus.err {
+	color: var(--danger);
 }
 
 .idButtons {
@@ -817,19 +840,9 @@ body {
 	cursor: pointer;
 }
 
-.idStatus {
-	font-size: 12px;
-	margin-top: 8px;
-	min-height: 1em;
-	color: var(--muted);
-}
-
-.idStatus.ok {
-	color: var(--accent);
-}
-
-.idStatus.err {
-	color: var(--danger);
+/* reveal is borderless to break up the row of boxes; copy/paste keep theirs */
+#revealNsecBtn {
+	border-color: transparent;
 }
 
 #settingsClose {

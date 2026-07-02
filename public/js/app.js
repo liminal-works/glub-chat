@@ -966,7 +966,7 @@ async function openProfileCard(pubkey) {
 	const npub = pkToNpub(pubkey);
 	profileNpub.dataset.npub = npub;
 	profileNpubKey.textContent = `${npub.slice(0, 12)}…${npub.slice(-8)}`;
-	profileNpubHint.textContent = t("profile.copy_npub");
+	profileNpubHint.textContent = t("settings.copy_nsec");
 	profileNpub.hidden = false;
 	profileNostrName.textContent = "";
 	profileNip05.textContent = "";
@@ -1105,7 +1105,7 @@ profileNpub.addEventListener("click", async () => {
 	}
 	clearTimeout(npubHintTimer);
 	npubHintTimer = setTimeout(() => {
-		profileNpubHint.textContent = t("profile.copy_npub");
+		profileNpubHint.textContent = t("settings.copy_nsec");
 	}, 1500);
 });
 

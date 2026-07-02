@@ -27,6 +27,8 @@ export function parseProfile(ev) {
 		picture: str(data.picture, 512),
 		banner: str(data.banner, 512),
 		nip05: str(data.nip05, 128),
+		website: str(data.website, 256),
+		lud16: str(data.lud16, 128), // lightning address
 	};
 }
 

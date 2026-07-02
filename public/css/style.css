@@ -537,55 +537,60 @@ body {
 	color: var(--accent); /* physically-present users stand out */
 }
 
-/* nostr profile card (tap a user to see their avatar + bio) */
+/* nostr profile card (tap a user to see their avatar, banner + metadata). Built
+   to survive wildly varying nostr metadata: any banner aspect ratio shows whole
+   (never cropped/warped), and every field below is optional and collapses. */
 .profileCard {
 	display: flex;
 	flex-direction: column;
-	gap: 14px;
+	width: min(460px, 100%);
+	max-height: 88vh;
+	overflow-y: auto;
+	overflow-x: hidden;
 }
 
-/* profile banner: full-bleed strip across the top of the card */
+/* banner: full-bleed across the card top, whole image visible. wide banners fill
+   the width at their natural height; unusually tall ones are capped and letter-
+   boxed (contain) rather than cropped to a sliver or squished. */
 .profileBanner {
 	display: block;
 	width: calc(100% + 32px);
 	margin: -16px -16px 0; /* bleed past the card's 16px padding */
-	height: 96px;
-	object-fit: cover;
-	background: var(--chrome-border);
+	max-height: 40vh;
+	object-fit: contain;
+	object-position: center;
+	background: rgba(255, 255, 255, 0.04); /* fills letterbox gaps for tall banners */
 }
 
 .profileBanner[hidden] {
 	display: none;
 }
 
-.profileHead {
-	display: flex;
-	align-items: center;
-	gap: 12px;
-}
-
+/* avatar: standalone, and when a banner is present it's pulled up to overlap the
+   banner's bottom edge (with a ring in the card color to separate them). */
 .profileAvatar {
-	flex: none;
-	width: 56px;
-	height: 56px;
+	width: 68px;
+	height: 68px;
 	border-radius: 50%;
 	object-fit: cover;
 	background: var(--chrome-border);
-	border: 1px solid var(--chrome-border);
+	border: 3px solid var(--chrome-bg);
+	margin-top: 12px;
 }
 
 .profileAvatar[hidden] {
 	display: none;
 }
 
-.profileIdent {
-	min-width: 0;
+.profileCard.hasBanner .profileAvatar {
+	margin-top: -40px;
 }
 
 .profileName {
-	font-size: 15px;
+	font-size: 16px;
 	font-weight: 700;
 	word-break: break-word;
+	margin-top: 10px;
 }
 
 .profileName .sfx {
@@ -595,22 +600,52 @@ body {
 .profileNip05 {
 	color: var(--muted);
 	font-size: 12px;
-	margin-top: 2px;
+	margin-top: 3px;
 	word-break: break-word;
 }
 
 .profileAbout {
 	color: var(--fg);
 	font-size: 14px;
-	line-height: 1.4;
+	line-height: 1.45;
 	white-space: pre-wrap;
 	word-break: break-word;
-	max-height: 40vh;
-	overflow-y: auto;
+	margin-top: 14px;
+}
+
+/* optional metadata rows (website, lightning) - the whole block collapses when
+   there's nothing to show */
+.profileMeta {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	margin-top: 14px;
+	font-size: 13px;
+}
+
+.profileMeta:empty,
+.profileAbout:empty {
+	display: none;
+}
+
+.profileLink {
+	color: var(--geo);
+	text-decoration: none;
+	word-break: break-all;
+}
+
+.profileLink:hover {
+	text-decoration: underline;
+}
+
+.profileZap {
+	color: var(--accent);
+	word-break: break-all;
 }
 
 .profileCard #profileClose {
 	width: 100%;
+	margin-top: 18px;
 	border: 1px solid var(--chrome-border);
 	background: transparent;
 	color: var(--accent);

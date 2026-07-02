@@ -49,11 +49,13 @@ const usersTitle = document.getElementById("usersTitle");
 const usersList = document.getElementById("usersList");
 const usersClose = document.getElementById("usersClose");
 const profileGate = document.getElementById("profileGate");
+const profileCard = document.getElementById("profileCard");
 const profileBanner = document.getElementById("profileBanner");
 const profileAvatar = document.getElementById("profileAvatar");
 const profileName = document.getElementById("profileName");
 const profileNip05 = document.getElementById("profileNip05");
 const profileAbout = document.getElementById("profileAbout");
+const profileMeta = document.getElementById("profileMeta");
 const profileClose = document.getElementById("profileClose");
 const terminal = document.getElementById("terminal");
 const brandEl = document.getElementById("brand");
@@ -828,12 +830,16 @@ async function openProfileCard(pubkey) {
 		`<span class="sfx">#${escapeHtml(pubkey.slice(-4))}</span></span>`;
 	profileNip05.textContent = "";
 	profileAbout.textContent = t("profile.loading");
+	profileMeta.innerHTML = "";
 	profileAvatar.hidden = true;
 	profileBanner.hidden = true;
+	profileCard.classList.remove("hasBanner");
+	profileCard.scrollTop = 0;
 	profileGate.classList.add("show");
 
 	const profile = await fetchProfile(pubkey);
 	if (!profileGate.classList.contains("show")) return; // dismissed while loading
+
 	if (profile && profile.hasAvatar) {
 		profileAvatar.src = `${API_BASE}/api/avatar?pubkey=${pubkey}`;
 		profileAvatar.hidden = false;
@@ -841,9 +847,26 @@ async function openProfileCard(pubkey) {
 	if (profile && profile.hasBanner) {
 		profileBanner.src = `${API_BASE}/api/banner?pubkey=${pubkey}`;
 		profileBanner.hidden = false;
+		profileCard.classList.add("hasBanner"); // overlaps the avatar onto the banner
 	}
 	profileNip05.textContent = profile && profile.nip05 ? profile.nip05 : "";
 	profileAbout.textContent = profile && profile.about ? profile.about : t("profile.none");
+	profileMeta.innerHTML = profile ? profileMetaHtml(profile) : "";
+}
+
+// optional profile metadata rows: a website link and a lightning address. each
+// is omitted when absent, so the block collapses entirely for a bare profile.
+function profileMetaHtml(profile) {
+	let html = "";
+	const site = /^https?:\/\//i.test(profile.website || "") ? profile.website : "";
+	if (site) {
+		const label = site.replace(/^https?:\/\//i, "").replace(/\/+$/, "");
+		html += `<a class="profileLink" href="${escapeHtml(site)}" target="_blank" rel="noopener noreferrer">${escapeHtml(label)}</a>`;
+	}
+	if (profile.lud16) {
+		html += `<div class="profileZap">⚡ ${escapeHtml(profile.lud16)}</div>`;
+	}
+	return html;
 }
 
 function closeProfileCard() {

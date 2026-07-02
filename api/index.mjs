@@ -112,6 +112,8 @@ app.get("/api/profile", async (req, res) => {
 					name: profile.name,
 					about: profile.about,
 					nip05: profile.nip05,
+					website: profile.website,
+					lud16: profile.lud16,
 					hasAvatar: !!profile.picture,
 					hasBanner: !!profile.banner,
 			  }

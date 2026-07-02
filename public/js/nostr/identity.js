@@ -69,6 +69,12 @@ export function skToNsec(sk) {
 	return nip19.nsecEncode(sk);
 }
 
+// encode a public key (hex) as a bech32 npub - the shareable form people paste
+// into other nostr clients to find a profile.
+export function pkToNpub(pk) {
+	return nip19.npubEncode(pk);
+}
+
 export function getStoredName() {
 	return localStorage.getItem(STORAGE_NAME_KEY);
 }

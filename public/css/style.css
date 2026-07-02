@@ -659,6 +659,41 @@ body {
 	word-break: break-all;
 }
 
+/* npub chip: the shareable bech32 pubkey, tap to copy so it can be looked up on
+   other nostr clients. shows even for keys with no kind-0 profile. the hint slot
+   on the right doubles as copy feedback ("copied npub"). */
+.profileNpub {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 10px;
+	width: 100%;
+	margin-top: 16px;
+	border: 1px solid var(--chrome-border);
+	background: rgba(0, 0, 0, 0.18);
+	color: var(--fg);
+	font: inherit;
+	padding: 8px 12px;
+	cursor: pointer;
+	text-align: left;
+}
+
+.profileNpub:hover {
+	border-color: var(--chrome-border-strong, rgba(48, 209, 88, 0.35));
+}
+
+.profileNpubKey {
+	font-size: 13px;
+	color: var(--muted);
+	word-break: break-all;
+}
+
+.profileNpubHint {
+	font-size: 11px;
+	color: var(--accent);
+	white-space: nowrap;
+}
+
 .profileCard #profileClose {
 	width: 100%;
 	margin-top: 18px;

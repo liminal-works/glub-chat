@@ -34,6 +34,9 @@ export default {
 		close: "close",
 		loading: "loading profile…",
 		none: "no nostr profile",
+		copy_npub: "tap to copy",
+		npub_copied: "copied npub",
+		npub_copy_failed: "copy failed",
 	},
 
 	users: {

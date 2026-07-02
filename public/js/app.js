@@ -5,6 +5,7 @@ import {
 	adoptIdentity,
 	skHexFromNsec,
 	skToNsec,
+	pkToNpub,
 	getStoredName,
 	setStoredName,
 } from "./nostr/identity.js";
@@ -66,6 +67,9 @@ const profileNostrName = document.getElementById("profileNostrName");
 const profileNip05 = document.getElementById("profileNip05");
 const profileAbout = document.getElementById("profileAbout");
 const profileMeta = document.getElementById("profileMeta");
+const profileNpub = document.getElementById("profileNpub");
+const profileNpubKey = document.getElementById("profileNpubKey");
+const profileNpubHint = document.getElementById("profileNpubHint");
 const profileClose = document.getElementById("profileClose");
 const terminal = document.getElementById("terminal");
 const brandEl = document.getElementById("brand");
@@ -318,7 +322,9 @@ function entryVisible(entry) {
 function messageInnerHtml(entry) {
 	const expanded = entry.expanded;
 	const text = expanded ? entry.text : clipWithEllipsis(entry.text, MAX_MSG_LEN);
-	const color = entry.color;
+	// your own color depends on the live profiles state (orange vs. real per-key
+	// color), so recompute it each render; peers' colors never change (baked).
+	const color = entry.mine ? pubkeyColor(entry.pubkey) : entry.color;
 
 	let body;
 	let needsToggle = entry.text.length > MAX_MSG_LEN;
@@ -395,7 +401,9 @@ function renderImagePreviews(entry) {
 function renderEntryDom(entry) {
 	const div = document.createElement("div");
 	div.className = entry.mention ? "line mention" : "line";
-	if (entry.mine) div.className += " mine"; // your own messages render bold (like bitchat)
+	// bold "you" only in the orange self-view; with profiles on you blend in as a
+	// normal peer (bolding stays tied to the same signal as the orange color).
+	if (entry.mine && !profilesActive()) div.className += " mine";
 	if (entry.system) div.className += " system";
 	if (entry.mentionTint) div.style.background = entry.mentionTint;
 	// the #geo prefix is redundant in a focused channel (every line is that
@@ -561,14 +569,14 @@ function hsbToRgb(h, s, v) {
 // DJB2 of "nostr:" + lowercased pubkey hex, hue from the hash with orange
 // steered away, and saturation/brightness also pulled from other bit-slices of
 // the same hash. We render dark-mode only, so the isDark=true constants apply.
-function pubkeyRgb(pubkey) {
-	if (pubkey.toLowerCase() === identity.pk.toLowerCase()) return SELF_RGB; // "you" is always orange
-
+// the per-key color derived purely from the hash - the color everyone (yourself
+// included) is seen as by others. self-agnostic on purpose.
+function peerRgb(pubkey) {
 	const h = djb2("nostr:" + pubkey.toLowerCase());
 
 	let hue = Number(h % 1000n) / 1000;
 	const orange = 30 / 360;
-	if (Math.abs(hue - orange) < 0.05) hue = (hue + 0.12) % 1.0; // avoid orange (reserved for you)
+	if (Math.abs(hue - orange) < 0.05) hue = (hue + 0.12) % 1.0; // avoid orange (reserved for "you")
 
 	const sRand = Number((h >> 17n) & 0x3ffn) / 1023;
 	const bRand = Number((h >> 27n) & 0x3ffn) / 1023;
@@ -576,6 +584,14 @@ function pubkeyRgb(pubkey) {
 	const brightness = Math.min(1, Math.max(0.35, 0.75 + (bRand - 0.5) * 0.16));
 
 	return hsbToRgb(hue, saturation, brightness);
+}
+
+function pubkeyRgb(pubkey) {
+	// "you" render in bitchat's reserved orange - but only until nostr profiles are
+	// active. once your identity is legible (avatar/name/npub on show), you appear
+	// in your real per-key color, exactly as everyone else already sees you.
+	if (pubkey.toLowerCase() === identity.pk.toLowerCase() && !profilesActive()) return SELF_RGB;
+	return peerRgb(pubkey);
 }
 
 function pubkeyColor(pubkey) {
@@ -945,6 +961,13 @@ async function openProfileCard(pubkey) {
 	profileName.innerHTML =
 		`<span style="color:${pubkeyColor(pubkey)}">@${escapeHtml(clipText(who, 24))}` +
 		`<span class="sfx">#${escapeHtml(pubkey.slice(-4))}</span></span>`;
+	// the npub is derived straight from the pubkey (no profile needed), so show it
+	// right away - it's how people look this identity up on other nostr clients.
+	const npub = pkToNpub(pubkey);
+	profileNpub.dataset.npub = npub;
+	profileNpubKey.textContent = `${npub.slice(0, 12)}…${npub.slice(-8)}`;
+	profileNpubHint.textContent = t("profile.copy_npub");
+	profileNpub.hidden = false;
 	profileNostrName.textContent = "";
 	profileNip05.textContent = "";
 	profileAbout.textContent = t("profile.loading");
@@ -1037,11 +1060,13 @@ assistToggle.addEventListener("change", async () => {
 		apiHealth = null;
 		enterRelayMode();
 	}
+	syncSelfView(); // assist gates profiles, so "you" may flip back to orange
 });
 
 profilesToggle.addEventListener("change", () => {
 	if (profilesToggle.disabled) return;
 	setProfilesEnabled(profilesToggle.checked);
+	syncSelfView(); // "you" switches between orange+bold and your real per-key color
 	if (usersGate.classList.contains("show")) openUsers(); // reflect avatars on/off
 });
 
@@ -1065,6 +1090,23 @@ usersList.addEventListener("click", (e) => {
 profileClose.addEventListener("click", closeProfileCard);
 profileGate.addEventListener("click", (e) => {
 	if (e.target === profileGate) closeProfileCard();
+});
+
+// tap the npub chip to copy the full key; flash confirmation in the hint slot.
+let npubHintTimer = null;
+profileNpub.addEventListener("click", async () => {
+	const npub = profileNpub.dataset.npub || "";
+	if (!npub) return;
+	try {
+		await navigator.clipboard.writeText(npub);
+		profileNpubHint.textContent = t("profile.npub_copied");
+	} catch {
+		profileNpubHint.textContent = t("profile.npub_copy_failed");
+	}
+	clearTimeout(npubHintTimer);
+	npubHintTimer = setTimeout(() => {
+		profileNpubHint.textContent = t("profile.copy_npub");
+	}, 1500);
 });
 
 // once the user scrolls up to read history, stop yanking them back to the
@@ -1131,6 +1173,28 @@ nameForm.addEventListener("submit", (e) => {
 // geohash chat, dedup by id, then render. Both paths share one dedup set.
 function rerenderEntryEl(entry) {
 	if (entry.el) entry.el.innerHTML = (focusedGeo ? "" : entry.geoPrefix || "") + messageInnerHtml(entry);
+}
+
+// how "you" appear (orange+bold vs. your real per-key color) hinges on
+// profilesActive() - repaint your own visible lines in place, no scroll jump.
+function repaintSelfLines() {
+	const bold = !profilesActive();
+	for (const entry of entries) {
+		if (!entry.mine || !entry.el) continue;
+		entry.el.classList.toggle("mine", bold);
+		rerenderEntryEl(entry);
+	}
+}
+
+// profilesActive() can flip from any of several places (both settings toggles, and
+// the api going up/down under the health loop). repaint your lines only when the
+// effective state actually changes, so the periodic health check stays free.
+let lastSelfViewActive = profilesActive();
+function syncSelfView() {
+	const active = profilesActive();
+	if (active === lastSelfViewActive) return;
+	lastSelfViewActive = active;
+	repaintSelfLines();
 }
 
 // deliver a signed event: in assist mode hand it to the api to fan out across
@@ -1310,6 +1374,7 @@ async function checkApiHealth() {
 	} catch {
 		apiAvailable = false;
 	}
+	syncSelfView(); // the api coming up / going down flips how "you" are colored
 	return apiAvailable;
 }
 

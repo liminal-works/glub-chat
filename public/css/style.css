@@ -40,31 +40,66 @@ body {
 	overflow: hidden;
 }
 
-/* CRT atmosphere: hairline scanlines + a corner vignette laid over the whole
-   screen (gates included). both are static gradients - one composited layer,
-   no animation, no repaints - and faint enough to feel rather than see. */
+/* CRT atmosphere, laid over the whole screen (gates included). ::before carries
+   the two static layers - a corner vignette and soft scanlines; ::after is the
+   one moving part, a faint refresh band that rolls down the screen like a real
+   tube. all of it is faint enough to feel rather than see. */
 body::before {
 	content: "";
 	position: fixed;
 	inset: 0;
 	z-index: 9000; /* above the gates (1000): the glass sits over everything */
 	pointer-events: none;
-	background: repeating-linear-gradient(
-		0deg,
-		rgba(0, 0, 0, 0.16) 0px,
-		rgba(0, 0, 0, 0.16) 1px,
-		transparent 1px,
-		transparent 3px
-	);
+	background:
+		/* scanlines: a triangle ramp (dark -> clear -> dark) rather than hard 1px
+		   rules, so the lines read soft/fuzzy instead of razor-crisp */
+		repeating-linear-gradient(
+			0deg,
+			rgba(0, 0, 0, 0.17) 0px,
+			rgba(0, 0, 0, 0) 1.5px,
+			rgba(0, 0, 0, 0.17) 3px
+		),
+		/* vignette */
+		radial-gradient(ellipse at center, transparent 62%, rgba(0, 0, 0, 0.32) 100%);
 }
 
+/* the rolling scan: a tall, soft green band that sweeps top -> bottom and fades
+   in/out at the edges so the loop restart is never visible. transform+opacity
+   only, so it composites on the GPU without per-frame repaints. */
 body::after {
 	content: "";
 	position: fixed;
-	inset: 0;
+	left: 0;
+	right: 0;
+	top: 0;
+	height: 42vh;
 	z-index: 9001;
 	pointer-events: none;
-	background: radial-gradient(ellipse at center, transparent 62%, rgba(0, 0, 0, 0.32) 100%);
+	background: linear-gradient(
+		180deg,
+		transparent 0%,
+		rgba(150, 255, 175, 0.05) 50%,
+		transparent 100%
+	);
+	animation: crtRoll 8s linear infinite;
+	will-change: transform;
+}
+
+@keyframes crtRoll {
+	0% {
+		transform: translateY(-42vh);
+		opacity: 0;
+	}
+	12% {
+		opacity: 1;
+	}
+	88% {
+		opacity: 1;
+	}
+	100% {
+		transform: translateY(100vh);
+		opacity: 0;
+	}
 }
 
 /* phosphor terminal touches: green-tinted selection, accent caret in inputs */
@@ -133,12 +168,15 @@ textarea {
    activity and settles into a blink when things go quiet (like a real tty). */
 .cursor {
 	display: inline-block;
-	width: 0.55em;
-	height: 1em;
-	margin-left: 3px;
-	vertical-align: text-bottom;
+	width: 0.5em;
+	height: 0.72em; /* ~cap height */
+	margin-left: 4px;
+	/* sit the block on the text baseline so it fills the glyph cell and lines up
+	   with the letters, instead of text-bottom which dropped it into the descender
+	   gap and read low */
+	vertical-align: baseline;
 	background: var(--accent);
-	animation: blink 1.1s steps(1) infinite;
+	animation: blink 1.2s steps(1) infinite;
 }
 
 @keyframes blink {
@@ -981,14 +1019,17 @@ textarea {
 }
 
 /* first-run ritual: the manifesto types itself out, one line after the other.
-   35ch matches the en strings exactly (both lines are 35 chars); other locales
-   would need their own counts if/when they land. */
+   tuned to the en strings (both lines are 35 chars); other locales would need
+   their own counts if/when they land. */
 #nameGate .gateSub span {
 	display: block;
 	overflow: hidden;
 	white-space: nowrap;
-	max-width: 35ch;
-	animation: typeIn 0.9s steps(35, end) both;
+	/* both en lines are 35 chars; reveal to 36ch (one char of slack) so subpixel
+	   rounding can never clip the trailing "." - the extra step lands past the
+	   text, on empty space. */
+	max-width: 36ch;
+	animation: typeIn 0.9s steps(36, end) both;
 }
 
 #nameGate .gateSub span + span {
@@ -1219,6 +1260,11 @@ textarea {
 	.gate.show .usersPanel,
 	#nameGate .gateSub span {
 		animation: none;
+	}
+
+	/* the rolling scan band has no meaningful resting state - just drop it */
+	body::after {
+		display: none;
 	}
 
 	.geo,

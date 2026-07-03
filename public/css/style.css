@@ -23,6 +23,8 @@
 	--label-toggle-on: "[ on ]";
 	--label-toggle-off: "[ off ]";
 	--label-no-users: "no one here yet";
+	--label-dm-empty: "no messages yet";
+	--label-no-convos: "no conversations yet";
 }
 
 html,
@@ -281,6 +283,17 @@ textarea {
 
 .msg {
 	color: var(--fg);
+}
+
+/* the @handle is a tap target for the per-user action popup */
+.nameTap {
+	cursor: pointer;
+}
+
+.nameTap:hover .user {
+	text-decoration: underline;
+	text-underline-offset: 2px;
+	text-decoration-thickness: 1px;
 }
 
 /* the #xxxx pubkey suffix is dimmed to 60% of the name color, matching native
@@ -1287,4 +1300,318 @@ textarea {
 	.profileNpub {
 		transition: none;
 	}
+}
+
+/* ============================================================================
+   direct messages: tap-a-user action popup, conversation inbox + thread.
+   DMs are NIP-17 gift-wrapped and encrypted with your local key, so this whole
+   surface is deliberately kept apart from the public composer.
+   ============================================================================ */
+
+/* topbar envelope: unread DM count, sits between the brand and relay status.
+   hidden entirely until there's a conversation to show. */
+.dmIndicator {
+	cursor: pointer;
+	color: var(--accent);
+	font-weight: 700;
+	letter-spacing: 0.04em;
+	white-space: nowrap;
+	text-shadow: var(--glow);
+}
+
+.dmIndicator[hidden] {
+	display: none;
+}
+
+.dmIndicator .dmCount {
+	color: var(--bg);
+	background: var(--accent);
+	border-radius: 8px;
+	padding: 0 5px;
+	margin-left: 4px;
+	font-size: 0.85em;
+}
+
+/* --- action popup (tap a name/message) --- */
+.actionCard {
+	width: min(320px, 100%);
+}
+
+.actionTitle {
+	font-size: 15px;
+	font-weight: 700;
+	margin-bottom: 12px;
+	word-break: break-word;
+}
+
+.actionTitle .sfx {
+	opacity: 0.6;
+}
+
+.actionList {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+}
+
+.actionBtn {
+	width: 100%;
+	border: 1px solid var(--chrome-border);
+	background: transparent;
+	color: var(--accent);
+	font: inherit;
+	font-weight: 700;
+	text-align: left;
+	padding: 11px 12px;
+	cursor: pointer;
+	transition: border-color 0.15s ease, background-color 0.15s ease;
+	-webkit-tap-highlight-color: transparent;
+}
+
+.actionBtn:hover {
+	border-color: var(--chrome-border-strong);
+	background-color: rgba(48, 209, 88, 0.06);
+}
+
+.actionBtn:active {
+	transform: translateY(1px);
+}
+
+/* not-yet-built actions read as muted placeholders so the wired one stands out */
+.actionBtn.dummy {
+	color: var(--muted);
+	font-weight: 400;
+}
+
+.actionBtn[hidden] {
+	display: none;
+}
+
+.actionCancel {
+	width: 100%;
+	margin-top: 14px;
+	border: 0;
+	background: transparent;
+	color: var(--muted);
+	font: inherit;
+	padding: 8px;
+	cursor: pointer;
+	-webkit-tap-highlight-color: transparent;
+}
+
+.actionCancel:hover {
+	color: var(--fg);
+}
+
+/* --- DM inbox + thread: full-screen panels sized to the visual viewport so the
+   thread composer rides above the keyboard (same trick as #app). --- */
+#dmListGate,
+#dmGate {
+	align-items: stretch;
+	top: 0;
+	bottom: auto;
+	height: var(--vvh, 100dvh);
+	padding: calc(16px + env(safe-area-inset-top)) 16px env(safe-area-inset-bottom);
+}
+
+/* the inbox reuses .usersPanel; the thread needs its own composer-anchored layout */
+.dmPanel {
+	width: 100%;
+	height: 100%;
+	display: flex;
+	flex-direction: column;
+	min-height: 0;
+}
+
+.dmPeerName {
+	font-weight: 700;
+	color: var(--accent);
+	word-break: break-word;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.dmPeerName .sfx {
+	opacity: 0.6;
+}
+
+.dmPanel .usersHeader {
+	margin-bottom: 12px;
+}
+
+.dmThread {
+	flex: 1;
+	min-height: 0;
+	overflow-y: auto;
+	overflow-x: hidden;
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	padding: 4px 0;
+	font-size: 14px;
+}
+
+.dmThread::before {
+	content: "";
+	margin-top: auto; /* anchor messages to the bottom, like the terminal */
+}
+
+.dmThread:empty::after {
+	content: var(--label-dm-empty);
+	color: var(--muted);
+	font-size: 13px;
+	margin: auto;
+}
+
+.dmMsg {
+	max-width: 82%;
+	border: 1px solid var(--chrome-border);
+	border-radius: 10px;
+	padding: 7px 11px;
+	line-height: 1.4;
+	word-break: break-word;
+	white-space: pre-wrap;
+}
+
+.dmMsg.theirs {
+	align-self: flex-start;
+	border-bottom-left-radius: 2px;
+	background: rgba(255, 255, 255, 0.03);
+}
+
+.dmMsg.mine {
+	align-self: flex-end;
+	border-bottom-right-radius: 2px;
+	background: rgba(48, 209, 88, 0.08);
+	border-color: var(--chrome-border-strong);
+}
+
+.dmMeta {
+	display: block;
+	margin-top: 3px;
+	font-size: 0.72em;
+	color: var(--muted);
+	text-align: right;
+}
+
+.dmMeta .dmStatus.read {
+	color: var(--accent);
+}
+
+.dmInputbar {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	padding: 8px 0 calc(4px + env(safe-area-inset-bottom));
+	border-top: 1px solid var(--chrome-border);
+	margin-top: 8px;
+}
+
+#dmInput {
+	flex: 1;
+	min-width: 0;
+	border: 0;
+	background: transparent;
+	color: var(--fg);
+	font: inherit;
+	font-size: 15px;
+	outline: 0;
+	padding: 6px 0;
+}
+
+#dmSendBtn {
+	border: 0;
+	background: transparent;
+	color: var(--accent);
+	font: inherit;
+	font-weight: 700;
+	cursor: pointer;
+	padding: 6px 0;
+	transition: text-shadow 0.15s ease, filter 0.15s ease;
+	-webkit-tap-highlight-color: transparent;
+}
+
+#dmSendBtn:hover {
+	text-shadow: var(--glow);
+	filter: brightness(1.15);
+}
+
+.dmInputbar:focus-within .prompt {
+	color: var(--accent);
+	text-shadow: var(--glow);
+}
+
+/* inbox conversation rows: name + preview on the left, time + unread on the right */
+.dmRow {
+	display: flex;
+	align-items: baseline;
+	justify-content: space-between;
+	gap: 12px;
+	padding: 8px;
+	margin: 0 -8px;
+	border-radius: 4px;
+	cursor: pointer;
+	transition: background-color 0.12s ease;
+	-webkit-tap-highlight-color: transparent;
+}
+
+.dmRow:hover {
+	background-color: rgba(48, 209, 88, 0.06);
+}
+
+.dmRowMain {
+	min-width: 0;
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+}
+
+.dmRowName {
+	font-weight: 700;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.dmRowName .sfx {
+	opacity: 0.6;
+}
+
+.dmRowPreview {
+	color: var(--muted);
+	font-size: 0.85em;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	max-width: 60vw;
+}
+
+.dmRowSide {
+	flex: none;
+	display: flex;
+	flex-direction: column;
+	align-items: flex-end;
+	gap: 3px;
+}
+
+.dmRowTime {
+	color: var(--muted);
+	font-size: 0.72em;
+}
+
+.dmRowUnread {
+	color: var(--bg);
+	background: var(--accent);
+	border-radius: 8px;
+	padding: 0 6px;
+	font-size: 0.72em;
+	font-weight: 700;
+}
+
+#dmList:empty::before {
+	content: var(--label-no-convos);
+	color: var(--muted);
+	font-size: 13px;
 }

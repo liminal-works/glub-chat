@@ -14,6 +14,7 @@ import { RelayPool } from "./nostr/relayPool.js";
 import { makeChatMessage, makePresenceEvent, getGeohash, getName, CHAT_KIND, PRESENCE_KIND, sortRelaysByGeohash, verifyEvent } from "./nostr/protocol.js";
 import { t, formatAgo, setLocale, detectLocale, onLocaleChange } from "./i18n/index.js";
 import { createSuggest } from "./ui/suggest.js";
+import { createDmClient, DM_MAX_CONTENT_BYTES } from "./nostr/dm.js";
 
 const MAX_LINES = 600;
 const NEAR_BOTTOM_PX = 60;
@@ -80,6 +81,20 @@ const mediaBtn = document.getElementById("mediaBtn");
 const mediaFile = document.getElementById("mediaFile");
 const newMessagesBar = document.getElementById("newMessagesBar");
 const suggestBox = document.getElementById("suggestBox");
+const dmIndicator = document.getElementById("dmIndicator");
+const actionGate = document.getElementById("actionGate");
+const actionTitle = document.getElementById("actionTitle");
+const actionDm = document.getElementById("actionDm");
+const actionClose = document.getElementById("actionClose");
+const dmListGate = document.getElementById("dmListGate");
+const dmListClose = document.getElementById("dmListClose");
+const dmList = document.getElementById("dmList");
+const dmGate = document.getElementById("dmGate");
+const dmPeerName = document.getElementById("dmPeerName");
+const dmClose = document.getElementById("dmClose");
+const dmThread = document.getElementById("dmThread");
+const dmInput = document.getElementById("dmInput");
+const dmSendBtn = document.getElementById("dmSendBtn");
 
 // pick the locale and fill the static markup before anything renders. en is the
 // only bundled language today, so this is english; it's wired so adding a locale
@@ -338,12 +353,16 @@ function messageInnerHtml(entry) {
 	} else {
 		const who = expanded ? entry.who : clipWithEllipsis(entry.who, MAX_NAME_LEN);
 		needsToggle = needsToggle || entry.who.length > MAX_NAME_LEN;
+		// the name (avatar + @handle#tag) is a tap target: tapping it opens the
+		// per-user action popup (DM etc). data-user carries the full pubkey.
 		body =
+			`<span class="nameTap" data-user="${escapeHtml(entry.pubkey)}">` +
 			avatarHtml(entry.pubkey, { inline: true }) + // nostr avatar prefixing the name, if any
 			`<span class="bracket" style="color:${color}">&lt;</span>` +
 			`<span class="user" style="color:${color}">@${escapeHtml(who)}</span>` +
 			`<span class="tag" style="color:${color}">#${escapeHtml(entry.tag)}</span>` +
-			`<span class="bracket" style="color:${color}">&gt;</span> ` +
+			`<span class="bracket" style="color:${color}">&gt;</span>` +
+			`</span> ` +
 			`<span class="msg" style="color:${color}">${linkify(escapeHtml(text))}</span>`;
 	}
 
@@ -1054,6 +1073,231 @@ function closeUsers() {
 	usersGate.classList.remove("show");
 }
 
+// ===========================================================================
+// Direct messages (bitchat NIP-17 gift wraps). E2E-encrypted with the local
+// key, so this rides its own always-on relay client independent of assist mode.
+// See nostr/dm.js for the wire protocol.
+// ===========================================================================
+
+// pubkey(lower) -> { pubkey, name, messages: [{ id, mine, content, ts, status }], unread, readSent:Set }
+const conversations = new Map();
+let activeDmPubkey = null; // pubkey of the open thread, or null
+let actionContext = null; // { pubkey, entryId } for the open action popup
+
+const dmClient = createDmClient({
+	getIdentity: () => identity,
+	onMessage: onDmMessage,
+	onAck: onDmAck,
+	onStatusChange: () => {},
+});
+
+// best display name we know for a pubkey: their most recent chat handle, else a
+// name we've stored on the conversation, else "anon".
+function displayNameForPubkey(pubkey) {
+	const pk = pubkey.toLowerCase();
+	for (let i = entries.length - 1; i >= 0; i--) {
+		const e = entries[i];
+		if (!e.system && e.pubkey && e.pubkey.toLowerCase() === pk) return e.who;
+	}
+	const conv = conversations.get(pk);
+	return (conv && conv.name) || "anon";
+}
+
+function handleHtml(name, pubkey) {
+	return `@${escapeHtml(clipText(name, 24))}<span class="sfx">#${escapeHtml(pubkey.slice(-4))}</span>`;
+}
+
+function ensureConversation(pubkey) {
+	const pk = pubkey.toLowerCase();
+	let conv = conversations.get(pk);
+	if (!conv) {
+		conv = { pubkey: pk, name: displayNameForPubkey(pk), messages: [], unread: 0, readSent: new Set() };
+		conversations.set(pk, conv);
+	}
+	return conv;
+}
+
+function totalUnread() {
+	let n = 0;
+	for (const conv of conversations.values()) n += conv.unread;
+	return n;
+}
+
+function updateDmIndicator() {
+	if (conversations.size === 0) {
+		dmIndicator.hidden = true;
+		return;
+	}
+	dmIndicator.hidden = false;
+	const unread = totalUnread();
+	dmIndicator.innerHTML = unread > 0 ? `✉<span class="dmCount">${unread}</span>` : "✉";
+}
+
+// --- inbound ---------------------------------------------------------------
+
+function onDmMessage({ senderPubkey, messageID, content, timestamp }) {
+	const conv = ensureConversation(senderPubkey);
+	conv.name = displayNameForPubkey(senderPubkey); // refresh in case we now know them
+	if (conv.messages.some((m) => m.id === messageID)) return; // dedup
+	conv.messages.push({ id: messageID, mine: false, content, ts: timestamp, status: "recv" });
+	conv.messages.sort((a, b) => a.ts - b.ts);
+
+	const viewing = activeDmPubkey === conv.pubkey && dmGate.classList.contains("show");
+	if (viewing) {
+		renderDmThread();
+		markConversationRead(conv);
+	} else {
+		conv.unread += 1;
+		appendSystem(t("dm.received", { name: conv.name }), SYSTEM_TTL_LONG_MS);
+	}
+	updateDmIndicator();
+	if (dmListGate.classList.contains("show")) renderDmList();
+}
+
+function onDmAck({ senderPubkey, messageID, kind }) {
+	const conv = conversations.get(senderPubkey.toLowerCase());
+	if (!conv) return;
+	const msg = conv.messages.find((m) => m.id === messageID && m.mine);
+	if (!msg) return;
+	// only advance status forward: sent -> delivered -> read
+	if (kind === "delivered" && msg.status === "sent") msg.status = "delivered";
+	else if (kind === "read") msg.status = "read";
+	if (activeDmPubkey === conv.pubkey && dmGate.classList.contains("show")) renderDmThread();
+}
+
+// --- action popup (tap a user) ---------------------------------------------
+
+function openActionPopup(pubkey, entryId) {
+	actionContext = { pubkey, entryId };
+	const name = displayNameForPubkey(pubkey);
+	actionTitle.innerHTML = handleHtml(name, pubkey);
+	// can't DM yourself
+	actionDm.hidden = pubkey.toLowerCase() === identity.pk.toLowerCase();
+	actionGate.classList.add("show");
+}
+
+function closeActionPopup() {
+	actionGate.classList.remove("show");
+	actionContext = null;
+}
+
+// --- conversation thread ---------------------------------------------------
+
+function dmStatusLabel(status) {
+	if (status === "read") return t("dm.status_read");
+	if (status === "delivered") return t("dm.status_delivered");
+	return t("dm.status_sent");
+}
+
+function dmMessageHtml(m) {
+	const meta = m.mine
+		? `<span class="dmMeta">${escapeHtml(formatTime(m.ts))} · <span class="dmStatus ${m.status}">${escapeHtml(dmStatusLabel(m.status))}</span></span>`
+		: `<span class="dmMeta">${escapeHtml(formatTime(m.ts))}</span>`;
+	return `<div class="dmMsg ${m.mine ? "mine" : "theirs"}">${linkify(escapeHtml(m.content))}${meta}</div>`;
+}
+
+function renderDmThread() {
+	const conv = conversations.get(activeDmPubkey);
+	if (!conv) return;
+	dmThread.innerHTML = conv.messages.map(dmMessageHtml).join("");
+	dmThread.scrollTop = dmThread.scrollHeight;
+}
+
+// send read receipts for any of their messages we haven't acked yet
+function markConversationRead(conv) {
+	if (conv.unread) {
+		conv.unread = 0;
+		updateDmIndicator();
+	}
+	for (const m of conv.messages) {
+		if (!m.mine && !conv.readSent.has(m.id)) {
+			conv.readSent.add(m.id);
+			dmClient.sendRead(m.id, conv.pubkey);
+		}
+	}
+}
+
+function openDmConversation(pubkey) {
+	const pk = pubkey.toLowerCase();
+	if (pk === identity.pk.toLowerCase()) {
+		appendSystem(t("actions.self"));
+		return;
+	}
+	const conv = ensureConversation(pk);
+	activeDmPubkey = pk;
+	dmPeerName.innerHTML = handleHtml(conv.name, pk);
+	renderDmThread();
+	closeActionPopup();
+	dmListGate.classList.remove("show");
+	dmGate.classList.add("show");
+	markConversationRead(conv);
+	updateDmIndicator();
+	setTimeout(() => dmInput.focus(), 0);
+}
+
+function closeDm() {
+	dmGate.classList.remove("show");
+	activeDmPubkey = null;
+}
+
+function sendDmFromComposer() {
+	const text = dmInput.value.trim();
+	if (!text || !activeDmPubkey) return;
+	if (new TextEncoder().encode(text).length > DM_MAX_CONTENT_BYTES) {
+		appendSystem(t("dm.too_long", { max: DM_MAX_CONTENT_BYTES }));
+		return;
+	}
+	const messageID = dmClient.sendDm(text, activeDmPubkey);
+	if (!messageID) {
+		appendSystem(t("dm.send_failed"));
+		return;
+	}
+	dmInput.value = "";
+	const conv = ensureConversation(activeDmPubkey);
+	conv.messages.push({ id: messageID, mine: true, content: text, ts: Math.floor(Date.now() / 1000), status: "sent" });
+	renderDmThread();
+}
+
+// --- inbox (conversation list) ---------------------------------------------
+
+function renderDmList() {
+	const convos = [...conversations.values()]
+		.filter((c) => c.messages.length)
+		.sort((a, b) => lastTs(b) - lastTs(a));
+	dmList.innerHTML = convos.map(dmRowHtml).join("");
+}
+
+function lastTs(conv) {
+	return conv.messages.length ? conv.messages[conv.messages.length - 1].ts : 0;
+}
+
+function dmRowHtml(conv) {
+	const last = conv.messages[conv.messages.length - 1];
+	const preview = last ? (last.mine ? "→ " : "") + clipText(last.content, 40) : "";
+	const unread = conv.unread ? `<span class="dmRowUnread">${conv.unread}</span>` : "";
+	return (
+		`<div class="dmRow" data-user="${escapeHtml(conv.pubkey)}">` +
+		`<span class="dmRowMain">` +
+		`<span class="dmRowName">${handleHtml(conv.name, conv.pubkey)}</span>` +
+		`<span class="dmRowPreview">${escapeHtml(preview)}</span>` +
+		`</span>` +
+		`<span class="dmRowSide">` +
+		`<span class="dmRowTime">${last ? escapeHtml(formatAgo(last.ts)) : ""}</span>` +
+		unread +
+		`</span>` +
+		`</div>`
+	);
+}
+
+function openDmList() {
+	renderDmList();
+	dmListGate.classList.add("show");
+}
+
+function closeDmList() {
+	dmListGate.classList.remove("show");
+}
+
 if (name) {
 	closeNameGate();
 } else {
@@ -1061,6 +1305,54 @@ if (name) {
 }
 
 brandEl.addEventListener("click", openNameGate);
+
+// tapping the topbar envelope opens the DM inbox
+dmIndicator.addEventListener("click", openDmList);
+
+// --- DM event wiring ---
+
+// tap a name (or DM-list row) -> per-user action popup. bail on any interactive
+// child (channel link, url, more/less, image) so those keep their own behavior.
+terminal.addEventListener("click", (e) => {
+	if (e.target.closest(".inlineLink, .inlineGeo, .geo, .toggleMore, [data-img-toggle]")) return;
+	const nameEl = e.target.closest("[data-user]");
+	if (!nameEl) return;
+	const entry = entries.find((en) => en.el && en.el.contains(nameEl));
+	openActionPopup(nameEl.dataset.user, entry ? entry.id : null);
+});
+
+actionClose.addEventListener("click", closeActionPopup);
+actionGate.addEventListener("click", (e) => {
+	if (e.target === actionGate) closeActionPopup();
+});
+actionDm.addEventListener("click", () => {
+	if (actionContext) openDmConversation(actionContext.pubkey);
+});
+// dummy actions: acknowledge with an ephemeral note until they're built out
+for (const btn of actionGate.querySelectorAll(".actionBtn.dummy")) {
+	btn.addEventListener("click", () => {
+		appendSystem(t("actions.soon", { action: t(`actions.${btn.dataset.action}`) }));
+		closeActionPopup();
+	});
+}
+
+dmListClose.addEventListener("click", closeDmList);
+dmListGate.addEventListener("click", (e) => {
+	if (e.target === dmListGate) closeDmList();
+});
+dmList.addEventListener("click", (e) => {
+	const row = e.target.closest(".dmRow");
+	if (row && row.dataset.user) openDmConversation(row.dataset.user);
+});
+
+dmClose.addEventListener("click", closeDm);
+dmSendBtn.addEventListener("click", sendDmFromComposer);
+dmInput.addEventListener("keydown", (e) => {
+	if (e.key === "Enter") {
+		e.preventDefault();
+		sendDmFromComposer();
+	}
+});
 
 // in a focused channel the status is "N USERS - [EXIT]": tapping the user count
 // opens the user list, tapping anywhere else (incl. [EXIT]) leaves the channel.
@@ -1589,6 +1881,11 @@ function bootSequence() {
 (async function init() {
 	bootSequence();
 
+	// DMs are E2E-encrypted with the local key and never touch the api, so the DM
+	// relay client runs independently of assist mode - start it up front.
+	dmClient.start();
+	updateDmIndicator();
+
 	try {
 		allRelays = await fetchRelayList();
 	} catch (err) {
@@ -1802,6 +2099,7 @@ function applyIdentity(next) {
 	ownSuffix = identity.pk.slice(-4);
 	updateNameHint(); // harmless if the gate is closed
 	renderTopbar();
+	dmClient.resubscribe(); // our pubkey changed - re-REQ gift wraps under the new key
 }
 
 // brute-force keypairs until the pubkey ends in `suffix` (a vanity #tag). runs in
@@ -2056,11 +2354,16 @@ const appEl = document.getElementById("app");
 function fitViewport() {
 	const vv = window.visualViewport;
 	if (!vv) return;
-	appEl.style.height = `${Math.round(vv.height)}px`;
+	const h = Math.round(vv.height);
+	appEl.style.height = `${h}px`;
+	// expose the same measured height to the fixed DM panels so their bottom-
+	// anchored composer rides above the keyboard too (see --vvh in the css).
+	document.documentElement.style.setProperty("--vvh", `${h}px`);
 	// iOS pans the page to reveal a focused input; with the app sized to the
 	// visible area the composer is already above the keyboard, so undo the pan.
 	if (window.scrollY) window.scrollTo(0, 0);
 	if (autoScroll) scrollToBottom();
+	if (activeDmPubkey && dmGate.classList.contains("show")) dmThread.scrollTop = dmThread.scrollHeight;
 }
 
 if (window.visualViewport) {

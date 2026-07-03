@@ -113,8 +113,49 @@
 				</div>
 			</div>
 
+			<div id="actionGate" class="gate">
+				<div class="gateCard actionCard">
+					<div id="actionTitle" class="actionTitle"></div>
+					<div class="actionList">
+						<button id="actionDm" class="actionBtn" type="button" data-i18n="actions.dm">direct message</button>
+						<button class="actionBtn dummy" type="button" data-action="block" data-i18n="actions.block">block</button>
+						<button class="actionBtn dummy" type="button" data-action="copy" data-i18n="actions.copy">copy message</button>
+						<button class="actionBtn dummy" type="button" data-action="translate" data-i18n="actions.translate">translate message</button>
+						<button class="actionBtn dummy" type="button" data-action="hug" data-i18n="actions.hug">hug</button>
+						<button class="actionBtn dummy" type="button" data-action="slap" data-i18n="actions.slap">slap</button>
+					</div>
+					<button id="actionClose" class="actionCancel" type="button" data-i18n="actions.cancel">cancel</button>
+				</div>
+			</div>
+
+			<div id="dmListGate" class="gate">
+				<div class="usersPanel">
+					<div class="usersHeader">
+						<span id="dmListTitle" data-i18n="dm.inbox_title">messages</span>
+						<strong id="dmListClose" class="usersExit" data-i18n="users.exit">[EXIT]</strong>
+					</div>
+					<div id="dmList" class="usersList"></div>
+				</div>
+			</div>
+
+			<div id="dmGate" class="gate">
+				<div class="dmPanel">
+					<div class="usersHeader">
+						<span id="dmPeerName" class="dmPeerName"></span>
+						<strong id="dmClose" class="usersExit" data-i18n="users.exit">[EXIT]</strong>
+					</div>
+					<div id="dmThread" class="dmThread"></div>
+					<div id="dmInputbar" class="dmInputbar">
+						<span class="prompt" aria-hidden="true">&gt;</span>
+						<input id="dmInput" type="text" enterkeyhint="send" spellcheck="true" autocomplete="off" maxlength="255" placeholder="encrypted message…" data-i18n-placeholder="dm.placeholder" />
+						<button id="dmSendBtn" type="button" data-i18n="composer.send">send</button>
+					</div>
+				</div>
+			</div>
+
 			<div id="topbar">
 				<span id="brand" class="brand"><strong data-i18n="topbar.connecting">CONNECTING...</strong></span>
+				<span id="dmIndicator" class="dmIndicator" hidden></span>
 				<span id="status"><strong data-i18n="topbar.relays">RELAYS</strong>: --/--</span>
 			</div>
 

@@ -38,6 +38,35 @@ export default {
 		npub_copy_failed: "copy failed",
 	},
 
+	actions: {
+		title: "@{name}",
+		dm: "direct message",
+		block: "block",
+		copy: "copy message",
+		translate: "translate message",
+		hug: "hug",
+		slap: "slap",
+		cancel: "cancel",
+		soon: "{action} — coming soon",
+		self: "that's you",
+	},
+
+	dm: {
+		inbox_title: "messages",
+		placeholder: "encrypted message…",
+		empty: "no messages yet",
+		with: "@{name}",
+		no_conversations: "no conversations yet",
+		received: "new message from @{name}",
+		too_long: "message too long (max {max} chars)",
+		send_failed: "no dm relay connected — try again",
+		encrypted_note: "end-to-end encrypted · nip-17",
+		unread: { one: "{count} unread", other: "{count} unread" },
+		status_sent: "sent",
+		status_delivered: "delivered",
+		status_read: "read",
+	},
+
 	users: {
 		title: "users in #{geo}",
 		title_default: "users",

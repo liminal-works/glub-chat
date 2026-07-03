@@ -118,6 +118,8 @@ export function applyStaticDom() {
 	root.setProperty("--label-toggle-on", JSON.stringify(t("settings.toggle_on")));
 	root.setProperty("--label-toggle-off", JSON.stringify(t("settings.toggle_off")));
 	root.setProperty("--label-no-users", JSON.stringify(t("users.empty")));
+	root.setProperty("--label-dm-empty", JSON.stringify(t("dm.empty")));
+	root.setProperty("--label-no-convos", JSON.stringify(t("dm.no_conversations")));
 }
 
 // switch the active locale (loading its dictionary if needed), update the Intl

@@ -984,26 +984,42 @@ textarea {
 }
 
 /* first-run ritual: the manifesto types itself out, one line after the other.
-   tuned to the en strings (both lines are 35 chars); other locales would need
-   their own counts if/when they land. */
-#nameGate .gateSub span {
-	display: block;
-	overflow: hidden;
-	white-space: nowrap;
-	/* both en lines are 35 chars; reveal to 36ch (one char of slack) so subpixel
-	   rounding can never clip the trailing "." - the extra step lands past the
-	   text, on empty space. */
-	max-width: 36ch;
-	animation: typeIn 0.9s steps(36, end) both;
+   the reveal is a solid card-colored mask that slides off each line in char-width
+   steps. crucially it animates `transform` (not width), so it runs on the
+   compositor thread and keeps ticking smoothly even while the main thread is busy
+   loading chat behind the gate. the old max-width version, being a layout
+   property, ran on the main thread - so a burst of background work would stall it
+   mid-type and it would jump straight to the finished string.
+   36 steps = 35 chars + one of slack, tuned to the en strings; other locales
+   would need their own counts if/when they land. */
+#nameGate .gateSub {
+	display: flex;
+	flex-direction: column;
+	align-items: flex-start; /* each line shrinks to its own text width, so the mask matches it */
 }
 
-#nameGate .gateSub span + span {
+#nameGate .gateSub span {
+	position: relative;
+	overflow: hidden; /* clip the sliding mask to the line's box */
+	white-space: nowrap;
+}
+
+#nameGate .gateSub span::after {
+	content: "";
+	position: absolute;
+	inset: 0;
+	background: var(--chrome-bg); /* matches the card, so the text simply appears from under it */
+	animation: typeWipe 0.9s steps(36, end) both;
+	will-change: transform;
+}
+
+#nameGate .gateSub span + span::after {
 	animation-delay: 1s;
 }
 
-@keyframes typeIn {
-	from {
-		max-width: 0;
+@keyframes typeWipe {
+	to {
+		transform: translateX(101%); /* fully clears the line (101% avoids a sliver over the last char) */
 	}
 }
 
@@ -1222,9 +1238,14 @@ textarea {
 	#newMessagesBar:not([hidden]),
 	.gate.show,
 	.gate.show .gateCard,
-	.gate.show .usersPanel,
-	#nameGate .gateSub span {
+	.gate.show .usersPanel {
 		animation: none;
+	}
+
+	/* drop the typewriter mask entirely so the manifesto is just there (leaving
+	   it un-animated would freeze it fully covering the text) */
+	#nameGate .gateSub span::after {
+		display: none;
 	}
 
 	.geo,

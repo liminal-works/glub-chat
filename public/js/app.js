@@ -228,6 +228,7 @@ let eventSource = null; // the SSE connection while in assist mode
 let assistFallbackTimer = null;
 let barrierShown = false; // "beginning of chat" marker rendered once per session
 let clearedBefore = 0; // /clear cutoff (epoch secs): entries older than this are filtered from view
+const mutedChannels = new Set(); // /mute geohashes hidden from the global feed. session-only - never persisted, so a refresh clears them
 
 function escapeHtml(s) {
 	return String(s).replace(
@@ -313,7 +314,9 @@ function linkify(safe) {
 
 function entryVisible(entry) {
 	if (entry.ts < clearedBefore) return false; // hidden by /clear (local view filter)
-	return entry.system || !focusedGeo || entry.geo === focusedGeo;
+	if (entry.system) return true;
+	if (focusedGeo) return entry.geo === focusedGeo; // focused: just this channel (mutes don't apply - you opened it on purpose)
+	return !mutedChannels.has(entry.geo); // global feed: drop muted channels
 }
 
 // builds a message line's inner html (everything after the optional #geo prefix)
@@ -1752,6 +1755,13 @@ function commandDesc(name) {
 	return t(`commands.${name}`);
 }
 
+// normalize a /mute or /unmute argument to a bare geohash: drop a leading "#",
+// lowercase it, and require it to look like a geohash. "" if it doesn't.
+function parseChannelArg(arg) {
+	const geo = arg.trim().replace(/^#/, "").toLowerCase();
+	return /^[a-z0-9]{1,12}$/.test(geo) ? geo : "";
+}
+
 // --- identity rotation / import (replaces the old name-gate "burner" button) --
 let rotating = false; // a vanity search is in flight; guards against a second one
 
@@ -1827,6 +1837,46 @@ const COMMANDS = [
 			const msg = arg.trim();
 			if (!msg) return;
 			transmit(msg, focusedGeo, botName());
+		},
+	},
+	{
+		name: "mute",
+		run(arg) {
+			// hide a channel from the global (unfocused) feed. session-only; you can
+			// still open the channel directly to read it.
+			const geo = parseChannelArg(arg);
+			if (!geo) {
+				appendSystem(t("system.mute_usage"));
+				return;
+			}
+			mutedChannels.add(geo);
+			rerenderTerminal();
+			appendSystem(t("system.muted", { geo }));
+		},
+	},
+	{
+		name: "unmute",
+		run(arg) {
+			const raw = arg.trim();
+			if (!raw) {
+				// no arg -> list what's currently muted (or say there's nothing).
+				if (!mutedChannels.size) {
+					appendSystem(t("system.mute_none"));
+					return;
+				}
+				const header = `* ${t("system.muted_header")} *`;
+				const lines = [...mutedChannels].sort().map((g) => `#${g}`);
+				pushSystem(`<span class="ts">${escapeHtml([header, ...lines].join("\n"))}</span>`, SYSTEM_TTL_LONG_MS);
+				return;
+			}
+			const geo = parseChannelArg(raw);
+			if (!geo || !mutedChannels.has(geo)) {
+				appendSystem(t("system.unmute_notmuted", { geo: geo || raw.replace(/^#/, "") }));
+				return;
+			}
+			mutedChannels.delete(geo);
+			rerenderTerminal();
+			appendSystem(t("system.unmuted", { geo }));
 		},
 	},
 	{

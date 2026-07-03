@@ -1017,7 +1017,14 @@ async function openProfileCard(pubkey) {
 	const nostrName = (profile && profile.name) || "";
 	profileNostrName.textContent = nostrName && nostrName.toLowerCase() !== who.toLowerCase() ? nostrName : "";
 	profileNip05.textContent = profile && profile.nip05 ? profile.nip05 : "";
-	profileAbout.textContent = profile && profile.about ? profile.about : t("profile.none");
+	// "no nostr profile" is only for a genuinely empty identity. any scrap of
+	// metadata - a name, avatar, banner, nip05, website, or zap address - means
+	// they have a profile, so a missing bio just shows no about line (it collapses)
+	// rather than the "none" placeholder.
+	const hasProfileContent =
+		profile &&
+		(profile.about || profile.name || profile.nip05 || profile.website || profile.lud16 || profile.hasAvatar || profile.hasBanner);
+	profileAbout.textContent = profile && profile.about ? profile.about : hasProfileContent ? "" : t("profile.none");
 	profileMeta.innerHTML = profile ? profileMetaHtml(profile) : "";
 }
 

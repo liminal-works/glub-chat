@@ -1012,6 +1012,11 @@ textarea {
 	position: relative;
 	overflow: hidden; /* clip the sliding mask to the line's box */
 	white-space: nowrap;
+	/* a char of right padding keeps the last glyph clear of the clip edge (iOS was
+	   shaving the trailing "." off text sized to exactly its own width) and gives
+	   the mask a step of extra travel, so the final char is revealed before the
+	   animation's last instant rather than depending on it. */
+	padding-right: 1ch;
 }
 
 #nameGate .gateSub span::after {

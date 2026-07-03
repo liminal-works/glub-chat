@@ -706,7 +706,11 @@ textarea {
 	gap: 8px;
 	flex: 1;
 	min-height: 0;
-	overflow-y: auto;
+	/* clip the horizontal axis explicitly: the rows bleed 8px each side (negative
+	   margins, for the full-width hover tint), and a bare `overflow-y: auto` would
+	   promote overflow-x to `auto` too, turning that 16px bleed into a sideways
+	   scroll. hidden pins the panel to the device width - vertical scroll only. */
+	overflow: hidden auto;
 	font-size: 14px;
 }
 

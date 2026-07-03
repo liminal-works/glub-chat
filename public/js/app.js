@@ -732,10 +732,20 @@ function updateNameHint() {
 
 nameInput.addEventListener("input", updateNameHint);
 
+// play the typewriter reveal once per session, the first time the gate opens.
+// it's a class-triggered CSS animation (see .typing in the stylesheet) rather
+// than a display-toggle one, so it fires reliably; and because the mask defaults
+// to off, skipping it just leaves the manifesto plainly visible.
+let nameGateTyped = false;
+
 function openNameGate() {
 	nameInput.value = name || "";
 	updateNameHint();
 	nameGate.classList.add("show");
+	if (!nameGateTyped) {
+		nameGateTyped = true;
+		nameGate.classList.add("typing");
+	}
 	setTimeout(() => nameInput.focus(), 0);
 }
 

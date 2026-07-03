@@ -988,12 +988,18 @@ textarea {
 }
 
 /* first-run ritual: the manifesto types itself out, one line after the other.
-   the reveal is a solid card-colored mask that slides off each line in char-width
-   steps. crucially it animates `transform` (not width), so it runs on the
+   each line is revealed by a solid card-colored mask that slides off it in
+   char-width steps. it animates `transform` (not width), so it runs on the
    compositor thread and keeps ticking smoothly even while the main thread is busy
-   loading chat behind the gate. the old max-width version, being a layout
-   property, ran on the main thread - so a burst of background work would stall it
-   mid-type and it would jump straight to the finished string.
+   loading chat behind the gate (the old max-width version, a layout property, ran
+   on the main thread and jumped to the end whenever background work blocked it).
+
+   the mask defaults to OFF, so the text is always visible if the reveal never
+   runs - the animation only plays while the gate carries `.typing`, which JS adds
+   the first time the gate opens. driving it off a class (not a display:none
+   toggle, which iOS Safari won't reliably re-fire) is what keeps it dependable
+   and, crucially, fail-safe: no `.typing`, no animation -> the text just shows.
+
    36 steps = 35 chars + one of slack, tuned to the en strings; other locales
    would need their own counts if/when they land. */
 #nameGate .gateSub {
@@ -1013,17 +1019,24 @@ textarea {
 	position: absolute;
 	inset: 0;
 	background: var(--chrome-bg); /* matches the card, so the text simply appears from under it */
+	transform: translateX(101%); /* default: mask off the line, text visible */
+}
+
+#nameGate.typing .gateSub span::after {
 	animation: typeWipe 0.9s steps(36, end) both;
 	will-change: transform;
 }
 
-#nameGate .gateSub span + span::after {
+#nameGate.typing .gateSub span + span::after {
 	animation-delay: 1s;
 }
 
 @keyframes typeWipe {
+	from {
+		transform: translateX(0); /* covering the line */
+	}
 	to {
-		transform: translateX(101%); /* fully clears the line (101% avoids a sliver over the last char) */
+		transform: translateX(101%); /* fully clears it (101% avoids a sliver over the last char) */
 	}
 }
 

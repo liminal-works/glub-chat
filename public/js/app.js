@@ -401,9 +401,12 @@ function renderImagePreviews(entry) {
 
 // renders one entry's DOM node into the terminal at the correct chronological
 // position among the other currently-visible (filter-matching) entries.
-function renderEntryDom(entry) {
+// `animate` plays the arrival fade - live inserts only, so rerenders (channel
+// hops, repaints) never re-animate the whole backlog.
+function renderEntryDom(entry, animate = false) {
 	const div = document.createElement("div");
 	div.className = entry.mention ? "line mention" : "line";
+	if (animate) div.className += " arrive";
 	// bold "you" only in the orange self-view; with profiles on you blend in as a
 	// normal peer (bolding stays tied to the same signal as the orange color).
 	if (entry.mine && !profilesActive()) div.className += " mine";
@@ -485,7 +488,7 @@ function insertEntry(entry) {
 	}
 
 	if (entryVisible(entry)) {
-		renderEntryDom(entry);
+		renderEntryDom(entry, true);
 		if (autoScroll) {
 			scrollToBottom();
 		} else {
@@ -688,29 +691,25 @@ function updateFocusedUserCount() {
 
 function renderTopbar() {
 	syncMediaBtn(); // renderTopbar fires on every mode/status change, so piggyback
+	const cursor = `<span class="cursor" aria-hidden="true"></span>`;
 	if (focusedGeo) {
 		const clippedGeo = clipText(focusedGeo, 12);
-		brandEl.innerHTML = `<strong>#${escapeHtml(clippedGeo)}</strong>/<span class="handle">@${escapeHtml(clipText(name || "anon", 12))}</span>`;
+		brandEl.innerHTML = `<strong>#${escapeHtml(clippedGeo)}</strong>/<span class="handle">@${escapeHtml(clipText(name || "anon", 12))}</span>${cursor}`;
 
 		statusEl.innerHTML = `<span class="tapUsers">${escapeHtml(t("topbar.users", { count: focusedUserCount }))}</span> - <strong>${escapeHtml(t("topbar.exit"))}</strong>`;
 		statusEl.classList.add("tapExit");
 	} else {
-		brandEl.innerHTML = `<strong>GLUB.CHAT</strong>/<span class="handle">@${escapeHtml(clipText(name || "anon", 12))}</span>`;
+		brandEl.innerHTML = `<strong>GLUB.CHAT</strong>/<span class="handle">@${escapeHtml(clipText(name || "anon", 12))}</span>${cursor}`;
 		statusEl.classList.remove("tapExit");
 
-		if (liveSource === "assist") {
-			// assist active: show the api's relay coverage (connected / list size)
-			const r = apiHealth?.relays;
-			const left = r?.connected == null ? "--" : r.connected;
-			const right = r?.monitored == null ? "--" : r.monitored;
-			statusEl.innerHTML = `<strong>${escapeHtml(t("topbar.relays"))}</strong>: ${left}/${right}`;
-		} else {
-			const connected = pool.connectedCount;
-			const total = pool.total;
-			const left = connected === 0 ? "--" : connected;
-			const right = total === 0 ? "--" : total;
-			statusEl.innerHTML = `<strong>${escapeHtml(t("topbar.relays"))}</strong>: ${left}/${right}`;
-		}
+		// relay link state: solid dot while we hold connections, dim pulse while not
+		const r = liveSource === "assist" ? apiHealth?.relays : null;
+		const connected = r ? r.connected : pool.connectedCount;
+		const total = r ? r.monitored : pool.total;
+		const left = connected == null || connected === 0 ? "--" : connected;
+		const right = total == null || total === 0 ? "--" : total;
+		const dot = `<span class="dot${left === "--" ? " off" : ""}" aria-hidden="true"></span>`;
+		statusEl.innerHTML = `${dot}<strong>${escapeHtml(t("topbar.relays"))}</strong>: ${left}/${right}`;
 	}
 }
 
@@ -1558,7 +1557,21 @@ schedulePresence();
 // initial paint - done after `pool` exists since renderTopbar reads its counts
 renderTopbar();
 
+// boot ritual: a couple of dim, staggered lines while the client wakes up, in
+// the same ephemeral voice as every other notice (they fade and get out of the
+// way). purely cosmetic - never blocks or delays the actual init below.
+function bootSequence() {
+	// first line synchronously, so it's on screen before any awaited fetch can
+	// interleave real output; the second lands a beat later.
+	pushSystem(`<span class="boot">${escapeHtml(t("system.boot_1"))}</span>`);
+	setTimeout(() => {
+		pushSystem(`<span class="boot">${escapeHtml(t("system.boot_2"))}</span>`);
+	}, 300);
+}
+
 (async function init() {
+	bootSequence();
+
 	try {
 		allRelays = await fetchRelayList();
 	} catch (err) {

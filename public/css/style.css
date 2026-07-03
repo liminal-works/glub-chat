@@ -15,6 +15,8 @@
 
 	--chrome-bg: #000000;
 	--chrome-border: rgba(48, 209, 88, 0.12);
+	--chrome-border-strong: rgba(48, 209, 88, 0.35); /* hover/focus edge for bordered controls */
+	--glow: 0 0 9px rgba(48, 209, 88, 0.4); /* phosphor bleed, reserved for chrome (never body text) */
 
 	/* css-generated labels, overridden by the i18n layer at runtime. english
 	   defaults here so they still read correctly if scripting is disabled. */
@@ -38,6 +40,68 @@ body {
 	overflow: hidden;
 }
 
+/* CRT atmosphere: hairline scanlines + a corner vignette laid over the whole
+   screen (gates included). both are static gradients - one composited layer,
+   no animation, no repaints - and faint enough to feel rather than see. */
+body::before {
+	content: "";
+	position: fixed;
+	inset: 0;
+	z-index: 9000; /* above the gates (1000): the glass sits over everything */
+	pointer-events: none;
+	background: repeating-linear-gradient(
+		0deg,
+		rgba(0, 0, 0, 0.16) 0px,
+		rgba(0, 0, 0, 0.16) 1px,
+		transparent 1px,
+		transparent 3px
+	);
+}
+
+body::after {
+	content: "";
+	position: fixed;
+	inset: 0;
+	z-index: 9001;
+	pointer-events: none;
+	background: radial-gradient(ellipse at center, transparent 62%, rgba(0, 0, 0, 0.32) 100%);
+}
+
+/* phosphor terminal touches: green-tinted selection, accent caret in inputs */
+::selection {
+	background: rgba(48, 209, 88, 0.3);
+	color: #eaffea;
+}
+
+input,
+textarea {
+	caret-color: var(--accent);
+}
+
+/* thin green-tinted scrollbars instead of the browser chrome defaults */
+* {
+	scrollbar-width: thin;
+	scrollbar-color: rgba(48, 209, 88, 0.22) transparent;
+}
+
+*::-webkit-scrollbar {
+	width: 6px;
+	height: 6px;
+}
+
+*::-webkit-scrollbar-track {
+	background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+	background: rgba(48, 209, 88, 0.22);
+	border-radius: 3px;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+	background: rgba(48, 209, 88, 0.4);
+}
+
 #app {
 	/* fallback only: at runtime js sizes this to the measured visualViewport
 	   height, because ios standalone misreports dvh (see fitViewport in app.js) */
@@ -57,10 +121,55 @@ body {
 	font-size: 13px;
 	letter-spacing: 0.08em;
 	text-transform: uppercase;
+	text-shadow: var(--glow); /* phosphor bleed on the chrome only - body text stays crisp */
 }
 
 .brand {
 	cursor: pointer;
+}
+
+/* blinking block cursor after your handle - the terminal's heartbeat. its blink
+   phase resets whenever the topbar rerenders, so it holds solid during bursts of
+   activity and settles into a blink when things go quiet (like a real tty). */
+.cursor {
+	display: inline-block;
+	width: 0.55em;
+	height: 1em;
+	margin-left: 3px;
+	vertical-align: text-bottom;
+	background: var(--accent);
+	animation: blink 1.1s steps(1) infinite;
+}
+
+@keyframes blink {
+	50% {
+		opacity: 0;
+	}
+}
+
+/* relay link state: a solid dot while we hold connections, a dim pulsing one
+   while we have none (searching) */
+.dot {
+	display: inline-block;
+	width: 7px;
+	height: 7px;
+	margin-right: 7px;
+	border-radius: 50%;
+	vertical-align: 6%;
+	background: var(--accent);
+	box-shadow: 0 0 6px rgba(48, 209, 88, 0.7);
+}
+
+.dot.off {
+	background: var(--muted);
+	box-shadow: none;
+	animation: dotSearch 1.6s ease-in-out infinite;
+}
+
+@keyframes dotSearch {
+	50% {
+		opacity: 0.25;
+	}
 }
 
 /* your handle in the topbar shows verbatim - the topbar otherwise force-uppercases */
@@ -98,6 +207,19 @@ body {
 	margin: 0 0 4px 0;
 }
 
+/* live arrivals materialize with a short fade+rise; rerenders (channel hops,
+   repaints) skip it so the whole backlog never re-animates. */
+.line.arrive {
+	animation: lineIn 0.18s ease-out;
+}
+
+@keyframes lineIn {
+	from {
+		opacity: 0;
+		transform: translateY(3px);
+	}
+}
+
 /* ephemeral status notices fade out before they're removed from the log */
 .line.system {
 	transition: opacity 0.3s ease;
@@ -122,6 +244,11 @@ body {
 	text-decoration: underline;
 	text-underline-offset: 2px;
 	text-decoration-thickness: 1px;
+	transition: filter 0.12s ease;
+}
+
+.geo:hover {
+	filter: brightness(1.35);
 }
 
 .inlineLink,
@@ -131,6 +258,12 @@ body {
 	text-underline-offset: 2px;
 	text-decoration-thickness: 1px;
 	cursor: pointer;
+	transition: filter 0.12s ease;
+}
+
+.inlineLink:hover,
+.inlineGeo:hover {
+	filter: brightness(1.35);
 }
 
 .inlineGeo {
@@ -185,6 +318,11 @@ body {
 	margin-left: 8px;
 	user-select: none;
 	-webkit-tap-highlight-color: transparent;
+	transition: color 0.12s ease;
+}
+
+.toggleMore:hover {
+	color: var(--fg);
 }
 
 /* "beginning of chat" divider shown when the client has mirrored the api's
@@ -259,6 +397,17 @@ body {
 	z-index: 5;
 }
 
+#newMessagesBar:not([hidden]) {
+	animation: barIn 0.18s ease-out;
+}
+
+@keyframes barIn {
+	from {
+		opacity: 0;
+		transform: translateY(4px);
+	}
+}
+
 #newMessagesBar[hidden] {
 	display: none;
 }
@@ -305,6 +454,10 @@ body {
 	background: color-mix(in srgb, var(--row-accent, var(--accent)) 16%, transparent);
 }
 
+.suggestRow:hover:not(.active) {
+	background: rgba(143, 232, 156, 0.05);
+}
+
 .suggestRow .sfx {
 	opacity: 0.6;
 }
@@ -327,6 +480,23 @@ body {
 	border-top: 1px solid var(--chrome-border);
 }
 
+/* the classic shell prompt: dim at rest, lit (with a touch of phosphor) while
+   the composer has focus - a quiet "the terminal is yours" signal. */
+.prompt {
+	flex: none;
+	color: var(--muted);
+	font-size: 15px;
+	font-weight: 700;
+	margin-right: -4px; /* tuck the input's text closer to the glyph */
+	transition: color 0.15s ease, text-shadow 0.15s ease;
+	user-select: none;
+}
+
+#inputbar:focus-within .prompt {
+	color: var(--accent);
+	text-shadow: var(--glow);
+}
+
 #chatInput {
 	flex: 1;
 	min-width: 0;
@@ -347,6 +517,17 @@ body {
 	font-weight: 700;
 	cursor: pointer;
 	padding: 6px 0;
+	transition: text-shadow 0.15s ease, filter 0.15s ease;
+	-webkit-tap-highlight-color: transparent;
+}
+
+#sendBtn:hover {
+	text-shadow: var(--glow);
+	filter: brightness(1.15);
+}
+
+#sendBtn:active {
+	transform: translateY(1px);
 }
 
 /* media upload "+": sits on the right, just left of "send" but with a generous
@@ -362,6 +543,17 @@ body {
 	cursor: pointer;
 	padding: 6px 0;
 	margin-right: 12px; /* on top of the 12px inputbar gap -> ~24px from "send" */
+	transition: text-shadow 0.15s ease, filter 0.15s ease;
+	-webkit-tap-highlight-color: transparent;
+}
+
+#mediaBtn:hover {
+	text-shadow: var(--glow);
+	filter: brightness(1.15);
+}
+
+#mediaBtn:active {
+	transform: translateY(1px);
 }
 
 #mediaBtn[hidden] {
@@ -383,6 +575,28 @@ body {
 
 .gate.show {
 	display: flex;
+	animation: gateFade 0.16s ease-out;
+}
+
+/* the card (and the users panel) rises a few px as the backdrop fades in - a
+   crisp materialize, not a bouncy modal. display:none -> flex kills transitions,
+   so these are keyframes triggered by .show. */
+.gate.show .gateCard,
+.gate.show .usersPanel {
+	animation: cardIn 0.2s ease-out;
+}
+
+@keyframes gateFade {
+	from {
+		opacity: 0;
+	}
+}
+
+@keyframes cardIn {
+	from {
+		opacity: 0;
+		transform: translateY(10px);
+	}
 }
 
 .gateCard {
@@ -398,6 +612,7 @@ body {
 	font-size: 16px;
 	font-weight: 700;
 	margin-bottom: 8px;
+	text-shadow: var(--glow);
 }
 
 .gateSub {
@@ -405,6 +620,43 @@ body {
 	font-size: 13px;
 	line-height: 1.35;
 	margin-bottom: 14px;
+}
+
+/* one feedback language for every bordered control: edge brightens + a whisper
+   of green fill on hover, and the whole control drops 1px while pressed. */
+#nameForm button,
+#settingsClose,
+.profileCard #profileClose,
+.idBtn,
+.profileNpub {
+	transition: border-color 0.15s ease, background-color 0.15s ease;
+	-webkit-tap-highlight-color: transparent;
+}
+
+#nameForm button:hover,
+#settingsClose:hover,
+.profileCard #profileClose:hover,
+.idBtn:hover,
+.profileNpub:hover {
+	border-color: var(--chrome-border-strong);
+	background-color: rgba(48, 209, 88, 0.06);
+}
+
+#nameForm button:active,
+#settingsClose:active,
+.profileCard #profileClose:active,
+.idBtn:active,
+.profileNpub:active {
+	transform: translateY(1px);
+}
+
+/* reveal opted out of the box look, so it opts out of the box hover too - it
+   underlines like the inline control it reads as. */
+#revealNsecBtn:hover {
+	border-color: transparent;
+	background-color: transparent;
+	text-decoration: underline;
+	text-underline-offset: 3px;
 }
 
 /* the user list is a full-screen blurred panel (no card/borders), title + EXIT
@@ -437,6 +689,12 @@ body {
 
 .usersExit {
 	cursor: pointer;
+}
+
+.usersExit:hover,
+#status.tapExit:hover,
+#status:hover {
+	text-shadow: var(--glow);
 }
 
 .usersList {
@@ -481,6 +739,18 @@ body {
 	align-items: baseline;
 	justify-content: space-between;
 	gap: 12px;
+	/* rows are tappable (profile card) - pad the hit target and tint on hover,
+	   with negative margins so the resting layout doesn't shift */
+	padding: 4px 8px;
+	margin: -4px -8px;
+	border-radius: 4px;
+	cursor: pointer;
+	transition: background-color 0.12s ease;
+	-webkit-tap-highlight-color: transparent;
+}
+
+.userRow:hover {
+	background-color: rgba(48, 209, 88, 0.06);
 }
 
 /* tiny nostr avatar prefixing a user row (only when nostr profiles is on). the
@@ -686,10 +956,6 @@ body {
 	text-align: left;
 }
 
-.profileNpub:hover {
-	border-color: var(--chrome-border-strong, rgba(48, 209, 88, 0.35));
-}
-
 .profileNpubKey {
 	font-size: 13px;
 	color: var(--muted);
@@ -714,6 +980,27 @@ body {
 	cursor: pointer;
 }
 
+/* first-run ritual: the manifesto types itself out, one line after the other.
+   35ch matches the en strings exactly (both lines are 35 chars); other locales
+   would need their own counts if/when they land. */
+#nameGate .gateSub span {
+	display: block;
+	overflow: hidden;
+	white-space: nowrap;
+	max-width: 35ch;
+	animation: typeIn 0.9s steps(35, end) both;
+}
+
+#nameGate .gateSub span + span {
+	animation-delay: 1s;
+}
+
+@keyframes typeIn {
+	from {
+		max-width: 0;
+	}
+}
+
 #nameForm {
 	display: flex;
 	flex-direction: column;
@@ -734,6 +1021,12 @@ body {
 	font-size: 16px;
 	padding: 10px 12px;
 	outline: 0;
+	transition: border-color 0.15s ease;
+}
+
+#nameInput:focus,
+.idField:focus {
+	border-color: var(--chrome-border-strong);
 }
 
 /* live ghost-text that appends your #suffix to the name as you type, mirroring
@@ -904,4 +1197,45 @@ body {
 	font-weight: 700;
 	padding: 10px 12px;
 	cursor: pointer;
+}
+
+/* boot-sequence lines: the few dim lines the client prints while waking up.
+   same muted voice as other system notices, just without the * emote * frame. */
+.boot {
+	color: var(--muted);
+	font-size: 0.85em;
+	letter-spacing: 0.03em;
+}
+
+/* motion is seasoning, not structure: every animation degrades to its resting
+   state for users who ask for reduced motion. */
+@media (prefers-reduced-motion: reduce) {
+	.cursor,
+	.dot.off,
+	.line.arrive,
+	#newMessagesBar:not([hidden]),
+	.gate.show,
+	.gate.show .gateCard,
+	.gate.show .usersPanel,
+	#nameGate .gateSub span {
+		animation: none;
+	}
+
+	.geo,
+	.inlineLink,
+	.inlineGeo,
+	.toggleMore,
+	.prompt,
+	#sendBtn,
+	#mediaBtn,
+	.userRow,
+	#nameInput,
+	.idField,
+	#nameForm button,
+	#settingsClose,
+	.profileCard #profileClose,
+	.idBtn,
+	.profileNpub {
+		transition: none;
+	}
 }

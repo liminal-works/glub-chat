@@ -97,6 +97,8 @@ export default {
 	},
 
 	system: {
+		boot_1: "glub.chat // web client",
+		boot_2: "keys minted + stored locally. nothing leaves this device",
 		welcome: "welcome to the glub, {name}",
 		cleared: "cleared",
 		uncleared: "restored cleared messages",

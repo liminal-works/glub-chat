@@ -65,6 +65,7 @@ export default {
 		status_sent: "sent",
 		status_delivered: "delivered",
 		status_read: "read",
+		unverified: "unverified",
 	},
 
 	users: {

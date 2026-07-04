@@ -1138,11 +1138,13 @@ function updateDmIndicator() {
 
 // --- inbound ---------------------------------------------------------------
 
-function onDmMessage({ senderPubkey, messageID, content, timestamp }) {
+function onDmMessage({ senderPubkey, messageID, content, timestamp, authenticated }) {
 	const conv = ensureConversation(senderPubkey);
 	conv.name = displayNameForPubkey(senderPubkey); // refresh in case we now know them
 	if (conv.messages.some((m) => m.id === messageID)) return; // dedup
-	conv.messages.push({ id: messageID, mine: false, content, ts: timestamp, status: "recv" });
+	// authenticated=false means a legacy-wire native build: the seal was signed
+	// with a throwaway key, so the sender claim can't be verified (see dm.js)
+	conv.messages.push({ id: messageID, mine: false, content, ts: timestamp, status: "recv", unverified: authenticated === false });
 	conv.messages.sort((a, b) => a.ts - b.ts);
 
 	const viewing = activeDmPubkey === conv.pubkey && dmGate.classList.contains("show");
@@ -1193,9 +1195,12 @@ function dmStatusLabel(status) {
 }
 
 function dmMessageHtml(m) {
+	// "unverified" marks a legacy-wire message whose sender claim couldn't be
+	// authenticated (pre-audit native builds; see dm.js)
+	const unverified = m.unverified ? ` · <span class="dmUnverified">${escapeHtml(t("dm.unverified"))}</span>` : "";
 	const meta = m.mine
 		? `<span class="dmMeta">${escapeHtml(formatTime(m.ts))} · <span class="dmStatus ${m.status}">${escapeHtml(dmStatusLabel(m.status))}</span></span>`
-		: `<span class="dmMeta">${escapeHtml(formatTime(m.ts))}</span>`;
+		: `<span class="dmMeta">${escapeHtml(formatTime(m.ts))}${unverified}</span>`;
 	return `<div class="dmMsg ${m.mine ? "mine" : "theirs"}">${linkify(escapeHtml(m.content))}${meta}</div>`;
 }
 

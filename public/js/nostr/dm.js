@@ -145,14 +145,32 @@ export function createGiftWrap(content, recipientPubHex, senderSkBytes, senderPu
 	);
 }
 
-// returns { content, senderPubkey, timestamp } with the sender authenticated via
-// the seal signature (and the rumor's claimed pubkey cross-checked against it)
+// returns { content, senderPubkey, timestamp, authenticated }.
+//
+// two wire generations exist in native bitchat:
+// - current builds sign the seal with the sender's identity key, so
+//   seal.pubkey == rumor.pubkey and the sender is authenticated by the seal
+//   signature (that equality became a hard requirement in their security-audit
+//   fix, which the commit itself calls a breaking wire-protocol change).
+// - builds before that fix sign the seal with a THROWAWAY key, so the two
+//   pubkeys never match and the only sender claim is the rumor's - which is
+//   unauthenticated (anyone knowing the recipient's npub could forge it).
+// we accept both: `authenticated` tells the caller which kind this was, so the
+// UI can mark legacy messages instead of dropping every DM from a deployed app.
 export function decryptGiftWrap(giftWrap, recipientSkBytes) {
 	const seal = JSON.parse(bcDecrypt(giftWrap.content, giftWrap.pubkey, recipientSkBytes));
 	if (seal.kind !== SEAL_KIND || !verifyEvent(seal)) throw new Error("invalid seal");
 	const rumor = JSON.parse(bcDecrypt(seal.content, seal.pubkey, recipientSkBytes));
-	if (seal.pubkey !== rumor.pubkey) throw new Error("rumor/seal pubkey mismatch");
-	return { content: String(rumor.content || ""), senderPubkey: seal.pubkey, timestamp: rumor.created_at };
+	const sealPk = String(seal.pubkey || "").toLowerCase();
+	const rumorPk = String(rumor.pubkey || "").toLowerCase();
+	if (!/^[0-9a-f]{64}$/.test(rumorPk)) throw new Error("bad rumor pubkey");
+	const authenticated = sealPk === rumorPk;
+	return {
+		content: String(rumor.content || ""),
+		senderPubkey: authenticated ? sealPk : rumorPk,
+		timestamp: rumor.created_at,
+		authenticated,
+	};
 }
 
 // --- BitchatPacket binary codec (BinaryProtocol.swift, v1) --------------------
@@ -453,7 +471,14 @@ export function createDmClient({ getIdentity, onMessage, onAck, onStatusChange }
 			dlog("x decode failed; content head:", (opened.content || "").slice(0, 48));
 			return;
 		}
-		dlog("ok surfaced", dm.kind, "from", opened.senderPubkey.slice(0, 8), dm.kind === "pm" ? JSON.stringify((dm.content || "").slice(0, 40)) : "");
+		dlog(
+			"ok surfaced",
+			dm.kind,
+			opened.authenticated ? "(authenticated)" : "(legacy/unverified)",
+			"from",
+			opened.senderPubkey.slice(0, 8),
+			dm.kind === "pm" ? JSON.stringify((dm.content || "").slice(0, 40)) : ""
+		);
 		stats.surfaced += 1;
 
 		if (dm.kind === "pm") {
@@ -461,7 +486,13 @@ export function createDmClient({ getIdentity, onMessage, onAck, onStatusChange }
 			remember(seenMessageIDs, dm.messageID);
 			// ack first (native marks the message delivered off this), then surface it
 			sendAck("delivered", dm.messageID, opened.senderPubkey);
-			onMessage?.({ senderPubkey: opened.senderPubkey, messageID: dm.messageID, content: dm.content, timestamp: opened.timestamp });
+			onMessage?.({
+				senderPubkey: opened.senderPubkey,
+				messageID: dm.messageID,
+				content: dm.content,
+				timestamp: opened.timestamp,
+				authenticated: opened.authenticated,
+			});
 		} else {
 			onAck?.({ senderPubkey: opened.senderPubkey, messageID: dm.messageID, kind: dm.kind });
 		}

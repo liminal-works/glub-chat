@@ -118,6 +118,7 @@ export default {
 	commands: {
 		clear: "clear the view",
 		dms: "open direct messages",
+		join: "join any channel (spaces & case ok)",
 		unclear: "restore cleared messages",
 		echo: "echo a message via your bot",
 		mute: "hide a channel from the global feed",
@@ -132,6 +133,7 @@ export default {
 		welcome: "welcome to the glub, {name}",
 		cleared: "cleared",
 		uncleared: "restored cleared messages",
+		join_usage: "usage: /join <channel>",
 		muted: "muted #{geo}",
 		unmuted: "unmuted #{geo}",
 		mute_usage: "usage: /mute #channel",

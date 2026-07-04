@@ -190,8 +190,10 @@ textarea {
 	}
 }
 
-/* your handle in the topbar shows verbatim - the topbar otherwise force-uppercases */
-.handle {
+/* your handle, and the channel name, show verbatim - the topbar otherwise
+   force-uppercases (so a case-sensitive channel reads faithfully) */
+.handle,
+.chan {
 	text-transform: none;
 }
 

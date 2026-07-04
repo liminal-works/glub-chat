@@ -19,6 +19,7 @@ import { createDmClient, DM_MAX_CONTENT_BYTES } from "./nostr/dm.js";
 const MAX_LINES = 600;
 const NEAR_BOTTOM_PX = 60;
 const MAX_GEO_LEN = 12; // geohash precision tops out here; clip the prefix so a huge "g" tag can't flood a line
+const MAX_CHANNEL_LEN = 64; // /join accepts arbitrary channel strings; cap the length defensively
 const MAX_NAME_LEN = 22; // collapse longer names behind a "more" toggle
 const MAX_MSG_LEN = 450; // collapse longer messages behind a "more" toggle
 const HARD_MAX_MSG_LEN = 8000; // absolute ceiling, even when expanded, to bound DOM/memory
@@ -713,7 +714,10 @@ function renderTopbar() {
 	const cursor = `<span class="cursor" aria-hidden="true"></span>`;
 	if (focusedGeo) {
 		const clippedGeo = clipText(focusedGeo, 12);
-		brandEl.innerHTML = `<strong>#${escapeHtml(clippedGeo)}</strong>/<span class="handle">@${escapeHtml(clipText(name || "anon", 12))}</span>${cursor}`;
+		// the channel keeps its real case (class "chan" opts out of the topbar's
+		// uppercase) so case-sensitive /join channels read faithfully - "#AB" and
+		// "#ab" are different channels and should look different.
+		brandEl.innerHTML = `<strong class="chan">#${escapeHtml(clippedGeo)}</strong>/<span class="handle">@${escapeHtml(clipText(name || "anon", 12))}</span>${cursor}`;
 
 		statusEl.innerHTML = `<span class="tapUsers">${escapeHtml(t("topbar.users", { count: focusedUserCount }))}</span> - <strong>${escapeHtml(t("topbar.exit"))}</strong>`;
 		statusEl.classList.add("tapExit");
@@ -2161,6 +2165,22 @@ const COMMANDS = [
 			// always-available way into the DM inbox (the floating pill only shows
 			// while there are unread messages).
 			openDmList();
+		},
+	},
+	{
+		name: "join",
+		run(arg) {
+			// join any literal channel string - case and spaces preserved. This
+			// reaches names the "#channel" composer syntax can't: ones with spaces,
+			// or ones that would otherwise be read as a command. A leading "#" is
+			// optional. Non-geocodable channels fall back to the global relay set
+			// (see the try/catch in enterRelayMode).
+			const channel = arg.replace(/^#/, "").trim().slice(0, MAX_CHANNEL_LEN);
+			if (!channel) {
+				appendSystem(t("system.join_usage"));
+				return;
+			}
+			focusChannel(channel);
 		},
 	},
 	{

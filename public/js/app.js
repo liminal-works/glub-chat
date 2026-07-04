@@ -81,7 +81,7 @@ const mediaBtn = document.getElementById("mediaBtn");
 const mediaFile = document.getElementById("mediaFile");
 const newMessagesBar = document.getElementById("newMessagesBar");
 const suggestBox = document.getElementById("suggestBox");
-const dmIndicator = document.getElementById("dmIndicator");
+const dmPill = document.getElementById("dmPill");
 const actionGate = document.getElementById("actionGate");
 const actionTitle = document.getElementById("actionTitle");
 const actionDm = document.getElementById("actionDm");
@@ -1126,36 +1126,41 @@ function totalUnread() {
 	return n;
 }
 
-function updateDmIndicator() {
-	if (conversations.size === 0) {
-		dmIndicator.hidden = true;
+// the floating DM pill lives below the topbar, top-right, over the chat. it only
+// appears when there are unread DMs and hides once you're caught up; the /dms
+// command is the always-available way into the inbox.
+function updateDmPill() {
+	const unread = totalUnread();
+	if (unread <= 0) {
+		dmPill.hidden = true;
 		return;
 	}
-	dmIndicator.hidden = false;
-	const unread = totalUnread();
-	dmIndicator.innerHTML = unread > 0 ? `✉<span class="dmCount">${unread}</span>` : "✉";
+	dmPill.hidden = false;
+	dmPill.innerHTML = `DM<span class="dmCount">${unread}</span>`;
 }
 
 // --- inbound ---------------------------------------------------------------
 
-function onDmMessage({ senderPubkey, messageID, content, timestamp, authenticated }) {
+// `historical` = a stored/backlog gift wrap replayed by a relay before EOSE (e.g.
+// on reload). We still populate the conversation so DM history is preserved, but
+// we don't count it as unread or fire a notification - otherwise every reload
+// would re-announce the last day of DMs as "N new".
+function onDmMessage({ senderPubkey, messageID, content, timestamp, historical }) {
 	const conv = ensureConversation(senderPubkey);
 	conv.name = displayNameForPubkey(senderPubkey); // refresh in case we now know them
 	if (conv.messages.some((m) => m.id === messageID)) return; // dedup
-	// authenticated=false means a legacy-wire native build: the seal was signed
-	// with a throwaway key, so the sender claim can't be verified (see dm.js)
-	conv.messages.push({ id: messageID, mine: false, content, ts: timestamp, status: "recv", unverified: authenticated === false });
+	conv.messages.push({ id: messageID, mine: false, content, ts: timestamp, status: "recv" });
 	conv.messages.sort((a, b) => a.ts - b.ts);
 
 	const viewing = activeDmPubkey === conv.pubkey && dmGate.classList.contains("show");
 	if (viewing) {
 		renderDmThread();
 		markConversationRead(conv);
-	} else {
+	} else if (!historical) {
 		conv.unread += 1;
 		appendSystem(t("dm.received", { name: conv.name }), SYSTEM_TTL_LONG_MS);
 	}
-	updateDmIndicator();
+	updateDmPill();
 	if (dmListGate.classList.contains("show")) renderDmList();
 }
 
@@ -1195,12 +1200,9 @@ function dmStatusLabel(status) {
 }
 
 function dmMessageHtml(m) {
-	// "unverified" marks a legacy-wire message whose sender claim couldn't be
-	// authenticated (pre-audit native builds; see dm.js)
-	const unverified = m.unverified ? ` · <span class="dmUnverified">${escapeHtml(t("dm.unverified"))}</span>` : "";
 	const meta = m.mine
 		? `<span class="dmMeta">${escapeHtml(formatTime(m.ts))} · <span class="dmStatus ${m.status}">${escapeHtml(dmStatusLabel(m.status))}</span></span>`
-		: `<span class="dmMeta">${escapeHtml(formatTime(m.ts))}${unverified}</span>`;
+		: `<span class="dmMeta">${escapeHtml(formatTime(m.ts))}</span>`;
 	return `<div class="dmMsg ${m.mine ? "mine" : "theirs"}">${linkify(escapeHtml(m.content))}${meta}</div>`;
 }
 
@@ -1215,7 +1217,7 @@ function renderDmThread() {
 function markConversationRead(conv) {
 	if (conv.unread) {
 		conv.unread = 0;
-		updateDmIndicator();
+		updateDmPill();
 	}
 	for (const m of conv.messages) {
 		if (!m.mine && !conv.readSent.has(m.id)) {
@@ -1239,7 +1241,7 @@ function openDmConversation(pubkey) {
 	dmListGate.classList.remove("show");
 	dmGate.classList.add("show");
 	markConversationRead(conv);
-	updateDmIndicator();
+	updateDmPill();
 	setTimeout(() => dmInput.focus(), 0);
 }
 
@@ -1315,7 +1317,7 @@ if (name) {
 brandEl.addEventListener("click", openNameGate);
 
 // tapping the topbar envelope opens the DM inbox
-dmIndicator.addEventListener("click", openDmList);
+dmPill.addEventListener("click", openDmList);
 
 // --- DM event wiring ---
 
@@ -1892,7 +1894,7 @@ function bootSequence() {
 	// DMs are E2E-encrypted with the local key and never touch the api, so the DM
 	// relay client runs independently of assist mode - start it up front.
 	dmClient.start();
-	updateDmIndicator();
+	updateDmPill();
 
 	try {
 		allRelays = await fetchRelayList();
@@ -2154,6 +2156,14 @@ const COMMANDS = [
 		},
 	},
 	{
+		name: "dms",
+		run() {
+			// always-available way into the DM inbox (the floating pill only shows
+			// while there are unread messages).
+			openDmList();
+		},
+	},
+	{
 		name: "unclear",
 		run() {
 			// drop the /clear cutoff so anything still in the buffer reappears.
@@ -2367,6 +2377,9 @@ function fitViewport() {
 	// expose the same measured height to the fixed DM panels so their bottom-
 	// anchored composer rides above the keyboard too (see --vvh in the css).
 	document.documentElement.style.setProperty("--vvh", `${h}px`);
+	// and the topbar height, so the floating DM pill anchors just beneath it
+	const tb = document.getElementById("topbar");
+	if (tb) document.documentElement.style.setProperty("--topbar-h", `${tb.offsetHeight}px`);
 	// iOS pans the page to reveal a focused input; with the app sized to the
 	// visible area the composer is already above the keyboard, so undo the pan.
 	if (window.scrollY) window.scrollTo(0, 0);

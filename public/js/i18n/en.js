@@ -65,7 +65,6 @@ export default {
 		status_sent: "sent",
 		status_delivered: "delivered",
 		status_read: "read",
-		unverified: "unverified",
 	},
 
 	users: {
@@ -118,6 +117,7 @@ export default {
 	// and /help, so command copy lives in exactly one place.
 	commands: {
 		clear: "clear the view",
+		dms: "open direct messages",
 		unclear: "restore cleared messages",
 		echo: "echo a message via your bot",
 		mute: "hide a channel from the global feed",

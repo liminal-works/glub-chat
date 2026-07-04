@@ -358,6 +358,11 @@ export function createDmClient({ getIdentity, onMessage, onAck, onStatusChange }
 	const seenMessageIDs = new Set(); // pm message ids (dedup across relays)
 	let gen = 0; // bumped on resubscribe/stop; stale sockets no-op
 	let started = false;
+	// gift wraps replayed from relay storage (the day-long lookback) arrive before
+	// EOSE; once any relay signals EOSE we flip `live` so subsequent wraps count as
+	// genuinely new. the grace lets slower relays finish dumping their backlog.
+	let live = false;
+	let liveTimer = null;
 	const stats = { wrapsSeen: 0, verifyFailed: 0, decryptFailed: 0, decodeFailed: 0, surfaced: 0 };
 
 	// opt-in wire tracing for debugging interop (e.g. native bitchat -> web). turn
@@ -437,8 +442,13 @@ export function createDmClient({ getIdentity, onMessage, onAck, onStatusChange }
 				dlog("sub CLOSED @", url.replace(/^wss?:\/\//, ""), frame[2]);
 				return;
 			}
+			if (frame[0] === "EOSE" && frame[1] === "glub-dm") {
+				dlog("EOSE @", url.replace(/^wss?:\/\//, ""), "- backlog done");
+				if (!live && !liveTimer) liveTimer = setTimeout(() => (live = true), 1500);
+				return;
+			}
 			if (frame[0] !== "EVENT" || frame[1] !== "glub-dm") return;
-			dlog("<- 1059", frame[2]?.id?.slice(0, 10), "wrapPk", frame[2]?.pubkey?.slice(0, 8), "@", url.replace(/^wss?:\/\//, ""));
+			dlog("<- 1059", frame[2]?.id?.slice(0, 10), "wrapPk", frame[2]?.pubkey?.slice(0, 8), live ? "live" : "backlog", "@", url.replace(/^wss?:\/\//, ""));
 			handleWrap(frame[2]);
 		});
 	}
@@ -446,6 +456,7 @@ export function createDmClient({ getIdentity, onMessage, onAck, onStatusChange }
 	async function handleWrap(ev) {
 		if (!ev?.id || ev.kind !== GIFT_WRAP_KIND) return;
 		if (seenWraps.has(ev.id)) return;
+		const historical = !live; // snapshot now; decode is async and `live` may flip mid-flight
 		stats.wrapsSeen += 1;
 		if (!verifyEvent(ev)) {
 			stats.verifyFailed += 1;
@@ -484,14 +495,16 @@ export function createDmClient({ getIdentity, onMessage, onAck, onStatusChange }
 		if (dm.kind === "pm") {
 			if (seenMessageIDs.has(dm.messageID)) return;
 			remember(seenMessageIDs, dm.messageID);
-			// ack first (native marks the message delivered off this), then surface it
-			sendAck("delivered", dm.messageID, opened.senderPubkey);
+			// only ack live messages - acking the whole backlog on every reload would
+			// spam the sender (and burn relay writes)
+			if (!historical) sendAck("delivered", dm.messageID, opened.senderPubkey);
 			onMessage?.({
 				senderPubkey: opened.senderPubkey,
 				messageID: dm.messageID,
 				content: dm.content,
 				timestamp: opened.timestamp,
 				authenticated: opened.authenticated,
+				historical,
 			});
 		} else {
 			onAck?.({ senderPubkey: opened.senderPubkey, messageID: dm.messageID, kind: dm.kind });
@@ -531,10 +544,14 @@ export function createDmClient({ getIdentity, onMessage, onAck, onStatusChange }
 			started = true;
 			for (const url of DM_RELAYS) connect(url);
 		},
-		// identity changed: drop every socket and re-REQ under the new pubkey
+		// identity changed: drop every socket and re-REQ under the new pubkey. the
+		// new key's backlog should be historical again, so reset the live gate.
 		resubscribe() {
 			if (!started) return;
 			gen++;
+			live = false;
+			clearTimeout(liveTimer);
+			liveTimer = null;
 			for (const ws of sockets.values()) ws.close();
 			sockets.clear();
 			for (const url of DM_RELAYS) connect(url);

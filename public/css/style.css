@@ -117,6 +117,7 @@ textarea {
 	display: flex;
 	align-items: center;
 	justify-content: space-between;
+	gap: 10px;
 	padding: calc(10px + env(safe-area-inset-top)) 12px 10px;
 	background: var(--chrome-bg);
 	border-bottom: 1px solid var(--chrome-border);
@@ -127,8 +128,19 @@ textarea {
 	text-shadow: var(--glow); /* phosphor bleed on the chrome only - body text stays crisp */
 }
 
+/* the brand takes the slack and ellipsizes a long handle; the relay status never
+   shrinks or wraps, so the row stays a clean single line at any name length */
 .brand {
 	cursor: pointer;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+#status {
+	flex: none;
+	white-space: nowrap;
 }
 
 /* blinking block cursor after your handle - the terminal's heartbeat. its blink
@@ -1309,27 +1321,46 @@ textarea {
    surface is deliberately kept apart from the public composer.
    ============================================================================ */
 
-/* topbar envelope: unread DM count, sits between the brand and relay status.
-   hidden entirely until there's a conversation to show. */
-.dmIndicator {
-	cursor: pointer;
+/* floating DM pill: sits just below the topbar, top-right, over the chat. It
+   only appears while there are unread DMs (kept off the topbar so long usernames
+   have room), and the /dms command opens the inbox any time. */
+.dmPill {
+	position: fixed;
+	top: calc(var(--topbar-h, 48px) + 8px);
+	right: 12px;
+	z-index: 900;
+	display: inline-flex;
+	align-items: center;
+	border: 1px solid var(--chrome-border-strong);
+	border-radius: 999px;
+	background: var(--chrome-bg);
 	color: var(--accent);
+	font: inherit;
+	font-size: 13px;
 	font-weight: 700;
-	letter-spacing: 0.04em;
-	white-space: nowrap;
+	letter-spacing: 0.06em;
+	padding: 5px 10px;
+	cursor: pointer;
 	text-shadow: var(--glow);
+	box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5);
+	-webkit-tap-highlight-color: transparent;
+	animation: barIn 0.18s ease-out;
 }
 
-.dmIndicator[hidden] {
+.dmPill[hidden] {
 	display: none;
 }
 
-.dmIndicator .dmCount {
+.dmPill:active {
+	transform: translateY(1px);
+}
+
+.dmPill .dmCount {
 	color: var(--bg);
 	background: var(--accent);
 	border-radius: 8px;
 	padding: 0 5px;
-	margin-left: 4px;
+	margin-left: 6px;
 	font-size: 0.85em;
 }
 
@@ -1510,12 +1541,6 @@ textarea {
 
 .dmMeta .dmStatus.read {
 	color: var(--accent);
-}
-
-/* legacy-wire messages whose sender claim couldn't be authenticated */
-.dmUnverified {
-	color: var(--danger);
-	opacity: 0.75;
 }
 
 .dmInputbar {

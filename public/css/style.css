@@ -110,6 +110,7 @@ textarea {
 	height: 100dvh;
 	display: flex;
 	flex-direction: column;
+	position: relative; /* containing block for the DM thread gate, so its composer rides the keyboard like #inputbar */
 }
 
 #topbar {
@@ -1403,15 +1404,26 @@ textarea {
 	color: var(--fg);
 }
 
-/* --- DM inbox + thread: full-screen panels sized to the visual viewport so the
-   thread composer rides above the keyboard (same trick as #app). --- */
+/* --- DM inbox + thread. Both are absolutely positioned inside #app (which JS
+   sizes to the visual viewport) rather than fixed to the layout viewport, so the
+   thread's bottom-anchored composer rides above the keyboard exactly like the
+   main #inputbar - no separate --vvh sizing, no fixed-position keyboard jank. --- */
 #dmListGate,
 #dmGate {
+	position: absolute;
+	inset: 0;
 	align-items: stretch;
-	top: 0;
-	bottom: auto;
-	height: var(--vvh, 100dvh);
-	padding: calc(16px + env(safe-area-inset-top)) 16px env(safe-area-inset-bottom);
+}
+
+/* the inbox has no composer, so it keeps a bottom safe-area inset like other gates */
+#dmListGate {
+	padding: calc(16px + env(safe-area-inset-top)) 16px calc(16px + env(safe-area-inset-bottom));
+}
+
+/* the thread's bottom padding is 0 - its composer owns the safe-area inset,
+   mirroring how #inputbar sits at the bottom of #app */
+#dmGate {
+	padding: calc(16px + env(safe-area-inset-top)) 16px 0;
 }
 
 /* the inbox reuses .usersPanel; the thread needs its own composer-anchored layout */
@@ -1503,8 +1515,10 @@ textarea {
 .dmInputbar {
 	display: flex;
 	align-items: center;
-	gap: 10px;
-	padding: 8px 0 calc(4px + env(safe-area-inset-bottom));
+	gap: 12px;
+	/* matches #inputbar: 6px top, safe-area-aware bottom so text clears the home
+	   indicator instead of clipping into the floor */
+	padding: 6px 0 calc(6px + env(safe-area-inset-bottom));
 	border-top: 1px solid var(--chrome-border);
 	margin-top: 8px;
 }

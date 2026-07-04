@@ -1090,6 +1090,9 @@ const dmClient = createDmClient({
 	onAck: onDmAck,
 	onStatusChange: () => {},
 });
+// console helper for interop debugging: call glubDmStats() to see how many gift
+// wraps arrived and where they dropped (verify/decrypt/decode) vs surfaced.
+window.glubDmStats = () => dmClient.stats();
 
 // best display name we know for a pubkey: their most recent chat handle, else a
 // name we've stored on the conversation, else "anon".

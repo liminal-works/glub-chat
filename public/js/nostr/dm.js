@@ -265,13 +265,19 @@ async function decodePacket(raw) {
 	return { type, timestamp, senderID, recipientID, payload };
 }
 
+// Apple's Compression framework (COMPRESSION_ZLIB, what native uses) emits raw
+// DEFLATE, so "deflate-raw" is the match - but try zlib-wrapped "deflate" too so
+// we're robust to either envelope.
 async function inflateRaw(bytes) {
-	try {
-		const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream("deflate-raw"));
-		return new Uint8Array(await new Response(stream).arrayBuffer());
-	} catch {
-		return null;
+	for (const format of ["deflate-raw", "deflate"]) {
+		try {
+			const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream(format));
+			return new Uint8Array(await new Response(stream).arrayBuffer());
+		} catch {
+			/* try the next envelope */
+		}
 	}
+	return null;
 }
 
 function decodeTlvPm(data) {
@@ -334,6 +340,21 @@ export function createDmClient({ getIdentity, onMessage, onAck, onStatusChange }
 	const seenMessageIDs = new Set(); // pm message ids (dedup across relays)
 	let gen = 0; // bumped on resubscribe/stop; stale sockets no-op
 	let started = false;
+	const stats = { wrapsSeen: 0, verifyFailed: 0, decryptFailed: 0, decodeFailed: 0, surfaced: 0 };
+
+	// opt-in wire tracing for debugging interop (e.g. native bitchat -> web). turn
+	// on with `localStorage.glub_dm_debug = 1` then reload; every inbound gift wrap
+	// is logged at each stage so you can see exactly where (if anywhere) it drops.
+	const DEBUG = (() => {
+		try {
+			return !!localStorage.getItem("glub_dm_debug");
+		} catch {
+			return false;
+		}
+	})();
+	const dlog = (...a) => {
+		if (DEBUG) console.log("[dm]", ...a);
+	};
 
 	function remember(set, value) {
 		set.add(value);
@@ -370,6 +391,7 @@ export function createDmClient({ getIdentity, onMessage, onAck, onStatusChange }
 		ws.addEventListener("open", () => {
 			if (myGen !== gen) return;
 			ws.send(JSON.stringify(["REQ", "glub-dm", subFilter()]));
+			dlog("REQ ->", url.replace(/^wss?:\/\//, ""), "kind 1059 #p", getIdentity().pk.slice(0, 12));
 			onStatusChange?.();
 		});
 
@@ -392,27 +414,47 @@ export function createDmClient({ getIdentity, onMessage, onAck, onStatusChange }
 			} catch {
 				return;
 			}
-			if (!Array.isArray(frame) || frame[0] !== "EVENT" || frame[1] !== "glub-dm") return;
+			if (!Array.isArray(frame)) return;
+			if (frame[0] === "CLOSED" && frame[1] === "glub-dm") {
+				dlog("sub CLOSED @", url.replace(/^wss?:\/\//, ""), frame[2]);
+				return;
+			}
+			if (frame[0] !== "EVENT" || frame[1] !== "glub-dm") return;
+			dlog("<- 1059", frame[2]?.id?.slice(0, 10), "wrapPk", frame[2]?.pubkey?.slice(0, 8), "@", url.replace(/^wss?:\/\//, ""));
 			handleWrap(frame[2]);
 		});
 	}
 
 	async function handleWrap(ev) {
-		if (!ev?.id || ev.kind !== GIFT_WRAP_KIND || seenWraps.has(ev.id)) return;
-		if (!verifyEvent(ev)) return;
+		if (!ev?.id || ev.kind !== GIFT_WRAP_KIND) return;
+		if (seenWraps.has(ev.id)) return;
+		stats.wrapsSeen += 1;
+		if (!verifyEvent(ev)) {
+			stats.verifyFailed += 1;
+			dlog("x verify failed", ev.id.slice(0, 10));
+			return;
+		}
 		remember(seenWraps, ev.id);
 
 		const { sk, pk } = getIdentity();
 		let opened;
 		try {
 			opened = decryptGiftWrap(ev, sk);
-		} catch {
-			return; // not for this key / corrupt - normal noise, drop silently
+		} catch (e) {
+			stats.decryptFailed += 1;
+			dlog("x decrypt failed", ev.id.slice(0, 10), e && e.message);
+			return; // not for this key / corrupt - usually just noise, drop
 		}
 		if (opened.senderPubkey === pk) return; // our own reflected wrap
 
 		const dm = await decodeDmContent(opened.content);
-		if (!dm) return;
+		if (!dm) {
+			stats.decodeFailed += 1;
+			dlog("x decode failed; content head:", (opened.content || "").slice(0, 48));
+			return;
+		}
+		dlog("ok surfaced", dm.kind, "from", opened.senderPubkey.slice(0, 8), dm.kind === "pm" ? JSON.stringify((dm.content || "").slice(0, 40)) : "");
+		stats.surfaced += 1;
 
 		if (dm.kind === "pm") {
 			if (seenMessageIDs.has(dm.messageID)) return;
@@ -483,6 +525,11 @@ export function createDmClient({ getIdentity, onMessage, onAck, onStatusChange }
 			let n = 0;
 			for (const ws of sockets.values()) if (ws.readyState === WebSocket.OPEN) n++;
 			return n;
+		},
+		// receive-pipeline tallies, handy for interop debugging: how many gift wraps
+		// arrived and where they dropped (verify / decrypt / decode) vs surfaced.
+		stats() {
+			return { ...stats, connected: this.connectedCount };
 		},
 	};
 }

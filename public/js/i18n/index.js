@@ -71,6 +71,22 @@ export function getLocale() {
 	return locale;
 }
 
+// the language the user actually wants to READ, independent of ui coverage.
+// getLocale() can only ever be a language we've shipped a dictionary for, but
+// content translation (the tap-menu "translate" action) supports far more
+// targets than the ui does - so it asks for this instead: the manual override
+// if set, else the browser's top preference, as a full tag ("pt-BR", not "pt";
+// providers like DeepL want the region for pt/en/zh).
+export function preferredContentLanguage() {
+	const stored = (typeof localStorage !== "undefined" && localStorage.getItem(STORAGE_KEY)) || "";
+	if (stored) return stored;
+	if (typeof navigator !== "undefined") {
+		if (navigator.languages && navigator.languages.length) return navigator.languages[0];
+		if (navigator.language) return navigator.language;
+	}
+	return FALLBACK;
+}
+
 export function onLocaleChange(cb) {
 	changeCbs.push(cb);
 }

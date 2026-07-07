@@ -20,11 +20,29 @@ export function translateConfigured() {
 	return !!API_KEY;
 }
 
-// DeepL takes a 2-letter (or regional) target code, uppercased. We only ever
-// pass the viewer's ui language, so a bare 2-letter code is enough.
+// languages DeepL can translate INTO (base codes). a request for anything else
+// falls back to english rather than bouncing off the provider with a 400.
+// override with TRANSLATE_TARGETS (comma-separated base codes) when pointing
+// at a provider with different coverage (e.g. LibreTranslate).
+const DEFAULT_TARGETS =
+	"ar,bg,cs,da,de,el,en,es,et,fi,fr,he,hu,id,it,ja,ko,lt,lv,nb,nl,pl,pt,ro,ru,sk,sl,sv,th,tr,uk,vi,zh";
+const SUPPORTED = new Set(
+	(process.env.TRANSLATE_TARGETS || DEFAULT_TARGETS).split(",").map((s) => s.trim().toLowerCase()).filter(Boolean)
+);
+
+// regional variants DeepL distinguishes; anything else collapses to the base
+// code (e.g. "fr-CA" -> "FR", but "pt-BR" stays "PT-BR").
+const REGIONAL = new Set(["en-gb", "en-us", "pt-br", "pt-pt", "zh-hans", "zh-hant"]);
+
+// normalize a BCP-47-ish tag from the client ("pt-BR", "es", "fr-CA") into a
+// target code the provider accepts, falling back to english when the language
+// is outside the provider's coverage.
 function normalizeTarget(target) {
-	const t = String(target || "en").trim().slice(0, 5).toUpperCase();
-	return /^[A-Z]{2}(-[A-Z]{2})?$/.test(t) ? t : "EN";
+	const tag = String(target || "en").trim().toLowerCase().slice(0, 10);
+	const base = tag.split("-")[0];
+	if (!/^[a-z]{2,3}$/.test(base) || !SUPPORTED.has(base)) return "EN";
+	if (REGIONAL.has(tag)) return tag.toUpperCase();
+	return base.toUpperCase();
 }
 
 // translate `text` into `target`. resolves to { text, detected } or throws.

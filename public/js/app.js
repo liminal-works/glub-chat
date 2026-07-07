@@ -12,7 +12,7 @@ import {
 import { fetchRelayList } from "./nostr/relayList.js";
 import { RelayPool } from "./nostr/relayPool.js";
 import { makeChatMessage, makePresenceEvent, getGeohash, getName, CHAT_KIND, PRESENCE_KIND, sortRelaysByGeohash, verifyEvent } from "./nostr/protocol.js";
-import { t, formatAgo, setLocale, detectLocale, onLocaleChange, getLocale } from "./i18n/index.js";
+import { t, formatAgo, setLocale, detectLocale, onLocaleChange, preferredContentLanguage } from "./i18n/index.js";
 import { createSuggest } from "./ui/suggest.js";
 import { createDmClient, DM_MAX_CONTENT_BYTES } from "./nostr/dm.js";
 import { THEMES, themeNames, activeTheme, applyTheme, persistTheme, initTheme, hexToRgb } from "./themes.js";
@@ -1417,12 +1417,24 @@ async function translateTapped() {
 		const res = await fetch(`${API_BASE}/api/translate`, {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({ text: ctx.content, target: getLocale() }),
+			// target the language the user reads (browser preference / manual
+			// override), not the ui locale - translation supports far more
+			// languages than we have ui dictionaries for.
+			body: JSON.stringify({ text: ctx.content, target: preferredContentLanguage() }),
 		});
 		const data = await res.json().catch(() => ({}));
 		entry.translating = false;
+		// strip everything but letters/numbers so punctuation or spacing tweaks
+		// don't count as a "different" translation
+		const norm = (s) => String(s || "").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");
 		if (res.ok && data.ok && data.text) {
-			entry.translation = { text: data.text, detected: data.detected || "" };
+			if (norm(data.text) === norm(ctx.content)) {
+				// the message was already in the reader's language - say so quietly
+				// instead of rendering an identical copy under it
+				appendSystem(t("translate.same"));
+			} else {
+				entry.translation = { text: data.text, detected: data.detected || "" };
+			}
 		} else {
 			// 503 = provider not configured; anything else = a transient failure
 			appendSystem(t(res.status === 503 ? "translate.unavailable" : "translate.failed"));

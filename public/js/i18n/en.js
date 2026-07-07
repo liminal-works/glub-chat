@@ -60,6 +60,7 @@ export default {
 		label: "translated",
 		label_from: "translated from {lang}",
 		working: "translating…",
+		same: "already in your language",
 		unavailable: "translation isn't available right now",
 		failed: "couldn't translate that — try again",
 	},

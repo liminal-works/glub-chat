@@ -12,7 +12,7 @@ import {
 import { fetchRelayList } from "./nostr/relayList.js";
 import { RelayPool } from "./nostr/relayPool.js";
 import { makeChatMessage, makePresenceEvent, getGeohash, getName, CHAT_KIND, PRESENCE_KIND, sortRelaysByGeohash, verifyEvent } from "./nostr/protocol.js";
-import { t, formatAgo, setLocale, detectLocale, onLocaleChange } from "./i18n/index.js";
+import { t, formatAgo, setLocale, detectLocale, onLocaleChange, getLocale } from "./i18n/index.js";
 import { createSuggest } from "./ui/suggest.js";
 import { createDmClient, DM_MAX_CONTENT_BYTES } from "./nostr/dm.js";
 import { THEMES, themeNames, activeTheme, applyTheme, persistTheme, initTheme, hexToRgb } from "./themes.js";
@@ -32,6 +32,15 @@ const MAX_IMAGES_PER_MESSAGE = 6; // anti-flood: cap how many previews one messa
 const MAX_FUTURE_SECS = 120; // drop events timestamped more than this far ahead (skewed/forged clocks)
 const seen = new Set();
 const entries = []; // [{ ts, geo, system, pubkey, html, el }], ascending by ts - all received messages
+
+// client-only, session-only block list (lowercased pubkeys). deliberately not
+// persisted: nearly everyone here is on a burner key, so a Set that dies with
+// the tab beats spending localStorage on it. blocked = their messages are
+// filtered out of the feed + roster locally; nothing is sent, they aren't told.
+const blockedPubkeys = new Set();
+function isBlocked(pubkey) {
+	return !!pubkey && blockedPubkeys.has(pubkey.toLowerCase());
+}
 
 // groundwork for a future "/censor" command - for now images always start
 // blurred and are revealed per-tap (see revealedImages below).
@@ -94,6 +103,7 @@ const actionPreview = document.getElementById("actionPreview");
 const actionDm = document.getElementById("actionDm");
 const actionMention = document.getElementById("actionMention");
 const actionReply = document.getElementById("actionReply");
+const actionTranslate = document.getElementById("actionTranslate");
 const actionCopy = document.getElementById("actionCopy");
 const actionHug = document.getElementById("actionHug");
 const actionSlap = document.getElementById("actionSlap");
@@ -359,6 +369,7 @@ function linkify(safe) {
 function entryVisible(entry) {
 	if (entry.ts < clearedBefore) return false; // hidden by /clear (local view filter)
 	if (entry.system) return true;
+	if (isBlocked(entry.pubkey)) return false; // blocked author (session-only, local)
 	if (focusedGeo) return entry.geo === focusedGeo; // focused: just this channel (mutes don't apply - you opened it on purpose)
 	return !mutedChannels.has(entry.geo); // global feed: drop muted channels
 }
@@ -422,8 +433,30 @@ function messageInnerHtml(entry) {
 	}
 
 	body += renderImagePreviews(entry);
+	body += renderTranslation(entry);
 
 	return body + timeTag(entry.ts) + ackTag(entry);
+}
+
+// the translation block shown beneath a message once you've translated it (or
+// while it's in flight). rendered as its own legible line - accent-bordered, a
+// small "translated" label, then the text at full readability - rather than the
+// old dim timestamp styling.
+function renderTranslation(entry) {
+	if (entry.translating) {
+		return `<span class="translationBlock"><span class="translationLabel">${escapeHtml(t("translate.working"))}</span></span>`;
+	}
+	const tr = entry.translation;
+	if (!tr || !tr.text) return "";
+	const label = tr.detected
+		? t("translate.label_from", { lang: tr.detected.toUpperCase() })
+		: t("translate.label");
+	return (
+		`<span class="translationBlock">` +
+		`<span class="translationLabel">${escapeHtml(label)}</span>` +
+		`<span class="translationText">${linkify(escapeHtml(tr.text))}</span>` +
+		`</span>`
+	);
 }
 
 // send-confirmation badge for our own messages, styled like the timestamp:
@@ -960,7 +993,7 @@ function userRowHtml(u, avatarColumn) {
 // rows and drop anyone already shown above as actively talking.
 function presentRows(snapshot, excludePubkeys) {
 	return snapshot
-		.filter((p) => p && typeof p.pubkey === "string" && !excludePubkeys.has(p.pubkey))
+		.filter((p) => p && typeof p.pubkey === "string" && !excludePubkeys.has(p.pubkey) && !isBlocked(p.pubkey))
 		.map((p) => ({
 			pubkey: p.pubkey,
 			who: p.name || "anon",
@@ -1002,7 +1035,7 @@ async function openUsers() {
 	const geo = focusedGeo;
 
 	const latest = talkers(geo); // full roster - everyone who's talked here stays listed
-	const talking = [...latest.values()].sort((a, b) => b.ts - a.ts);
+	const talking = [...latest.values()].filter((u) => !isBlocked(u.pubkey)).sort((a, b) => b.ts - a.ts);
 	const talkingPubkeys = new Set(latest.keys());
 	talkingPubkeys.add(identity.pk); // never show yourself as a ghost (assist snapshot includes you)
 
@@ -1263,6 +1296,7 @@ function openActionPopup(pubkey, entry) {
 		name,
 		geo: (entry && entry.geo) || focusedGeo || "",
 		content,
+		entryId: entry && entry.id ? entry.id : null, // translate acts on the stored entry
 	};
 	actionTitle.innerHTML = handleHtml(name, pubkey);
 	// cropped preview of the tapped message, so you can see what you're acting on
@@ -1272,6 +1306,12 @@ function openActionPopup(pubkey, entry) {
 	const isSelf = pubkey.toLowerCase() === identity.pk.toLowerCase();
 	actionDm.hidden = isSelf;
 	actionBlock.hidden = isSelf;
+	// translation runs through the assist api; hide it when the api isn't live, or
+	// when there's no real message text / no stored entry to attach the result to.
+	actionTranslate.hidden = liveSource !== "assist" || !content.trim() || !actionContext.entryId;
+	// once translated, the button offers to hide it again (a clean toggle)
+	const tappedEntry = actionContext.entryId ? entries.find((e) => e.id === actionContext.entryId) : null;
+	actionTranslate.textContent = tappedEntry && tappedEntry.translation ? t("actions.untranslate") : t("actions.translate");
 	actionGate.classList.add("show");
 }
 
@@ -1339,6 +1379,59 @@ function cancelReply() {
 	pendingReply = null;
 	replyBanner.hidden = true;
 	updatePlaceholder();
+}
+
+// block the tapped user for this session: their messages vanish from the feed
+// and roster immediately. purely local - nothing is broadcast. reversible in-
+// session with /unblock.
+function blockUser() {
+	const ctx = actionContext;
+	closeActionPopup();
+	if (!ctx || ctx.pubkey.toLowerCase() === identity.pk.toLowerCase()) return;
+	blockedPubkeys.add(ctx.pubkey.toLowerCase());
+	rerenderTerminal();
+	if (usersGate.classList.contains("show")) openUsers();
+	appendSystem(t("system.blocked", { name: clipText(ctx.name || "anon", 24), tag: ctx.pubkey.slice(-4) }));
+}
+
+// translate the tapped message into your ui language via the assist api, and
+// render the result under it. a second tap on an already-translated message
+// hides the translation (clean toggle).
+async function translateTapped() {
+	const ctx = actionContext;
+	closeActionPopup();
+	if (!ctx || !ctx.entryId) return;
+	const entry = entries.find((e) => e.id === ctx.entryId);
+	if (!entry) return;
+
+	if (entry.translation) {
+		// toggle off
+		entry.translation = null;
+		rerenderEntryEl(entry);
+		return;
+	}
+
+	entry.translating = true;
+	rerenderEntryEl(entry);
+	try {
+		const res = await fetch(`${API_BASE}/api/translate`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ text: ctx.content, target: getLocale() }),
+		});
+		const data = await res.json().catch(() => ({}));
+		entry.translating = false;
+		if (res.ok && data.ok && data.text) {
+			entry.translation = { text: data.text, detected: data.detected || "" };
+		} else {
+			// 503 = provider not configured; anything else = a transient failure
+			appendSystem(t(res.status === 503 ? "translate.unavailable" : "translate.failed"));
+		}
+	} catch {
+		entry.translating = false;
+		appendSystem(t("translate.failed"));
+	}
+	rerenderEntryEl(entry);
 }
 
 // --- conversation thread ---------------------------------------------------
@@ -1492,17 +1585,12 @@ actionDm.addEventListener("click", () => {
 });
 actionMention.addEventListener("click", startMention);
 actionReply.addEventListener("click", startReply);
+actionTranslate.addEventListener("click", translateTapped);
 actionCopy.addEventListener("click", copyTappedMessage);
 actionHug.addEventListener("click", () => sendEmote("hug"));
 actionSlap.addEventListener("click", () => sendEmote("slap"));
+actionBlock.addEventListener("click", blockUser);
 replyBannerCancel.addEventListener("click", cancelReply);
-// still-dummy actions: acknowledge with an ephemeral note until they're built out
-for (const btn of actionGate.querySelectorAll(".actionBtn.dummy")) {
-	btn.addEventListener("click", () => {
-		appendSystem(t("actions.soon", { action: t(`actions.${btn.dataset.action}`) }));
-		closeActionPopup();
-	});
-}
 
 dmListClose.addEventListener("click", closeDmList);
 dmListGate.addEventListener("click", (e) => {
@@ -2425,6 +2513,42 @@ const COMMANDS = [
 			mutedChannels.delete(geo);
 			rerenderTerminal();
 			appendSystem(t("system.unmuted", { geo }));
+		},
+	},
+	{
+		name: "unblock",
+		run(arg) {
+			const raw = arg.trim().toLowerCase();
+			if (!blockedPubkeys.size) {
+				appendSystem(t("system.block_none"));
+				return;
+			}
+			if (!raw) {
+				// no arg -> list who's blocked, by #suffix + last-known name, so you
+				// know what to pass back in.
+				const header = `* ${t("system.blocked_header")} *`;
+				const lines = [...blockedPubkeys].map((pk) => `#${pk.slice(-4)} @${displayNameForPubkey(pk)}`);
+				pushSystem(`<span class="ts">${escapeHtml([header, ...lines].join("\n"))}</span>`, SYSTEM_TTL_LONG_MS);
+				return;
+			}
+			if (raw === "all") {
+				blockedPubkeys.clear();
+				rerenderTerminal();
+				if (usersGate.classList.contains("show")) openUsers();
+				appendSystem(t("system.unblocked_all"));
+				return;
+			}
+			// match by the 4-hex #suffix shown in every handle
+			const suffix = raw.replace(/^#/, "");
+			const pk = [...blockedPubkeys].find((p) => p.endsWith(suffix));
+			if (!pk) {
+				appendSystem(t("system.unblock_notblocked", { tag: suffix }));
+				return;
+			}
+			blockedPubkeys.delete(pk);
+			rerenderTerminal();
+			if (usersGate.classList.contains("show")) openUsers();
+			appendSystem(t("system.unblocked", { tag: pk.slice(-4) }));
 		},
 	},
 	{

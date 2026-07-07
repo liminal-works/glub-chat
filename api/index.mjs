@@ -7,6 +7,7 @@ import { createAggregator } from "./aggregator.mjs";
 import { createProfiles } from "./profiles.mjs";
 import { proxyAvatar } from "./avatar.mjs";
 import { createMediaStore } from "./media.mjs";
+import { translateConfigured, translateText } from "./translate.mjs";
 
 // The optional "server assist" API. Deliberately separate from the static file
 // server (server/index.mjs) so its failure modes - a wedged relay pool, a full
@@ -84,6 +85,29 @@ app.post("/api/publish", express.json({ limit: "32kb" }), (req, res) => {
 		return;
 	}
 	res.json({ ok: true, relays });
+});
+
+// translate a message into the viewer's ui language via the configured provider
+// (see translate.mjs). the client sends the text (not an event id) so it can
+// translate anything on screen - others' messages, replies, even DMs. 503 when
+// no provider key is set, so the client can hide the action gracefully.
+app.post("/api/translate", express.json({ limit: "16kb" }), async (req, res) => {
+	const text = String(req.body?.text || "").trim();
+	const target = String(req.body?.target || "en");
+	if (!text) {
+		res.status(400).json({ ok: false, error: "empty" });
+		return;
+	}
+	if (!translateConfigured()) {
+		res.status(503).json({ ok: false, error: "not configured" });
+		return;
+	}
+	try {
+		const out = await translateText(text, target);
+		res.json({ ok: true, text: out.text, detected: out.detected });
+	} catch {
+		res.status(502).json({ ok: false, error: "translate failed" });
+	}
 });
 
 // live presences for a channel (kind-20001 heartbeats the api has seen recently).

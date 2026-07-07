@@ -46,12 +46,22 @@ export default {
 		block: "block",
 		copy: "copy message",
 		translate: "translate message",
+		untranslate: "hide translation",
 		hug: "hug",
 		slap: "slap",
 		cancel: "cancel",
 		soon: "{action} — coming soon",
 		self: "that's you",
 		reply_banner: "replying to @{name}",
+	},
+
+	// the translated-message block + its status/error lines
+	translate: {
+		label: "translated",
+		label_from: "translated from {lang}",
+		working: "translating…",
+		unavailable: "translation isn't available right now",
+		failed: "couldn't translate that — try again",
 	},
 
 	// automated emote messages sent from the action popup. other-user emotes copy
@@ -137,6 +147,7 @@ export default {
 		echo: "echo a message via your bot",
 		mute: "hide a channel from the global feed",
 		unmute: "unhide a channel (blank = list muted)",
+		unblock: "unblock a user (#tag, blank = list, all = clear)",
 		rotate: "new keypair (optional hex vanity suffix)",
 		theme: "switch color theme (blank = list themes)",
 		help: "list commands",
@@ -155,6 +166,12 @@ export default {
 		mute_none: "no muted channels",
 		muted_header: "muted channels",
 		unmute_notmuted: "#{geo} isn't muted",
+		blocked: "blocked @{name} (#{tag}) — /unblock {tag} to undo",
+		block_none: "no blocked users",
+		blocked_header: "blocked users",
+		unblocked: "unblocked #{tag}",
+		unblocked_all: "unblocked everyone",
+		unblock_notblocked: "#{tag} isn't blocked",
 		needs_channel: "join a channel first",
 		upload_too_large: "file too large (max {max}mb)",
 		upload_failed: "upload failed",

@@ -41,6 +41,8 @@ export default {
 	actions: {
 		title: "@{name}",
 		dm: "direct message",
+		mention: "mention",
+		reply: "reply",
 		block: "block",
 		copy: "copy message",
 		translate: "translate message",
@@ -49,6 +51,7 @@ export default {
 		cancel: "cancel",
 		soon: "{action} — coming soon",
 		self: "that's you",
+		reply_banner: "replying to @{name}",
 	},
 
 	// automated emote messages sent from the action popup. other-user emotes copy
@@ -101,6 +104,7 @@ export default {
 	composer: {
 		placeholder_global: "#channel message...",
 		placeholder_focused: "message -> #{geo}",
+		placeholder_reply: "reply to @{name}…",
 		send: "send",
 	},
 

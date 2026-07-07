@@ -119,11 +119,15 @@
 					<div id="actionPreview" class="actionPreview" hidden></div>
 					<div class="actionList">
 						<button id="actionDm" class="actionBtn" type="button" data-i18n="actions.dm">direct message</button>
-						<button id="actionCopy" class="actionBtn" type="button" data-i18n="actions.copy">copy message</button>
-						<button id="actionHug" class="actionBtn" type="button" data-i18n="actions.hug">hug</button>
-						<button id="actionSlap" class="actionBtn" type="button" data-i18n="actions.slap">slap</button>
-						<button class="actionBtn dummy" type="button" data-action="block" data-i18n="actions.block">block</button>
+						<div class="actionGrid">
+							<button id="actionMention" class="actionBtn" type="button" data-i18n="actions.mention">mention</button>
+							<button id="actionReply" class="actionBtn" type="button" data-i18n="actions.reply">reply</button>
+							<button id="actionHug" class="actionBtn" type="button" data-i18n="actions.hug">hug</button>
+							<button id="actionSlap" class="actionBtn" type="button" data-i18n="actions.slap">slap</button>
+						</div>
 						<button class="actionBtn dummy" type="button" data-action="translate" data-i18n="actions.translate">translate message</button>
+						<button id="actionCopy" class="actionBtn" type="button" data-i18n="actions.copy">copy message</button>
+						<button id="actionBlock" class="actionBtn danger dummy" type="button" data-action="block" data-i18n="actions.block">block</button>
 					</div>
 					<button id="actionClose" class="actionCancel" type="button" data-i18n="actions.cancel">cancel</button>
 				</div>
@@ -166,6 +170,12 @@
 			<div id="composerWrap">
 				<div id="newMessagesBar" hidden>[ 0 new messages ]</div>
 				<div id="suggestBox" hidden></div>
+
+				<div id="replyBanner" class="replyBanner" hidden>
+					<span class="replyBannerArrow" aria-hidden="true">&#8618;</span>
+					<span id="replyBannerText" class="replyBannerText"></span>
+					<button id="replyBannerCancel" class="replyBannerX" type="button" aria-label="cancel reply">&#10005;</button>
+				</div>
 
 				<div id="inputbar">
 					<input id="mediaFile" type="file" accept="image/*" hidden />

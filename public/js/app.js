@@ -87,10 +87,16 @@ const actionGate = document.getElementById("actionGate");
 const actionTitle = document.getElementById("actionTitle");
 const actionPreview = document.getElementById("actionPreview");
 const actionDm = document.getElementById("actionDm");
+const actionMention = document.getElementById("actionMention");
+const actionReply = document.getElementById("actionReply");
 const actionCopy = document.getElementById("actionCopy");
 const actionHug = document.getElementById("actionHug");
 const actionSlap = document.getElementById("actionSlap");
+const actionBlock = document.getElementById("actionBlock");
 const actionClose = document.getElementById("actionClose");
+const replyBanner = document.getElementById("replyBanner");
+const replyBannerText = document.getElementById("replyBannerText");
+const replyBannerCancel = document.getElementById("replyBannerCancel");
 const dmListGate = document.getElementById("dmListGate");
 const dmListClose = document.getElementById("dmListClose");
 const dmList = document.getElementById("dmList");
@@ -277,6 +283,19 @@ function isActionMessage(text) {
 	return /^\*\s+[\s\S]+?\s+\*$/.test(String(text || "").trim());
 }
 
+// a glub reply: a message whose content quotes the message it answers, in the
+// form "> @user: quoted text\n\nreply body" (an optional leading "#geo " channel
+// prefix is tolerated so replies from the old prototype still parse). native
+// clients that don't know the format just show it as plain text. returns
+// { targetUser, quotedText, body } or null.
+const REPLY_RE = /^(?:#[a-z0-9]{1,12}\s+)?>\s+@?([^:\n]+):[ \t]*([^\n]*)\n\s*\n([\s\S]+)$/i;
+function parseReplyMessage(text) {
+	const raw = String(text || "").replace(/\r\n/g, "\n").trim();
+	const m = raw.match(REPLY_RE);
+	if (!m) return null;
+	return { targetUser: String(m[1] || "").trim(), quotedText: String(m[2] || "").trim(), body: String(m[3] || "").trim() };
+}
+
 function extractUrls(text) {
 	return String(text || "").match(/\bhttps?:\/\/[^\s<]+/gi) || [];
 }
@@ -355,6 +374,26 @@ function messageInnerHtml(entry) {
 	if (entry.action) {
 		// emote: the whole "* ... *" rendered muted like a timestamp, no username
 		body = `<span class="ts">${linkify(escapeHtml(text))}</span>`;
+	} else if (entry.reply) {
+		// a reply: the sender's handle, then the quoted message in a left-bordered
+		// block, then the reply body. the whole thing is one tap target.
+		const reply = entry.reply;
+		const who = expanded ? entry.who : clipWithEllipsis(entry.who, MAX_NAME_LEN);
+		const bodyText = expanded ? reply.body : clipWithEllipsis(reply.body, MAX_MSG_LEN);
+		needsToggle = entry.who.length > MAX_NAME_LEN || reply.body.length > MAX_MSG_LEN;
+		const quoted = clipWithEllipsis(`@${reply.targetUser}: ${reply.quotedText}`, 140);
+		body =
+			`<span class="msgTap" data-user="${escapeHtml(entry.pubkey)}">` +
+			avatarHtml(entry.pubkey, { inline: true }) +
+			`<span class="bracket" style="color:${color}">&lt;</span>` +
+			`<span class="user" style="color:${color}">@${escapeHtml(who)}</span>` +
+			`<span class="tag" style="color:${color}">#${escapeHtml(entry.tag)}</span>` +
+			`<span class="bracket" style="color:${color}">&gt;</span>` +
+			`<span class="replyBlock">` +
+			`<span class="replyQuote">${linkify(escapeHtml(quoted))}</span>` +
+			`<span class="replyBody" style="color:${color}">${linkify(escapeHtml(bodyText))}</span>` +
+			`</span>` +
+			`</span>`;
 	} else {
 		const who = expanded ? entry.who : clipWithEllipsis(entry.who, MAX_NAME_LEN);
 		needsToggle = needsToggle || entry.who.length > MAX_NAME_LEN;
@@ -675,6 +714,7 @@ function renderEvent(ev) {
 		mine: ev.pubkey.toLowerCase() === identity.pk.toLowerCase(), // bitchat bolds your own messages
 		pendingAck: pending.has(ev.id), // a message we just sent, awaiting echo-back confirmation
 		action: isActionMessage(text),
+		reply: parseReplyMessage(text), // { targetUser, quotedText, body } if this quotes another message
 		images: extractImageUrls(text),
 		expanded: false,
 		el: null,
@@ -1092,7 +1132,8 @@ function closeUsers() {
 // pubkey(lower) -> { pubkey, name, messages: [{ id, mine, content, ts, status }], unread, readSent:Set }
 const conversations = new Map();
 let activeDmPubkey = null; // pubkey of the open thread, or null
-let actionContext = null; // { pubkey, entryId } for the open action popup
+let actionContext = null; // { pubkey, name, geo, content } for the open action popup
+let pendingReply = null; // { pubkey, name, geo, quoted } while composing a reply
 
 const dmClient = createDmClient({
 	getIdentity: () => identity,
@@ -1189,20 +1230,25 @@ function onDmAck({ senderPubkey, messageID, kind }) {
 
 function openActionPopup(pubkey, entry) {
 	const name = entry && !entry.system ? entry.who : displayNameForPubkey(pubkey);
-	// keep the channel + text of the tapped message so copy/hug/slap act on the
-	// right thing (in global view the message may be from a channel you're not in).
+	// for a reply, act on the reply body (not the raw "> @user: quote" wire form)
+	// so the preview/copy/quote stay clean.
+	const content = entry && entry.reply ? entry.reply.body : (entry && entry.text) || "";
+	// keep the channel + text of the tapped message so copy/reply/hug/slap act on
+	// the right thing (in global view the message may be from a channel you're not in).
 	actionContext = {
 		pubkey,
 		name,
 		geo: (entry && entry.geo) || focusedGeo || "",
-		content: (entry && entry.text) || "",
+		content,
 	};
 	actionTitle.innerHTML = handleHtml(name, pubkey);
 	// cropped preview of the tapped message, so you can see what you're acting on
-	actionPreview.textContent = actionContext.content;
-	actionPreview.hidden = !actionContext.content;
-	// can't DM yourself
-	actionDm.hidden = pubkey.toLowerCase() === identity.pk.toLowerCase();
+	actionPreview.textContent = content;
+	actionPreview.hidden = !content;
+	// can't DM or block yourself
+	const isSelf = pubkey.toLowerCase() === identity.pk.toLowerCase();
+	actionDm.hidden = isSelf;
+	actionBlock.hidden = isSelf;
 	actionGate.classList.add("show");
 }
 
@@ -1236,6 +1282,40 @@ function sendEmote(kind) {
 function closeActionPopup() {
 	actionGate.classList.remove("show");
 	actionContext = null;
+}
+
+// prefill the composer with "@name " (prefixed with "#geo " when you're in the
+// global feed so the send still targets the right channel), then focus it.
+function startMention() {
+	const ctx = actionContext;
+	closeActionPopup();
+	if (!ctx) return;
+	cancelReply(); // a mention replaces whatever you were composing
+	const prefix = focusedGeo ? "" : `#${ctx.geo} `;
+	chatInput.value = `${prefix}@${ctx.name} `;
+	chatInput.focus();
+	chatInput.setSelectionRange(chatInput.value.length, chatInput.value.length);
+	refreshSuggest();
+}
+
+// arm a reply to the tapped message: remember who/where/what we're quoting and
+// show the reply banner above the composer. the next send quotes it.
+function startReply() {
+	const ctx = actionContext;
+	closeActionPopup();
+	if (!ctx || !ctx.geo) return;
+	const quoted = clipText(String(ctx.content || "").replace(/\s+/g, " ").trim(), 120);
+	pendingReply = { pubkey: ctx.pubkey, name: ctx.name, geo: ctx.geo, quoted };
+	replyBannerText.textContent = t("actions.reply_banner", { name: ctx.name });
+	replyBanner.hidden = false;
+	chatInput.placeholder = t("composer.placeholder_reply", { name: ctx.name });
+	chatInput.focus();
+}
+
+function cancelReply() {
+	pendingReply = null;
+	replyBanner.hidden = true;
+	updatePlaceholder();
 }
 
 // --- conversation thread ---------------------------------------------------
@@ -1387,9 +1467,12 @@ actionGate.addEventListener("click", (e) => {
 actionDm.addEventListener("click", () => {
 	if (actionContext) openDmConversation(actionContext.pubkey);
 });
+actionMention.addEventListener("click", startMention);
+actionReply.addEventListener("click", startReply);
 actionCopy.addEventListener("click", copyTappedMessage);
 actionHug.addEventListener("click", () => sendEmote("hug"));
 actionSlap.addEventListener("click", () => sendEmote("slap"));
+replyBannerCancel.addEventListener("click", cancelReply);
 // still-dummy actions: acknowledge with an ephemeral note until they're built out
 for (const btn of actionGate.querySelectorAll(".actionBtn.dummy")) {
 	btn.addEventListener("click", () => {
@@ -2125,6 +2208,21 @@ function send() {
 	if (runCommand(chatInput.value)) {
 		chatInput.value = "";
 		suggest.hide();
+		return;
+	}
+
+	// a pending reply short-circuits normal parsing: the whole composer is the
+	// reply body, the channel is fixed to the quoted message's, and we prepend the
+	// "> @user: quote" wire prefix so it renders as a reply everywhere.
+	if (pendingReply) {
+		const body = chatInput.value.trim();
+		if (!body) return; // keep the banner; nothing to send yet
+		chatInput.value = "";
+		suggest.hide();
+		const prefix = `> @${pendingReply.name}: ${pendingReply.quoted}\n\n`;
+		const geo = pendingReply.geo;
+		cancelReply();
+		transmit(prefix + body, geo);
 		return;
 	}
 

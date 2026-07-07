@@ -305,6 +305,27 @@ textarea {
 	cursor: pointer;
 }
 
+/* a reply renders the quoted message in a left-bordered block beneath the
+   sender's handle, then the reply body below it. */
+.replyBlock {
+	display: block;
+	margin: 2px 0 0 6px;
+	padding-left: 8px;
+	border-left: 1px solid var(--chrome-border);
+}
+
+.replyQuote {
+	display: block;
+	color: var(--muted);
+	word-break: break-word;
+}
+
+.replyBody {
+	display: block;
+	word-break: break-word;
+	white-space: pre-wrap;
+}
+
 /* the #xxxx pubkey suffix is dimmed to 60% of the name color, matching native
    bitchat (it renders the suffix run as baseColor.opacity(0.6)). */
 .tag {
@@ -492,6 +513,49 @@ textarea {
 	color: var(--muted);
 	margin-left: 8px;
 	font-size: 0.85em;
+}
+
+/* active-reply indicator: a slim bar above the composer showing who you're
+   replying to, with an x to cancel. sending clears it; so does the x. */
+.replyBanner {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding: 6px 14px;
+	background: var(--chrome-bg);
+	border-top: 1px solid var(--chrome-border);
+	border-left: 2px solid var(--accent);
+	font-size: 13px;
+	color: var(--muted);
+}
+
+.replyBanner[hidden] {
+	display: none;
+}
+
+.replyBannerArrow {
+	color: var(--accent);
+}
+
+.replyBannerText {
+	flex: 1;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.replyBannerX {
+	border: 0;
+	background: transparent;
+	color: var(--muted);
+	font: inherit;
+	cursor: pointer;
+	padding: 2px 6px;
+	-webkit-tap-highlight-color: transparent;
+}
+
+.replyBannerX:hover {
+	color: var(--fg);
 }
 
 /* flat, borderless composer to match native bitchat: just the input text and a
@@ -1404,6 +1468,19 @@ textarea {
 	gap: 8px;
 }
 
+/* the middle row of quick actions sits in a 2x2 grid, like the prototype:
+   mention | reply / hug | slap. the full-width buttons (dm, translate, copy,
+   block) stack above and below it. */
+.actionGrid {
+	display: grid;
+	grid-template-columns: 1fr 1fr;
+	gap: 8px;
+}
+
+.actionGrid .actionBtn {
+	text-align: center;
+}
+
 .actionBtn {
 	width: 100%;
 	border: 1px solid var(--chrome-border);
@@ -1431,6 +1508,20 @@ textarea {
 .actionBtn.dummy {
 	color: var(--muted);
 	font-weight: 400;
+}
+
+/* destructive action (block): outlined in the same soft red as the "[!] failed"
+   warning. declared after .dummy so it wins the color even while block is still
+   a placeholder. */
+.actionBtn.danger {
+	color: var(--danger);
+	border-color: rgba(255, 123, 114, 0.4);
+	font-weight: 700;
+}
+
+.actionBtn.danger:hover {
+	border-color: var(--danger);
+	background-color: rgba(255, 123, 114, 0.08);
 }
 
 .actionBtn[hidden] {

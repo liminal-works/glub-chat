@@ -300,15 +300,9 @@ textarea {
 	color: var(--fg);
 }
 
-/* the @handle is a tap target for the per-user action popup */
-.nameTap {
+/* the whole message line is a tap target for the per-user action popup */
+.msgTap {
 	cursor: pointer;
-}
-
-.nameTap:hover .user {
-	text-decoration: underline;
-	text-underline-offset: 2px;
-	text-decoration-thickness: 1px;
 }
 
 /* the #xxxx pubkey suffix is dimmed to 60% of the name color, matching native
@@ -1380,6 +1374,28 @@ textarea {
 
 .actionTitle .sfx {
 	opacity: 0.6;
+}
+
+/* cropped preview of the tapped message, so you can see which one you're acting
+   on (mainly for the copy case). clamps to a couple of lines and ellipsizes. */
+.actionPreview {
+	margin: -4px 0 12px;
+	padding: 8px 10px;
+	border-left: 2px solid var(--chrome-border);
+	color: var(--muted);
+	font-size: 13px;
+	line-height: 1.4;
+	white-space: pre-wrap;
+	word-break: break-word;
+	overflow: hidden;
+	display: -webkit-box;
+	-webkit-box-orient: vertical;
+	-webkit-line-clamp: 3;
+	line-clamp: 3;
+}
+
+.actionPreview[hidden] {
+	display: none;
 }
 
 .actionList {

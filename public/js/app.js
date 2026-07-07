@@ -85,7 +85,11 @@ const suggestBox = document.getElementById("suggestBox");
 const dmPill = document.getElementById("dmPill");
 const actionGate = document.getElementById("actionGate");
 const actionTitle = document.getElementById("actionTitle");
+const actionPreview = document.getElementById("actionPreview");
 const actionDm = document.getElementById("actionDm");
+const actionCopy = document.getElementById("actionCopy");
+const actionHug = document.getElementById("actionHug");
+const actionSlap = document.getElementById("actionSlap");
 const actionClose = document.getElementById("actionClose");
 const dmListGate = document.getElementById("dmListGate");
 const dmListClose = document.getElementById("dmListClose");
@@ -354,17 +358,19 @@ function messageInnerHtml(entry) {
 	} else {
 		const who = expanded ? entry.who : clipWithEllipsis(entry.who, MAX_NAME_LEN);
 		needsToggle = needsToggle || entry.who.length > MAX_NAME_LEN;
-		// the name (avatar + @handle#tag) is a tap target: tapping it opens the
-		// per-user action popup (DM etc). data-user carries the full pubkey.
+		// the whole message (name + body) is one tap target: tapping anywhere on it
+		// opens the per-user action popup (DM, copy, hug/slap...). data-user carries
+		// the full pubkey; links/geo/toggles inside keep their own behavior via the
+		// bail check in the click handler.
 		body =
-			`<span class="nameTap" data-user="${escapeHtml(entry.pubkey)}">` +
+			`<span class="msgTap" data-user="${escapeHtml(entry.pubkey)}">` +
 			avatarHtml(entry.pubkey, { inline: true }) + // nostr avatar prefixing the name, if any
 			`<span class="bracket" style="color:${color}">&lt;</span>` +
 			`<span class="user" style="color:${color}">@${escapeHtml(who)}</span>` +
 			`<span class="tag" style="color:${color}">#${escapeHtml(entry.tag)}</span>` +
-			`<span class="bracket" style="color:${color}">&gt;</span>` +
-			`</span> ` +
-			`<span class="msg" style="color:${color}">${linkify(escapeHtml(text))}</span>`;
+			`<span class="bracket" style="color:${color}">&gt;</span> ` +
+			`<span class="msg" style="color:${color}">${linkify(escapeHtml(text))}</span>` +
+			`</span>`;
 	}
 
 	if (needsToggle) {
@@ -1181,13 +1187,50 @@ function onDmAck({ senderPubkey, messageID, kind }) {
 
 // --- action popup (tap a user) ---------------------------------------------
 
-function openActionPopup(pubkey, entryId) {
-	actionContext = { pubkey, entryId };
-	const name = displayNameForPubkey(pubkey);
+function openActionPopup(pubkey, entry) {
+	const name = entry && !entry.system ? entry.who : displayNameForPubkey(pubkey);
+	// keep the channel + text of the tapped message so copy/hug/slap act on the
+	// right thing (in global view the message may be from a channel you're not in).
+	actionContext = {
+		pubkey,
+		name,
+		geo: (entry && entry.geo) || focusedGeo || "",
+		content: (entry && entry.text) || "",
+	};
 	actionTitle.innerHTML = handleHtml(name, pubkey);
+	// cropped preview of the tapped message, so you can see what you're acting on
+	actionPreview.textContent = actionContext.content;
+	actionPreview.hidden = !actionContext.content;
 	// can't DM yourself
 	actionDm.hidden = pubkey.toLowerCase() === identity.pk.toLowerCase();
 	actionGate.classList.add("show");
+}
+
+// copy the tapped message's text to the clipboard
+async function copyTappedMessage() {
+	const text = actionContext && actionContext.content;
+	closeActionPopup();
+	if (!text) return;
+	try {
+		await navigator.clipboard.writeText(text);
+		appendSystem(t("system.msg_copied"));
+	} catch {
+		appendSystem(t("system.copy_failed"));
+	}
+}
+
+// send a hug/slap emote into the tapped message's channel. other-user emotes use
+// bitchat's exact wording (so native clients recognize them); self-emotes use our
+// own comedic templates.
+function sendEmote(kind) {
+	const ctx = actionContext;
+	closeActionPopup();
+	if (!ctx || !ctx.geo) return;
+	const me = clipText(name || "anon", 24);
+	const them = clipText(ctx.name || "anon", 24);
+	const isSelf = ctx.pubkey.toLowerCase() === identity.pk.toLowerCase();
+	const key = `emote.${kind}${isSelf ? "_self" : ""}`;
+	transmit(t(key, { me, them }), ctx.geo);
 }
 
 function closeActionPopup() {
@@ -1325,14 +1368,16 @@ dmPill.addEventListener("click", openDmList);
 
 // --- DM event wiring ---
 
-// tap a name (or DM-list row) -> per-user action popup. bail on any interactive
-// child (channel link, url, more/less, image) so those keep their own behavior.
+// tap a message -> per-user action popup. bail on any interactive child (channel
+// link, url, more/less, image) so those keep their own behavior, and bail when
+// the user is selecting text rather than tapping.
 terminal.addEventListener("click", (e) => {
 	if (e.target.closest(".inlineLink, .inlineGeo, .geo, .toggleMore, [data-img-toggle]")) return;
-	const nameEl = e.target.closest("[data-user]");
-	if (!nameEl) return;
-	const entry = entries.find((en) => en.el && en.el.contains(nameEl));
-	openActionPopup(nameEl.dataset.user, entry ? entry.id : null);
+	if (window.getSelection && String(window.getSelection())) return; // don't hijack a text selection
+	const tap = e.target.closest("[data-user]");
+	if (!tap) return;
+	const entry = entries.find((en) => en.el && en.el.contains(tap));
+	openActionPopup(tap.dataset.user, entry || null);
 });
 
 actionClose.addEventListener("click", closeActionPopup);
@@ -1342,7 +1387,10 @@ actionGate.addEventListener("click", (e) => {
 actionDm.addEventListener("click", () => {
 	if (actionContext) openDmConversation(actionContext.pubkey);
 });
-// dummy actions: acknowledge with an ephemeral note until they're built out
+actionCopy.addEventListener("click", copyTappedMessage);
+actionHug.addEventListener("click", () => sendEmote("hug"));
+actionSlap.addEventListener("click", () => sendEmote("slap"));
+// still-dummy actions: acknowledge with an ephemeral note until they're built out
 for (const btn of actionGate.querySelectorAll(".actionBtn.dummy")) {
 	btn.addEventListener("click", () => {
 		appendSystem(t("actions.soon", { action: t(`actions.${btn.dataset.action}`) }));

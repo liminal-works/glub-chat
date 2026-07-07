@@ -51,6 +51,16 @@ export default {
 		self: "that's you",
 	},
 
+	// automated emote messages sent from the action popup. other-user emotes copy
+	// bitchat's exact wording so native clients render them the same way; self-
+	// emotes are our own (bitchat just reuses the generic template on yourself).
+	emote: {
+		hug: "* 🫂 {me} hugs {them} *",
+		hug_self: "* 🫂 {me} hugs themselves. it counts *",
+		slap: "* 🐟 {me} slaps {them} around a bit with a large trout *",
+		slap_self: "* 🐟 {me} slaps themselves with a large trout. the trout is unimpressed *",
+	},
+
 	dm: {
 		inbox_title: "messages",
 		placeholder: "encrypted message…",
@@ -152,6 +162,8 @@ export default {
 		nsec_blocked: "blocked - never paste your nsec into chat",
 		nsec_copied: "copied",
 		nsec_copy_failed: "copy failed",
+		msg_copied: "copied message",
+		copy_failed: "copy failed",
 		nsec_paste_failed: "couldn't read clipboard",
 		nsec_invalid: "invalid nsec",
 		nsec_imported: "imported",

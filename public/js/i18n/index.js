@@ -14,7 +14,10 @@ const STORAGE_KEY = "glub_locale"; // optional manual override (no UI yet)
 // registry of additional locales: code -> async loader. add a language by
 // dropping a `<code>.js` dictionary next to en.js and registering it here, e.g.
 //   es: () => import("./es.js").then((m) => m.default),
-const LOADERS = {};
+const LOADERS = {
+	ru: () => import("./ru.js").then((m) => m.default),
+	hi: () => import("./hi.js").then((m) => m.default),
+};
 
 // scripts that read right-to-left, so we can flip <html dir> for them
 const RTL = new Set(["ar", "fa", "he", "ur"]);

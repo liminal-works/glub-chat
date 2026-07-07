@@ -1,0 +1,194 @@
+// hindi dictionary. keys mirror en.js (the source of truth); anything missing
+// here falls back to english automatically.
+//
+// deliberately omitted: the `emote` section. emotes are broadcast into the
+// channel as message content (canonical bitchat wording), so they stay english
+// for every sender regardless of ui language.
+//
+// established technical terms (nostr, nsec, npub, hex, dm) stay in latin script,
+// as is customary in hindi tech writing.
+export default {
+	name_gate: {
+		title: "एक नाम चुनें",
+		subtitle_1: "न अकाउंट। न ईमेल। न सर्वर।",
+		subtitle_2: "बस एक नाम चुनें और बात शुरू करें।",
+		input_placeholder: "उपनाम",
+		enter: "प्रवेश",
+	},
+
+	settings: {
+		title: "सेटिंग्स",
+		assist_description:
+			"सर्वर असिस्ट एक वैकल्पिक API से पुरानी हिस्ट्री लाता है और बैंडविड्थ घटाता है। यह बंद या अनुपलब्ध हो तो भी क्लाइंट पूरी तरह काम करता है।",
+		assist_label: "सर्वर असिस्ट",
+		profiles_label: "nostr प्रोफ़ाइल",
+		identity_label: "nostr पहचान",
+		reveal_nsec: "दिखाएँ",
+		hide_nsec: "छिपाएँ",
+		copy_nsec: "कॉपी",
+		paste_nsec: "पेस्ट",
+		done: "हो गया",
+		toggle_on: "[ चालू ]",
+		toggle_off: "[ बंद ]",
+	},
+
+	profile: {
+		close: "बंद करें",
+		loading: "प्रोफ़ाइल लोड हो रही है…",
+		none: "कोई nostr प्रोफ़ाइल नहीं",
+		npub_copied: "npub कॉपी हुआ",
+		npub_copy_failed: "कॉपी नहीं हुआ",
+	},
+
+	actions: {
+		title: "@{name}",
+		dm: "सीधा संदेश",
+		mention: "मेंशन",
+		reply: "जवाब",
+		block: "ब्लॉक",
+		copy: "संदेश कॉपी करें",
+		translate: "संदेश का अनुवाद",
+		untranslate: "अनुवाद छिपाएँ",
+		hug: "गले लगाएँ",
+		slap: "थप्पड़",
+		cancel: "रद्द",
+		soon: "{action} — जल्द आ रहा है",
+		self: "यह आप हैं",
+		reply_banner: "@{name} को जवाब",
+	},
+
+	translate: {
+		label: "अनुवाद",
+		label_from: "{lang} से अनुवाद",
+		working: "अनुवाद हो रहा है…",
+		same: "पहले से आपकी भाषा में है",
+		unavailable: "अनुवाद अभी उपलब्ध नहीं",
+		failed: "अनुवाद नहीं हो सका — फिर कोशिश करें",
+	},
+
+	dm: {
+		inbox_title: "संदेश",
+		placeholder: "एन्क्रिप्टेड संदेश…",
+		empty: "अभी कोई संदेश नहीं",
+		with: "@{name}",
+		no_conversations: "अभी कोई बातचीत नहीं",
+		received: "@{name} का नया संदेश",
+		too_long: "संदेश बहुत लंबा है (अधिकतम {max} अक्षर)",
+		send_failed: "कोई dm रिले नहीं जुड़ा — फिर कोशिश करें",
+		encrypted_note: "एंड-टू-एंड एन्क्रिप्टेड · nip-17",
+		unread: { one: "{count} अपठित", other: "{count} अपठित" },
+		status_sent: "भेजा गया",
+		status_delivered: "पहुँचा",
+		status_read: "पढ़ा गया",
+	},
+
+	users: {
+		title: "#{geo} में लोग",
+		title_default: "लोग",
+		exit: "[बाहर]",
+		empty: "यहाँ अभी कोई नहीं",
+		present: "मौजूद",
+		ghosts: { one: "भूत", other: "भूत" },
+	},
+
+	origin: {
+		local: "स्थानीय",
+		teleport: "टेलीपोर्ट",
+	},
+
+	topbar: {
+		connecting: "जुड़ रहे हैं...",
+		relays: "रिले",
+		users: { one: "{count} यूज़र", other: "{count} यूज़र" },
+		exit: "[बाहर]",
+	},
+
+	composer: {
+		placeholder_global: "#चैनल संदेश...",
+		placeholder_focused: "संदेश -> #{geo}",
+		placeholder_reply: "@{name} को जवाब…",
+		send: "भेजें",
+	},
+
+	message: {
+		more: "और",
+		less: "कम",
+		reveal: "[दिखाएँ]",
+		beginning_of_chat: "चैट की शुरुआत",
+		new_messages: { one: "[ {count} नया संदेश ]", other: "[ {count} नए संदेश ]" },
+	},
+
+	ack: {
+		resending: "फिर भेज रहे हैं…",
+		failed: "[!] विफल",
+		latency_lt1s: "<1s",
+		latency_secs: "{count}s",
+	},
+
+	time: {
+		now: "अभी",
+	},
+
+	commands: {
+		clear: "स्क्रीन साफ़ करें",
+		dms: "सीधे संदेश खोलें",
+		join: "किसी भी चैनल में जाएँ (स्पेस व केस ठीक)",
+		unclear: "साफ़ किए संदेश वापस लाएँ",
+		echo: "अपने बॉट से संदेश दोहराएँ",
+		mute: "चैनल को ग्लोबल फ़ीड से छिपाएँ",
+		unmute: "चैनल वापस लाएँ (खाली = सूची)",
+		unblock: "अनब्लॉक (#tag, खाली = सूची, all = सभी)",
+		rotate: "नई कुंजी-जोड़ी (वैकल्पिक hex प्रत्यय)",
+		theme: "रंग थीम बदलें (खाली = सूची)",
+		help: "कमांड सूची",
+	},
+
+	system: {
+		boot_1: "glub.chat // वेब क्लाइंट",
+		boot_2: "कुंजियाँ यहीं बनीं और यहीं रहती हैं। कुछ भी इस डिवाइस से बाहर नहीं जाता",
+		welcome: "glub में स्वागत है, {name}",
+		cleared: "साफ़ किया",
+		uncleared: "साफ़ किए संदेश वापस आ गए",
+		join_usage: "उपयोग: /join <चैनल>",
+		muted: "#{geo} छिपाया",
+		unmuted: "#{geo} वापस",
+		mute_usage: "उपयोग: /mute #चैनल",
+		mute_none: "कोई छिपा चैनल नहीं",
+		muted_header: "छिपे चैनल",
+		unmute_notmuted: "#{geo} छिपा नहीं है",
+		blocked: "@{name} (#{tag}) ब्लॉक — वापस लाने के लिए /unblock {tag}",
+		block_none: "कोई ब्लॉक नहीं",
+		blocked_header: "ब्लॉक किए गए",
+		unblocked: "#{tag} अनब्लॉक",
+		unblocked_all: "सभी अनब्लॉक",
+		unblock_notblocked: "#{tag} ब्लॉक नहीं है",
+		needs_channel: "पहले किसी चैनल में जाएँ",
+		upload_too_large: "फ़ाइल बहुत बड़ी है (अधिकतम {max}mb)",
+		upload_failed: "अपलोड विफल",
+		rotated: "नई पहचान बनी (#{tag})",
+		rotate_badhex: "प्रत्यय 1-4 hex अक्षर (0-9, a-f)",
+		rotate_searching: "#{suffix} पहचान खोज रहे हैं... (समय लग सकता है)",
+		rotate_found: "मिल गई - अब आप #{tag} हैं",
+		rotate_giveup: "#{suffix} नहीं मिला, छोड़ दिया",
+		rotate_busy: "कुंजी की खोज पहले से चल रही है",
+		nsec_blocked: "रोका गया - अपना nsec कभी चैट में न डालें",
+		nsec_copied: "कॉपी हुआ",
+		nsec_copy_failed: "कॉपी नहीं हुआ",
+		msg_copied: "संदेश कॉपी हुआ",
+		copy_failed: "कॉपी नहीं हुआ",
+		nsec_paste_failed: "क्लिपबोर्ड पढ़ नहीं सके",
+		nsec_invalid: "अमान्य nsec",
+		nsec_imported: "आयात हुआ",
+		unknown_command: "अनजान कमांड: /{name}",
+		commands_header: "उपलब्ध कमांड",
+		themes_header: "उपलब्ध थीम",
+		theme_current: "वर्तमान",
+		theme_set: "थीम: {name}",
+		theme_unknown: "अनजान थीम: {name} (सूची: /theme)",
+		assist_active: "सर्वर असिस्ट सक्रिय है",
+		relay_global_teleport: "#{geo}: नक्शे की जगह नहीं, ग्लोबल रिले से जुड़ रहे हैं...",
+		relay_local: "#{geo}: स्थानीय रिले से जुड़ रहे हैं...",
+		relay_global: "ग्लोबल रिले से जुड़ रहे हैं...",
+		relay_failed: "रिले लोड नहीं हुए: {error}",
+	},
+};

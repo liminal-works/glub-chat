@@ -21,9 +21,18 @@ export function parseProfile(ev) {
 	}
 	if (!data || typeof data !== "object") return null;
 	const str = (v, max) => (typeof v === "string" ? v.slice(0, max) : "");
+	// the bio gets a generous cap; when it does overflow we keep the truncation
+	// visible with a "... (N chars)" tail (N = the true original length) rather
+	// than silently swallowing the rest.
+	const ABOUT_MAX = 2000;
+	const rawAbout = typeof data.about === "string" ? data.about : "";
+	const about =
+		rawAbout.length > ABOUT_MAX
+			? `${rawAbout.slice(0, ABOUT_MAX).trimEnd()}... (${rawAbout.length} chars)`
+			: rawAbout;
 	return {
 		name: str(data.display_name || data.displayName || data.name, 64),
-		about: str(data.about, 500),
+		about,
 		picture: str(data.picture, 512),
 		banner: str(data.banner, 512),
 		nip05: str(data.nip05, 128),

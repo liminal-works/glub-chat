@@ -1,4 +1,7 @@
 :root {
+	/* --- theme palette. the /theme command overrides these eight at runtime
+	   (see js/themes.js); everything else below derives from them via color-mix,
+	   so a theme only has to supply its core colors. defaults = bitchat. --- */
 	--bg: #000000;
 	--fg: #8fe89c;
 	--muted: #7a828c;
@@ -14,9 +17,21 @@
 	--danger: #ff7b72;
 
 	--chrome-bg: #000000;
-	--chrome-border: rgba(48, 209, 88, 0.12);
-	--chrome-border-strong: rgba(48, 209, 88, 0.35); /* hover/focus edge for bordered controls */
-	--glow: 0 0 9px rgba(48, 209, 88, 0.4); /* phosphor bleed, reserved for chrome (never body text) */
+
+	/* --- surface tuning: dark-theme defaults; light themes override these too --- */
+	--scanline-color: rgba(0, 0, 0, 0.16); /* CRT hairlines (body::before) */
+	--vignette-color: rgba(0, 0, 0, 0.32); /* corner falloff (body::after) */
+	--scrim: rgba(0, 0, 0, 0.82); /* backdrop behind gates/popups */
+	--selection-fg: #eaffea; /* text color inside ::selection */
+	--field-bg: rgba(0, 0, 0, 0.18); /* inset inputs + the new-messages bar */
+	--overlay-fg: rgba(255, 255, 255, 0.92); /* text on image overlays */
+	--overlay-shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
+	--bubble-theirs: rgba(255, 255, 255, 0.03); /* their DM bubble fill */
+
+	/* --- derived: never set by themes, always follow --accent --- */
+	--chrome-border: color-mix(in srgb, var(--accent) 14%, transparent);
+	--chrome-border-strong: color-mix(in srgb, var(--accent) 38%, transparent); /* hover/focus edge for bordered controls */
+	--glow: 0 0 9px color-mix(in srgb, var(--accent) 42%, transparent); /* phosphor bleed, reserved for chrome (never body text) */
 
 	/* css-generated labels, overridden by the i18n layer at runtime. english
 	   defaults here so they still read correctly if scripting is disabled. */
@@ -53,8 +68,8 @@ body::before {
 	pointer-events: none;
 	background: repeating-linear-gradient(
 		0deg,
-		rgba(0, 0, 0, 0.16) 0px,
-		rgba(0, 0, 0, 0.16) 1px,
+		var(--scanline-color) 0px,
+		var(--scanline-color) 1px,
 		transparent 1px,
 		transparent 3px
 	);
@@ -66,13 +81,13 @@ body::after {
 	inset: 0;
 	z-index: 9001;
 	pointer-events: none;
-	background: radial-gradient(ellipse at center, transparent 62%, rgba(0, 0, 0, 0.32) 100%);
+	background: radial-gradient(ellipse at center, transparent 62%, var(--vignette-color) 100%);
 }
 
 /* phosphor terminal touches: green-tinted selection, accent caret in inputs */
 ::selection {
-	background: rgba(48, 209, 88, 0.3);
-	color: #eaffea;
+	background: color-mix(in srgb, var(--accent) 30%, transparent);
+	color: var(--selection-fg);
 }
 
 input,
@@ -80,10 +95,10 @@ textarea {
 	caret-color: var(--accent);
 }
 
-/* thin green-tinted scrollbars instead of the browser chrome defaults */
+/* thin accent-tinted scrollbars instead of the browser chrome defaults */
 * {
 	scrollbar-width: thin;
-	scrollbar-color: rgba(48, 209, 88, 0.22) transparent;
+	scrollbar-color: color-mix(in srgb, var(--accent) 22%, transparent) transparent;
 }
 
 *::-webkit-scrollbar {
@@ -96,12 +111,12 @@ textarea {
 }
 
 *::-webkit-scrollbar-thumb {
-	background: rgba(48, 209, 88, 0.22);
+	background: color-mix(in srgb, var(--accent) 22%, transparent);
 	border-radius: 3px;
 }
 
 *::-webkit-scrollbar-thumb:hover {
-	background: rgba(48, 209, 88, 0.4);
+	background: color-mix(in srgb, var(--accent) 40%, transparent);
 }
 
 #app {
@@ -175,7 +190,7 @@ textarea {
 	border-radius: 50%;
 	vertical-align: 6%;
 	background: var(--accent);
-	box-shadow: 0 0 6px rgba(48, 209, 88, 0.7);
+	box-shadow: 0 0 6px color-mix(in srgb, var(--accent) 70%, transparent);
 }
 
 .dot.off {
@@ -416,9 +431,9 @@ textarea {
 	font-size: 0.85em;
 	font-weight: 600;
 	letter-spacing: 0.04em;
-	color: rgba(255, 255, 255, 0.92);
-	text-shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
-	background: rgba(0, 0, 0, 0.18);
+	color: var(--overlay-fg);
+	text-shadow: var(--overlay-shadow);
+	background: var(--field-bg);
 }
 
 #composerWrap {
@@ -501,7 +516,7 @@ textarea {
 }
 
 .suggestRow:hover:not(.active) {
-	background: rgba(143, 232, 156, 0.05);
+	background: color-mix(in srgb, var(--fg) 5%, transparent);
 }
 
 .suggestRow .sfx {
@@ -657,7 +672,7 @@ textarea {
 	align-items: center;
 	justify-content: center;
 	padding: 16px;
-	background: rgba(0, 0, 0, 0.82);
+	background: var(--scrim);
 	backdrop-filter: blur(6px);
 	-webkit-backdrop-filter: blur(6px);
 }
@@ -728,7 +743,7 @@ textarea {
 .idBtn:hover,
 .profileNpub:hover {
 	border-color: var(--chrome-border-strong);
-	background-color: rgba(48, 209, 88, 0.06);
+	background-color: color-mix(in srgb, var(--accent) 6%, transparent);
 }
 
 #nameForm button:active,
@@ -843,7 +858,7 @@ textarea {
 }
 
 .userRow:hover {
-	background-color: rgba(48, 209, 88, 0.06);
+	background-color: color-mix(in srgb, var(--accent) 6%, transparent);
 }
 
 /* tiny nostr avatar prefixing a user row (only when nostr profiles is on). the
@@ -1041,7 +1056,7 @@ textarea {
 	width: 100%;
 	margin-top: 16px;
 	border: 1px solid var(--chrome-border);
-	background: rgba(0, 0, 0, 0.18);
+	background: var(--field-bg);
 	color: var(--fg);
 	font: inherit;
 	padding: 8px 12px;
@@ -1145,7 +1160,7 @@ textarea {
 	width: 100%;
 	box-sizing: border-box;
 	border: 1px solid var(--chrome-border);
-	background: rgba(0, 0, 0, 0.18);
+	background: var(--field-bg);
 	color: var(--fg);
 	font: inherit;
 	font-size: 16px;
@@ -1261,7 +1276,7 @@ textarea {
 	width: 100%;
 	box-sizing: border-box;
 	border: 1px solid var(--chrome-border);
-	background: rgba(0, 0, 0, 0.18);
+	background: var(--field-bg);
 	color: var(--fg);
 	font: inherit;
 	font-size: 14px;
@@ -1497,7 +1512,7 @@ textarea {
 
 .actionBtn:hover {
 	border-color: var(--chrome-border-strong);
-	background-color: rgba(48, 209, 88, 0.06);
+	background-color: color-mix(in srgb, var(--accent) 6%, transparent);
 }
 
 .actionBtn:active {
@@ -1515,13 +1530,13 @@ textarea {
    a placeholder. */
 .actionBtn.danger {
 	color: var(--danger);
-	border-color: rgba(255, 123, 114, 0.4);
+	border-color: color-mix(in srgb, var(--danger) 40%, transparent);
 	font-weight: 700;
 }
 
 .actionBtn.danger:hover {
 	border-color: var(--danger);
-	background-color: rgba(255, 123, 114, 0.08);
+	background-color: color-mix(in srgb, var(--danger) 8%, transparent);
 }
 
 .actionBtn[hidden] {
@@ -1630,13 +1645,13 @@ textarea {
 .dmMsg.theirs {
 	align-self: flex-start;
 	border-bottom-left-radius: 2px;
-	background: rgba(255, 255, 255, 0.03);
+	background: var(--bubble-theirs);
 }
 
 .dmMsg.mine {
 	align-self: flex-end;
 	border-bottom-right-radius: 2px;
-	background: rgba(48, 209, 88, 0.08);
+	background: color-mix(in srgb, var(--accent) 8%, transparent);
 	border-color: var(--chrome-border-strong);
 }
 
@@ -1712,7 +1727,7 @@ textarea {
 }
 
 .dmRow:hover {
-	background-color: rgba(48, 209, 88, 0.06);
+	background-color: color-mix(in srgb, var(--accent) 6%, transparent);
 }
 
 .dmRowMain {

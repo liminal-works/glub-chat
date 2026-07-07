@@ -138,6 +138,7 @@ export default {
 		mute: "hide a channel from the global feed",
 		unmute: "unhide a channel (blank = list muted)",
 		rotate: "new keypair (optional hex vanity suffix)",
+		theme: "switch color theme (blank = list themes)",
 		help: "list commands",
 	},
 
@@ -173,6 +174,10 @@ export default {
 		nsec_imported: "imported",
 		unknown_command: "unknown command: /{name}",
 		commands_header: "available commands",
+		themes_header: "available themes",
+		theme_current: "current",
+		theme_set: "theme: {name}",
+		theme_unknown: "unknown theme: {name} (try /theme to list)",
 		assist_active: "server assist is active",
 		relay_global_teleport: "#{geo}: not a location, connecting to global relay set...",
 		relay_local: "#{geo}: connecting to local relay set...",

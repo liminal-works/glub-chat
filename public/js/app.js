@@ -15,6 +15,11 @@ import { makeChatMessage, makePresenceEvent, getGeohash, getName, CHAT_KIND, PRE
 import { t, formatAgo, setLocale, detectLocale, onLocaleChange } from "./i18n/index.js";
 import { createSuggest } from "./ui/suggest.js";
 import { createDmClient, DM_MAX_CONTENT_BYTES } from "./nostr/dm.js";
+import { THEMES, themeNames, activeTheme, applyTheme, persistTheme, initTheme, hexToRgb } from "./themes.js";
+
+// re-apply the persisted theme before anything renders (module scripts run
+// before first paint, so a saved theme doesn't flash bitchat green first).
+initTheme();
 
 const MAX_LINES = 600;
 const NEAR_BOTTOM_PX = 60;
@@ -642,15 +647,28 @@ function hsbToRgb(h, s, v) {
 // the same hash. We render dark-mode only, so the isDark=true constants apply.
 // the per-key color derived purely from the hash - the color everyone (yourself
 // included) is seen as by others. self-agnostic on purpose.
+//
+// themes can constrain this: when the active theme defines a color band, the
+// same hash instead picks a hue inside the theme's range (with the same
+// per-user sat/brightness jitter), so every name sits in the theme's palette.
 function peerRgb(pubkey) {
 	const h = djb2("nostr:" + pubkey.toLowerCase());
+	const hueRand = Number(h % 1000n) / 1000;
+	const sRand = Number((h >> 17n) & 0x3ffn) / 1023;
+	const bRand = Number((h >> 27n) & 0x3ffn) / 1023;
 
-	let hue = Number(h % 1000n) / 1000;
+	const band = activeTheme().band;
+	if (band) {
+		const hue = (((band.hue + (hueRand - 0.5) * band.spread) % 360) + 360) % 360;
+		const saturation = Math.min(1, Math.max(0, band.sat / 100 + (sRand - 0.5) * 0.12));
+		const brightness = Math.min(1, Math.max(0.3, band.bri / 100 + (bRand - 0.5) * 0.14));
+		return hsbToRgb(hue / 360, saturation, brightness);
+	}
+
+	let hue = hueRand;
 	const orange = 30 / 360;
 	if (Math.abs(hue - orange) < 0.05) hue = (hue + 0.12) % 1.0; // avoid orange (reserved for "you")
 
-	const sRand = Number((h >> 17n) & 0x3ffn) / 1023;
-	const bRand = Number((h >> 27n) & 0x3ffn) / 1023;
 	const saturation = Math.min(1, Math.max(0.5, 0.8 + (sRand - 0.5) * 0.2));
 	const brightness = Math.min(1, Math.max(0.35, 0.75 + (bRand - 0.5) * 0.16));
 
@@ -658,10 +676,15 @@ function peerRgb(pubkey) {
 }
 
 function pubkeyRgb(pubkey) {
-	// "you" render in bitchat's reserved orange - but only until nostr profiles are
-	// active. once your identity is legible (avatar/name/npub on show), you appear
-	// in your real per-key color, exactly as everyone else already sees you.
-	if (pubkey.toLowerCase() === identity.pk.toLowerCase() && !profilesActive()) return SELF_RGB;
+	// "you" render in the reserved self color - bitchat's orange, or the active
+	// theme's own (tron hands you clu's orange, matrix a white glow...) - but only
+	// until nostr profiles are active. once your identity is legible (avatar/name/
+	// npub on show), you appear in your real per-key color, exactly as everyone
+	// else already sees you.
+	if (pubkey.toLowerCase() === identity.pk.toLowerCase() && !profilesActive()) {
+		const self = activeTheme().self;
+		return self ? hexToRgb(self) : SELF_RGB;
+	}
 	return peerRgb(pubkey);
 }
 
@@ -1651,6 +1674,19 @@ function repaintSelfLines() {
 	}
 }
 
+// a theme switch changes every hashed user color (the theme's band recolors the
+// whole roster), so recompute the colors baked into entries and rebuild the view.
+// chrome (borders, glow, scrollbars...) follows the CSS vars on its own.
+function refreshThemedColors() {
+	for (const entry of entries) {
+		if (entry.system || !entry.pubkey) continue;
+		entry.color = pubkeyColor(entry.pubkey);
+		if (entry.mention) entry.mentionTint = pubkeyTint(entry.pubkey);
+	}
+	rerenderTerminal();
+	if (usersGate.classList.contains("show")) openUsers(); // recolor the open roster
+}
+
 // profilesActive() can flip from any of several places (both settings toggles, and
 // the api going up/down under the health loop). repaint your lines only when the
 // effective state actually changes, so the periodic health check stays free.
@@ -2409,6 +2445,32 @@ const COMMANDS = [
 		},
 	},
 	{
+		name: "theme",
+		run(arg) {
+			const query = arg.trim().toLowerCase();
+			if (!query) {
+				// list every theme, current one marked, in the same aligned style as /help
+				const width = Math.max(...themeNames().map((n) => n.length));
+				const lines = themeNames().map(
+					(n) => `${n.padEnd(width)}${n === activeTheme().name ? ` <- ${t("system.theme_current")}` : ""}`
+				);
+				const header = `* ${t("system.themes_header")} *`;
+				pushSystem(`<span class="ts">${escapeHtml([header, ...lines].join("\n"))}</span>`, SYSTEM_TTL_LONG_MS);
+				return;
+			}
+			// exact name first, then a unique prefix ("/theme tron" -> tron-legacy)
+			const matches = themeNames().filter((n) => n.startsWith(query));
+			const name = themeNames().includes(query) ? query : matches.length === 1 ? matches[0] : null;
+			if (!name || !applyTheme(name)) {
+				appendSystem(t("system.theme_unknown", { name: query }));
+				return;
+			}
+			persistTheme(name);
+			refreshThemedColors();
+			appendSystem(t("system.theme_set", { name }));
+		},
+	},
+	{
 		name: "help",
 		run() {
 			// generated from the command list, alphabetical: one "/cmd - description"
@@ -2455,6 +2517,23 @@ function commandProvider(value, caret) {
 	return { start: 0, end: caret, items };
 }
 
+// theme-name completion for "/theme <partial>" - the one command whose argument
+// space is small and fixed enough that completing it is pure win.
+function themeArgProvider(value, caret) {
+	const before = value.slice(0, caret);
+	const m = before.match(/^\/theme\s+(\S*)$/i);
+	if (!m) return null;
+	const query = m[1].toLowerCase();
+	const start = caret - m[1].length;
+	const items = themeNames()
+		.filter((n) => n.startsWith(query))
+		.map((n) => ({
+			insert: n,
+			html: `<strong>${escapeHtml(n)}</strong>${n === activeTheme().name ? ` <span class="sfx">- ${escapeHtml(t("system.theme_current"))}</span>` : ""}`,
+		}));
+	return { start, end: caret, items };
+}
+
 // --- @mention (and future /command) autocomplete ----------------------------
 const suggest = createSuggest(suggestBox);
 
@@ -2489,7 +2568,7 @@ function mentionProvider(value, caret) {
 	return { start, end: caret, items };
 }
 
-const SUGGEST_PROVIDERS = [commandProvider, mentionProvider];
+const SUGGEST_PROVIDERS = [commandProvider, themeArgProvider, mentionProvider];
 
 function refreshSuggest() {
 	const value = chatInput.value;

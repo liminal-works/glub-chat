@@ -67,20 +67,22 @@ export const THEMES = [
 		self: "#ffa04d",
 	},
 	{
-		// cyberpunk 2077: the game UI's harsh yellow on black with cyan readouts;
-		// danger is its magenta-red glitch. you are V-yellow.
+		// cyberpunk 2077 UX: the menu/HUD's signature yellow chrome and cyan data
+		// readouts on near-black, with the alert-red danger state. channels glow
+		// cyan; the chat crowd fans across the UI's wide cyan->azure "scan" palette
+		// (the prototype's cyan band), and you stand out in V's interactive yellow.
 		name: "cyberpunk-2077",
 		vars: {
-			"--bg": "#0a0a06",
-			"--fg": "#e8e6d0",
-			"--muted": "#8f8d75",
+			"--bg": "#08090e",
+			"--fg": "#cdd6db",
+			"--muted": "#767c86",
 			"--geo": "#2de2e6",
 			"--accent": "#fcee0a",
-			"--danger": "#ff2a6d",
-			"--chrome-bg": "#11110a",
-			"--selection-fg": "#fffbe0",
+			"--danger": "#ff003c",
+			"--chrome-bg": "#0e0f16",
+			"--selection-fg": "#fffde0",
 		},
-		band: { hue: 185, spread: 40, sat: 80, bri: 92 },
+		band: { hue: 195, spread: 95, sat: 85, bri: 95 },
 		self: "#fcee0a",
 	},
 	{

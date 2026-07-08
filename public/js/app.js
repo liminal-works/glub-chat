@@ -286,6 +286,7 @@ const PRESENCE_BROADCAST_MAX_MS = 60_000;
 const MEDIA_MAX_MB = 10; // client-side pre-check; the api enforces its own limit too
 const MEDIA_MAX_DIMENSION = 2048; // static images are downscaled to fit this before upload
 const SYSTEM_TTL_MS = 7_000; // default lifetime of an ephemeral status notice before it fades
+const SYSTEM_TTL_SHORT_MS = 1_800; // a blink of feedback that erases itself fast (e.g. panic)
 const SYSTEM_TTL_LONG_MS = 30_000; // for notices worth reading unrushed (e.g. /help output)
 const SYSTEM_FADE_MS = 300; // fade-out duration before the faded line is removed (matches css)
 
@@ -1378,8 +1379,8 @@ function totalUnread() {
 }
 
 // the floating DM pill lives below the topbar, top-right, over the chat. it only
-// appears when there are unread DMs and hides once you're caught up; the /dms
-// command is the always-available way into the inbox.
+// appears when there are unread DMs and hides once you're caught up; otherwise
+// the contacts list is reached by opening any DM and hitting exit.
 function updateDmPill() {
 	const unread = totalUnread();
 	if (unread <= 0) {
@@ -1666,9 +1667,14 @@ function openDmConversation(pubkey) {
 	setTimeout(() => dmInput.focus(), 0);
 }
 
+// exiting a conversation drops back to the DM contacts list (not straight to
+// the public feed); the contacts list's own exit is what returns to chat. this
+// also makes the contacts screen reachable with no command: tap a user -> dm ->
+// exit lands you there.
 function closeDm() {
 	dmGate.classList.remove("show");
 	activeDmPubkey = null;
+	openDmList();
 }
 
 function sendDmFromComposer() {
@@ -2425,7 +2431,7 @@ function bootSequence() {
 	try {
 		if (sessionStorage.getItem("glub_panic")) {
 			sessionStorage.removeItem("glub_panic");
-			appendSystem(t("system.panic"), SYSTEM_TTL_LONG_MS);
+			appendSystem(t("system.panic"), SYSTEM_TTL_SHORT_MS);
 		}
 	} catch {}
 }
@@ -2720,14 +2726,6 @@ const COMMANDS = [
 			clearedBefore = Math.floor(Date.now() / 1000);
 			rerenderTerminal();
 			appendSystem(t("system.cleared"));
-		},
-	},
-	{
-		name: "dms",
-		run() {
-			// always-available way into the DM inbox (the floating pill only shows
-			// while there are unread messages).
-			openDmList();
 		},
 	},
 	{

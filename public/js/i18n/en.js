@@ -149,7 +149,6 @@ export default {
 	// and /help, so command copy lives in exactly one place.
 	commands: {
 		clear: "clear the view",
-		dms: "open direct messages",
 		join: "join any channel (spaces & case ok)",
 		unclear: "restore cleared messages",
 		echo: "echo a message via your bot",
@@ -203,7 +202,7 @@ export default {
 		theme_current: "current",
 		theme_set: "theme: {name}",
 		theme_unknown: "unknown theme: {name} (try /theme to list)",
-		panic: "panic! all local data wiped - fresh identity minted",
+		panic: "panic cleared",
 		assist_active: "server assist is active",
 		relay_global_teleport: "#{geo}: not a location, connecting to global relay set...",
 		relay_local: "#{geo}: connecting to local relay set...",

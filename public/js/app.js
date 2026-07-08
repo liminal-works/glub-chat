@@ -63,6 +63,7 @@ const nameHint = document.getElementById("nameHint");
 const settingsGate = document.getElementById("settingsGate");
 const assistToggle = document.getElementById("assistToggle");
 const profilesToggle = document.getElementById("profilesToggle");
+const retroToggle = document.getElementById("retroToggle");
 const profilesRow = document.getElementById("profilesRow");
 const nsecInput = document.getElementById("nsecInput");
 const revealNsecBtn = document.getElementById("revealNsecBtn");
@@ -157,6 +158,25 @@ function setProfilesEnabled(on) {
 function profilesActive() {
 	return getProfilesEnabled() && apiAvailable;
 }
+
+// "retro terminal": the CRT dressing - scanlines, vignette, phosphor glow, the
+// name-gate typewriter. purely cosmetic and CSS-gated on a `retro` class on
+// <html> (see style.css). defaults ON (it's the house look); toggling it off
+// leaves the same layout in a clean modern skin.
+const STORAGE_RETRO_KEY = "glub_retro";
+
+function getRetroEnabled() {
+	return localStorage.getItem(STORAGE_RETRO_KEY) !== "false";
+}
+
+function setRetroEnabled(on) {
+	localStorage.setItem(STORAGE_RETRO_KEY, on ? "true" : "false");
+}
+
+function syncRetro() {
+	document.documentElement.classList.toggle("retro", getRetroEnabled());
+}
+syncRetro(); // apply before first paint, alongside the theme
 
 // pubkey -> { name, about, nip05, hasAvatar, updated } | null (null = looked up, none found)
 const profileCache = new Map();
@@ -888,6 +908,7 @@ function syncProfilesRow() {
 function openSettings() {
 	assistToggle.checked = getAssistEnabled();
 	profilesToggle.checked = getProfilesEnabled();
+	retroToggle.checked = getRetroEnabled();
 	syncProfilesRow();
 	nsecRevealed = false;
 	renderNsecField();
@@ -1656,6 +1677,11 @@ profilesToggle.addEventListener("change", () => {
 	setProfilesEnabled(profilesToggle.checked);
 	syncSelfView(); // "you" switches between orange+bold and your real per-key color
 	if (usersGate.classList.contains("show")) openUsers(); // reflect avatars on/off
+});
+
+retroToggle.addEventListener("change", () => {
+	setRetroEnabled(retroToggle.checked);
+	syncRetro(); // pure CSS gate - takes effect instantly, nothing to re-render
 });
 
 settingsClose.addEventListener("click", closeSettings);

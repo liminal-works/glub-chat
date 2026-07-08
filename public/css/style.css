@@ -59,8 +59,13 @@ body {
 
 /* CRT atmosphere: hairline scanlines + a corner vignette laid over the whole
    screen (gates included). both are static gradients - one composited layer,
-   no animation, no repaints - and faint enough to feel rather than see. */
-body::before {
+   no animation, no repaints - and faint enough to feel rather than see.
+
+   the whole layer rides the settings "retro terminal" toggle: js keeps a
+   `retro` class on <html>, and everything CRT-flavored (scanlines, vignette,
+   phosphor glow, the name-gate typewriter) gates on it. off = the same layout
+   in a clean modern skin. */
+.retro body::before {
 	content: "";
 	position: fixed;
 	inset: 0;
@@ -75,13 +80,28 @@ body::before {
 	);
 }
 
-body::after {
+.retro body::after {
 	content: "";
 	position: fixed;
 	inset: 0;
 	z-index: 9001;
 	pointer-events: none;
 	background: radial-gradient(ellipse at center, transparent 62%, var(--vignette-color) 100%);
+}
+
+/* modern mode: no phosphor bleed anywhere (--glow feeds every chrome
+   text-shadow), no halo on the relay dot, and the typewriter mask never
+   animates - its resting transform leaves the text plainly visible. */
+html:not(.retro) {
+	--glow: none;
+}
+
+html:not(.retro) .dot {
+	box-shadow: none;
+}
+
+html:not(.retro) #nameGate.typing .gateSub span::after {
+	animation: none;
 }
 
 /* phosphor terminal touches: green-tinted selection, accent caret in inputs */
@@ -1483,11 +1503,10 @@ textarea {
 }
 
 /* cropped preview of the tapped message, so you can see which one you're acting
-   on (mainly for the copy case). clamps to a couple of lines and ellipsizes. */
+   on (mainly for the copy case). plain muted text - no border/indent, so it
+   doesn't read as a reply - clamped to a few lines with an ellipsis. */
 .actionPreview {
 	margin: -4px 0 12px;
-	padding: 8px 10px;
-	border-left: 2px solid var(--chrome-border);
 	color: var(--muted);
 	font-size: 13px;
 	line-height: 1.4;
@@ -1519,10 +1538,6 @@ textarea {
 	gap: 8px;
 }
 
-.actionGrid .actionBtn {
-	text-align: center;
-}
-
 .actionBtn {
 	width: 100%;
 	border: 1px solid var(--chrome-border);
@@ -1530,7 +1545,7 @@ textarea {
 	color: var(--accent);
 	font: inherit;
 	font-weight: 700;
-	text-align: left;
+	text-align: center;
 	padding: 11px 12px;
 	cursor: pointer;
 	transition: border-color 0.15s ease, background-color 0.15s ease;

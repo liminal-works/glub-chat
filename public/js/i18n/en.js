@@ -20,6 +20,7 @@ export default {
 			"server assist pulls deep history and lowers bandwidth via an optional API. your client still works fully on its own if it's off or unavailable.",
 		assist_label: "server assist",
 		profiles_label: "nostr profiles",
+		retro_label: "retro terminal",
 		identity_label: "nostr identity",
 		reveal_nsec: "reveal",
 		hide_nsec: "hide",

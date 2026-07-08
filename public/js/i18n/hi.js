@@ -22,6 +22,7 @@ export default {
 			"सर्वर असिस्ट एक वैकल्पिक API से पुरानी हिस्ट्री लाता है और बैंडविड्थ घटाता है। यह बंद या अनुपलब्ध हो तो भी क्लाइंट पूरी तरह काम करता है।",
 		assist_label: "सर्वर असिस्ट",
 		profiles_label: "nostr प्रोफ़ाइल",
+		retro_label: "रेट्रो टर्मिनल",
 		identity_label: "nostr पहचान",
 		reveal_nsec: "दिखाएँ",
 		hide_nsec: "छिपाएँ",

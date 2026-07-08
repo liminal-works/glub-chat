@@ -1210,6 +1210,67 @@ function closeUsers() {
 // pubkey(lower) -> { pubkey, name, messages: [{ id, mine, content, ts, status }], unread, readSent:Set }
 const conversations = new Map();
 let activeDmPubkey = null; // pubkey of the open thread, or null
+
+// --- local DM history --------------------------------------------------------
+// conversations persist to localStorage so a reload restores BOTH sides of a
+// thread. relays only ever replay gift wraps addressed to us - our own sent
+// wraps are addressed to the recipient (under throwaway keys), so without this
+// your half of every conversation would vanish on reload. replayed wraps dedup
+// against the restored messages by id, and restored unread counts carry over,
+// so reloading is seamless instead of "everything is new and half is missing".
+// the store is owned by the current identity; a different key starts fresh.
+const STORAGE_DMS_KEY = "glub_dms";
+const DMS_MAX_CONVOS = 30; // most-recent conversations kept
+const DMS_MAX_MSGS = 200; // most-recent messages kept per conversation
+
+let saveDmsTimer = null;
+
+function scheduleSaveDms() {
+	if (saveDmsTimer) return;
+	saveDmsTimer = setTimeout(() => {
+		saveDmsTimer = null;
+		saveDmHistory();
+	}, 400); // batch bursts (backlog replay, rapid exchanges) into one write
+}
+
+function saveDmHistory() {
+	try {
+		const convos = [...conversations.values()]
+			.filter((c) => c.messages.length)
+			.sort((a, b) => lastTs(b) - lastTs(a))
+			.slice(0, DMS_MAX_CONVOS)
+			.map((c) => ({
+				pubkey: c.pubkey,
+				name: c.name,
+				unread: c.unread,
+				readSent: [...c.readSent], // receipts already sent - don't re-send after reload
+				messages: c.messages.slice(-DMS_MAX_MSGS),
+			}));
+		localStorage.setItem(STORAGE_DMS_KEY, JSON.stringify({ owner: identity.pk.toLowerCase(), convos }));
+	} catch {
+		// quota/serialization trouble - history just won't survive this reload
+	}
+}
+
+function loadDmHistory() {
+	let stored;
+	try {
+		stored = JSON.parse(localStorage.getItem(STORAGE_DMS_KEY) || "null");
+	} catch {
+		return;
+	}
+	if (!stored || stored.owner !== identity.pk.toLowerCase() || !Array.isArray(stored.convos)) return;
+	for (const c of stored.convos) {
+		if (!c || typeof c.pubkey !== "string" || !Array.isArray(c.messages)) continue;
+		conversations.set(c.pubkey, {
+			pubkey: c.pubkey,
+			name: typeof c.name === "string" ? c.name : "anon",
+			unread: Number(c.unread) || 0,
+			readSent: new Set(Array.isArray(c.readSent) ? c.readSent : []),
+			messages: c.messages.filter((m) => m && typeof m.id === "string"),
+		});
+	}
+}
 let actionContext = null; // { pubkey, name, geo, content } for the open action popup
 let pendingReply = null; // { pubkey, name, geo, quoted } while composing a reply
 
@@ -1222,6 +1283,12 @@ const dmClient = createDmClient({
 // console helper for interop debugging: call glubDmStats() to see how many gift
 // wraps arrived and where they dropped (verify/decrypt/decode) vs surfaced.
 window.glubDmStats = () => dmClient.stats();
+
+// restore both sides of every conversation before the relay backlog replays
+// (replays dedup against these by message id), and re-show the unread pill for
+// anything that was genuinely unread when the last session ended.
+loadDmHistory();
+updateDmPill();
 
 // best display name we know for a pubkey: their most recent chat handle, else a
 // name we've stored on the conversation, else "anon".
@@ -1291,6 +1358,7 @@ function onDmMessage({ senderPubkey, messageID, content, timestamp, historical }
 	}
 	updateDmPill();
 	if (dmListGate.classList.contains("show")) renderDmList();
+	scheduleSaveDms();
 }
 
 function onDmAck({ senderPubkey, messageID, kind }) {
@@ -1302,6 +1370,7 @@ function onDmAck({ senderPubkey, messageID, kind }) {
 	if (kind === "delivered" && msg.status === "sent") msg.status = "delivered";
 	else if (kind === "read") msg.status = "read";
 	if (activeDmPubkey === conv.pubkey && dmGate.classList.contains("show")) renderDmThread();
+	scheduleSaveDms();
 }
 
 // --- action popup (tap a user) ---------------------------------------------
@@ -1502,6 +1571,7 @@ function markConversationRead(conv) {
 			dmClient.sendRead(m.id, conv.pubkey);
 		}
 	}
+	scheduleSaveDms();
 }
 
 function openDmConversation(pubkey) {
@@ -1543,6 +1613,7 @@ function sendDmFromComposer() {
 	const conv = ensureConversation(activeDmPubkey);
 	conv.messages.push({ id: messageID, mine: true, content: text, ts: Math.floor(Date.now() / 1000), status: "sent" });
 	renderDmThread();
+	scheduleSaveDms();
 }
 
 // --- inbox (conversation list) ---------------------------------------------

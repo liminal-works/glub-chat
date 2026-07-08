@@ -90,14 +90,16 @@ body {
 }
 
 /* modern mode: no phosphor bleed anywhere (--glow feeds every chrome
-   text-shadow), no halo on the relay dot, and the typewriter mask never
+   text-shadow), no blinking block cursor after the handle, no relay status dot
+   (the n/m count still tells the story), and the typewriter mask never
    animates - its resting transform leaves the text plainly visible. */
 html:not(.retro) {
 	--glow: none;
 }
 
+html:not(.retro) .cursor,
 html:not(.retro) .dot {
-	box-shadow: none;
+	display: none;
 }
 
 html:not(.retro) #nameGate.typing .gateSub span::after {

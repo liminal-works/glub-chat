@@ -160,13 +160,14 @@ function profilesActive() {
 }
 
 // "retro terminal": the CRT dressing - scanlines, vignette, phosphor glow, the
-// name-gate typewriter. purely cosmetic and CSS-gated on a `retro` class on
-// <html> (see style.css). defaults ON (it's the house look); toggling it off
-// leaves the same layout in a clean modern skin.
+// topbar cursor + relay dot, the name-gate typewriter. purely cosmetic and
+// CSS-gated on a `retro` class on <html> (see style.css). defaults OFF (clean
+// modern skin); opting in brings the full terminal aesthetic. persisted in
+// localStorage.
 const STORAGE_RETRO_KEY = "glub_retro";
 
 function getRetroEnabled() {
-	return localStorage.getItem(STORAGE_RETRO_KEY) !== "false";
+	return localStorage.getItem(STORAGE_RETRO_KEY) === "true";
 }
 
 function setRetroEnabled(on) {

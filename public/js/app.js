@@ -12,7 +12,7 @@ import {
 import { fetchRelayList } from "./nostr/relayList.js";
 import { RelayPool } from "./nostr/relayPool.js";
 import { buildChatEvent, buildPresenceEvent, signEvent, getGeohash, getName, CHAT_KIND, PRESENCE_KIND, sortRelaysByGeohash, verifyEvent } from "./nostr/protocol.js";
-import { mineNonceTag, POW_DIFFICULTY } from "./nostr/pow.js";
+import { mineNonceTag, POW_DIFFICULTY, idDifficulty, committedDifficulty } from "./nostr/pow.js";
 import { createMessageRateLimiter, createPresenceRateLimiter } from "./ratelimit.js";
 import { t, formatAgo, setLocale, detectLocale, onLocaleChange, preferredContentLanguage } from "./i18n/index.js";
 import { createSuggest } from "./ui/suggest.js";
@@ -66,6 +66,7 @@ const settingsGate = document.getElementById("settingsGate");
 const assistToggle = document.getElementById("assistToggle");
 const profilesToggle = document.getElementById("profilesToggle");
 const retroToggle = document.getElementById("retroToggle");
+const powSelect = document.getElementById("powSelect");
 const profilesRow = document.getElementById("profilesRow");
 const nsecInput = document.getElementById("nsecInput");
 const revealNsecBtn = document.getElementById("revealNsecBtn");
@@ -180,6 +181,21 @@ function syncRetro() {
 	document.documentElement.classList.toggle("retro", getRetroEnabled());
 }
 syncRetro(); // apply before first paint, alongside the theme
+
+// inbound NIP-13 filter: drop events that don't carry at least this much
+// proof-of-work. OFF by default and deliberately so - iOS bitchat doesn't mine
+// at all, so any nonzero setting hides every iOS (and legacy-web) user, not
+// just bots. it's the big gun for when a channel is actively under attack.
+const STORAGE_POW_FILTER_KEY = "glub_pow_filter";
+
+function getPowFilter() {
+	const n = parseInt(localStorage.getItem(STORAGE_POW_FILTER_KEY), 10);
+	return Number.isFinite(n) && n > 0 ? Math.min(n, 32) : 0;
+}
+
+function setPowFilter(n) {
+	localStorage.setItem(STORAGE_POW_FILTER_KEY, String(n));
+}
 
 // pubkey -> { name, about, nip05, hasAvatar, updated } | null (null = looked up, none found)
 const profileCache = new Map();
@@ -948,6 +964,7 @@ function openSettings() {
 	assistToggle.checked = getAssistEnabled();
 	profilesToggle.checked = getProfilesEnabled();
 	retroToggle.checked = getRetroEnabled();
+	powSelect.value = String(getPowFilter());
 	syncProfilesRow();
 	nsecRevealed = false;
 	renderNsecField();
@@ -1830,6 +1847,11 @@ retroToggle.addEventListener("change", () => {
 	syncRetro(); // pure CSS gate - takes effect instantly, nothing to re-render
 });
 
+powSelect.addEventListener("change", () => {
+	setPowFilter(parseInt(powSelect.value, 10) || 0);
+	// applies to everything ingested from here on; already-rendered lines stay
+});
+
 settingsClose.addEventListener("click", closeSettings);
 // tapping the dimmed backdrop (outside the card) dismisses settings
 settingsGate.addEventListener("click", (e) => {
@@ -2108,11 +2130,26 @@ function localPresence(geo) {
 // the glubSpamStats() console helper.
 const chatLimiter = createMessageRateLimiter();
 const presenceLimiter = createPresenceRateLimiter();
-const spamStats = { mined: 0, presenceDrops: 0 };
+const spamStats = { mined: 0, presenceDrops: 0, powDrops: 0 };
 window.glubSpamStats = () => ({ ...chatLimiter.stats, ...spamStats });
 
 function isOwnEvent(ev) {
 	return ev.pubkey.toLowerCase() === identity.pk.toLowerCase();
+}
+
+// opt-in inbound NIP-13 filter, android's semantics: a nonce tag is required,
+// the committed difficulty (its 3rd element) must reach the bar, and the
+// actual id must deliver it. stateless, so unlike the rate buckets it applies
+// to backlog replays too - filtering stored spam out of history is half the
+// point. own events always pass regardless of setting.
+function passesPowFilter(ev) {
+	const required = getPowFilter();
+	if (!required || isOwnEvent(ev)) return true;
+	if (committedDifficulty(ev) < required || idDifficulty(ev.id) < required) {
+		spamStats.powDrops++;
+		return false;
+	}
+	return true;
 }
 
 // `live` = arrived after its source's EOSE (or via the assist live stream), as
@@ -2122,6 +2159,7 @@ function isOwnEvent(ev) {
 // reload. backlog damage is separately bounded (REQ limit + MAX_LINES buffer).
 function ingestEvent(ev, live = true) {
 	if (ev.kind === PRESENCE_KIND) {
+		if (!passesPowFilter(ev)) return;
 		if (live && !isOwnEvent(ev) && !presenceLimiter.allow("nostr:" + ev.pubkey.toLowerCase())) {
 			spamStats.presenceDrops++;
 			return;
@@ -2131,6 +2169,7 @@ function ingestEvent(ev, live = true) {
 	}
 	if (ev.kind !== CHAT_KIND) return;
 	if (!getGeohash(ev)) return;
+	if (!passesPowFilter(ev)) return;
 	// reject far-future timestamps (a skewed/forged clock) - they'd otherwise sit
 	// permanently pinned below every real message
 	if (ev.created_at > Math.floor(Date.now() / 1000) + MAX_FUTURE_SECS) return;

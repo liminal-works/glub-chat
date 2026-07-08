@@ -1276,6 +1276,28 @@ textarea {
 	pointer-events: none;
 }
 
+/* compact terminal-styled dropdown for the few settings that aren't on/off
+   (the pow filter's difficulty picker) */
+.settingSelect {
+	border: 1px solid var(--chrome-border);
+	background: var(--field-bg);
+	color: var(--accent);
+	font: inherit;
+	font-size: 13px;
+	padding: 5px 8px;
+	cursor: pointer;
+	outline: 0;
+}
+
+.settingSelect:focus {
+	border-color: var(--chrome-border-strong);
+}
+
+.settingSelect option {
+	background: var(--chrome-bg);
+	color: var(--fg);
+}
+
 /* bracketed text toggle in the terminal style ([ on ] / [ off ]) - the real
    checkbox is hidden and driven by the label; the visual reflects its state. */
 .assistCheck {

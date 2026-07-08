@@ -75,6 +75,17 @@
 						<span class="toggleVisual" aria-hidden="true"></span>
 					</label>
 
+					<label class="settingRow" for="powSelect">
+						<span data-i18n="settings.pow_label">pow spam filter</span>
+						<select id="powSelect" class="settingSelect">
+							<option value="0" data-i18n="settings.pow_off">off</option>
+							<option value="8" data-i18n="settings.pow_lenient">8 · lenient</option>
+							<option value="12" data-i18n="settings.pow_standard">12 · standard</option>
+							<option value="16" data-i18n="settings.pow_strict">16 · strict</option>
+							<option value="20" data-i18n="settings.pow_extreme">20 · extreme</option>
+						</select>
+					</label>
+
 					<div class="idSection">
 						<div class="idHeading" data-i18n="settings.identity_label">nostr identity</div>
 						<div class="idFieldWrap">

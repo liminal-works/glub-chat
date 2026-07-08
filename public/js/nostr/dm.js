@@ -363,7 +363,7 @@ export function createDmClient({ getIdentity, onMessage, onAck, onStatusChange }
 	// genuinely new. the grace lets slower relays finish dumping their backlog.
 	let live = false;
 	let liveTimer = null;
-	const stats = { wrapsSeen: 0, verifyFailed: 0, decryptFailed: 0, decodeFailed: 0, surfaced: 0 };
+	const stats = { wrapsSeen: 0, verifyFailed: 0, decryptFailed: 0, decodeFailed: 0, surfaced: 0, throttled: 0 };
 
 	// opt-in wire tracing for debugging interop (e.g. native bitchat -> web). turn
 	// on with `localStorage.glub_dm_debug = 1` then reload; every inbound gift wrap
@@ -449,14 +449,49 @@ export function createDmClient({ getIdentity, onMessage, onAck, onStatusChange }
 			}
 			if (frame[0] !== "EVENT" || frame[1] !== "glub-dm") return;
 			dlog("<- 1059", frame[2]?.id?.slice(0, 10), "wrapPk", frame[2]?.pubkey?.slice(0, 8), live ? "live" : "backlog", "@", url.replace(/^wss?:\/\//, ""));
-			handleWrap(frame[2]);
+			enqueueWrap(frame[2]);
 		});
 	}
 
-	async function handleWrap(ev) {
+	// unwrap throttle: every gift wrap costs an ECDH + two decrypt layers, and
+	// wraps are indistinguishable until decrypted - so a wrap-flood addressed to
+	// us is a CPU DoS. queue and drain at a bounded rate; overflow past the queue
+	// cap is dropped (restored DM history in localStorage covers the loss on a
+	// huge backlog). the live/backlog phase is snapshotted at ENQUEUE time, since
+	// `live` may flip while a wrap waits in the queue.
+	const UNWRAP_PER_TICK = 8;
+	const UNWRAP_TICK_MS = 200; // 40/s sustained - a few % of cpu, worst case
+	const UNWRAP_QUEUE_MAX = 300;
+	const unwrapQueue = [];
+	let unwrapTimer = null;
+
+	function enqueueWrap(ev) {
 		if (!ev?.id || ev.kind !== GIFT_WRAP_KIND) return;
-		if (seenWraps.has(ev.id)) return;
-		const historical = !live; // snapshot now; decode is async and `live` may flip mid-flight
+		if (seenWraps.has(ev.id)) return; // cheap dedup before spending queue space
+		if (unwrapQueue.length >= UNWRAP_QUEUE_MAX) {
+			stats.throttled += 1;
+			return;
+		}
+		unwrapQueue.push({ ev, historical: !live });
+		if (!unwrapTimer) {
+			unwrapTimer = setInterval(drainUnwraps, UNWRAP_TICK_MS);
+			drainUnwraps(); // first batch immediately - normal traffic never waits
+		}
+	}
+
+	function drainUnwraps() {
+		for (let i = 0; i < UNWRAP_PER_TICK && unwrapQueue.length; i++) {
+			const { ev, historical } = unwrapQueue.shift();
+			handleWrap(ev, historical);
+		}
+		if (!unwrapQueue.length) {
+			clearInterval(unwrapTimer);
+			unwrapTimer = null;
+		}
+	}
+
+	async function handleWrap(ev, historical) {
+		if (seenWraps.has(ev.id)) return; // may have been unwrapped while queued
 		stats.wrapsSeen += 1;
 		if (!verifyEvent(ev)) {
 			stats.verifyFailed += 1;

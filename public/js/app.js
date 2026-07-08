@@ -1409,11 +1409,25 @@ function onDmMessage({ senderPubkey, messageID, content, timestamp, historical }
 		markConversationRead(conv);
 	} else if (!historical) {
 		conv.unread += 1;
-		appendSystem(t("dm.received", { name: conv.name }), SYSTEM_TTL_LONG_MS);
+		// notification lines are capped (burst of 3, then ~3/min): a DM flood
+		// still lands in the inbox and counts on the pill, but can't turn the
+		// chat feed into a wall of "new message from" notices.
+		if (allowDmNotify()) appendSystem(t("dm.received", { name: conv.name }), SYSTEM_TTL_LONG_MS);
 	}
 	updateDmPill();
 	if (dmListGate.classList.contains("show")) renderDmList();
 	scheduleSaveDms();
+}
+
+// token bucket for the in-feed DM notices (see onDmMessage)
+const dmNotifyBucket = { tokens: 3, last: Date.now() };
+function allowDmNotify() {
+	const now = Date.now();
+	dmNotifyBucket.tokens = Math.min(3, dmNotifyBucket.tokens + ((now - dmNotifyBucket.last) / 1000) * 0.05);
+	dmNotifyBucket.last = now;
+	if (dmNotifyBucket.tokens < 1) return false;
+	dmNotifyBucket.tokens -= 1;
+	return true;
 }
 
 function onDmAck({ senderPubkey, messageID, kind }) {
@@ -1614,14 +1628,19 @@ function renderDmThread() {
 	dmThread.scrollTop = dmThread.scrollHeight;
 }
 
-// send read receipts for any of their messages we haven't acked yet
+// send read receipts for any of their messages we haven't acked yet - but only
+// in conversations we've actually engaged with (we've sent them something).
+// merely opening an unsolicited thread shouldn't signal "seen" to a stranger:
+// read receipts are an engagement signal, and spam that gets read-confirmed
+// invites more spam. (delivered acks still flow - that's protocol plumbing.)
 function markConversationRead(conv) {
 	if (conv.unread) {
 		conv.unread = 0;
 		updateDmPill();
 	}
+	const engaged = conv.messages.some((m) => m.mine);
 	for (const m of conv.messages) {
-		if (!m.mine && !conv.readSent.has(m.id)) {
+		if (!m.mine && engaged && !conv.readSent.has(m.id)) {
 			conv.readSent.add(m.id);
 			dmClient.sendRead(m.id, conv.pubkey);
 		}

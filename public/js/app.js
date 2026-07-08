@@ -348,6 +348,35 @@ function extractImageUrls(text) {
 	return extractUrls(text).filter(isDirectImageUrl).slice(0, MAX_IMAGES_PER_MESSAGE);
 }
 
+// screen-wall heuristics: content that eats vertical space without saying much
+// gets collapsed by default (never deleted - the more/less toggle reveals it).
+// three shapes: tall multiline blocks, ascii art (long + mostly non-letters,
+// like box-drawing/punctuation walls), and link dumps.
+const WALL_CLIP_LEN = 120; // how much of a collapsed wall stays visible
+const WALL_MAX_LINES = 10;
+const WALL_MIN_ART_LEN = 80;
+const WALL_MAX_LETTER_RATIO = 0.35; // below this share of letters/digits, it's art not prose
+const WALL_MAX_LINKS = 4;
+
+function looksLikeWall(text) {
+	const str = String(text || "");
+	if (str.split("\n").length > WALL_MAX_LINES) return true;
+	if (extractUrls(str).length > WALL_MAX_LINKS) return true;
+	if (str.length >= WALL_MIN_ART_LEN) {
+		const letters = (str.match(/[\p{L}\p{N}]/gu) || []).length;
+		if (letters / str.length < WALL_MAX_LETTER_RATIO) return true;
+	}
+	return false;
+}
+
+// mention-bomb guard: a message @-ing half the channel shouldn't light up as a
+// personal mention for everyone in it.
+const MENTION_BOMB_MAX = 5;
+
+function countMentions(text) {
+	return (String(text || "").match(/@[\p{L}\p{N}_]/gu) || []).length;
+}
+
 // true if text @-mentions the current user: "@name" optionally followed by the
 // "#xxxx" pubkey suffix, bounded so "@names" or "@nameother" don't false-match.
 function isMention(text, currentName) {
@@ -402,13 +431,16 @@ function entryVisible(entry) {
 // "more"/"less" toggle so a single huge message can't blow out the view.
 function messageInnerHtml(entry) {
 	const expanded = entry.expanded;
-	const text = expanded ? entry.text : clipWithEllipsis(entry.text, MAX_MSG_LEN);
+	// walls (ascii art / link dumps / tall multiline blocks) collapse much harder
+	// than the plain over-length case - a taste of the content, then the toggle.
+	const clipLen = entry.wall ? WALL_CLIP_LEN : MAX_MSG_LEN;
+	const text = expanded ? entry.text : clipWithEllipsis(entry.text, clipLen);
 	// your own color depends on the live profiles state (orange vs. real per-key
 	// color), so recompute it each render; peers' colors never change (baked).
 	const color = entry.mine ? pubkeyColor(entry.pubkey) : entry.color;
 
 	let body;
-	let needsToggle = entry.text.length > MAX_MSG_LEN;
+	let needsToggle = entry.text.length > clipLen;
 
 	if (entry.action) {
 		// emote: the whole "* ... *" rendered muted like a timestamp, no username
@@ -455,7 +487,9 @@ function messageInnerHtml(entry) {
 		body += `<span class="toggleMore" data-toggle="${escapeHtml(entry.id)}">${escapeHtml(t(expanded ? "message.less" : "message.more"))}</span>`;
 	}
 
-	body += renderImagePreviews(entry);
+	// a collapsed wall stays collapsed: a link-dump's image previews rendering
+	// anyway would defeat the whole point
+	if (!entry.wall || expanded) body += renderImagePreviews(entry);
 	body += renderTranslation(entry);
 
 	return body + timeTag(entry.ts) + ackTag(entry);
@@ -768,8 +802,9 @@ function renderEvent(ev) {
 	const geoPrefix = `<span class="geo" data-geo="${escapeHtml(geo)}">#${escapeHtml(clipWithEllipsis(geo, MAX_GEO_LEN))}</span> `;
 
 	// highlight messages that @-mention us, tinted with the sender's own color
-	// so it stays visually cohesive (includes our own messages @-ing ourselves).
-	const mention = isMention(text, name);
+	// so it stays visually cohesive (includes our own messages @-ing ourselves) -
+	// unless it's a mention bomb @-ing half the channel.
+	const mention = isMention(text, name) && countMentions(text) <= MENTION_BOMB_MAX;
 	const mentionTint = mention ? pubkeyTint(ev.pubkey) : null;
 
 	// "teleport" = sender isn't physically in the geohash (every glub send is; a
@@ -794,6 +829,7 @@ function renderEvent(ev) {
 		pendingAck: pending.has(ev.id), // a message we just sent, awaiting echo-back confirmation
 		action: isActionMessage(text),
 		reply: parseReplyMessage(text), // { targetUser, quotedText, body } if this quotes another message
+		wall: looksLikeWall(text), // screen-eating content starts hard-collapsed
 		images: extractImageUrls(text),
 		expanded: false,
 		el: null,

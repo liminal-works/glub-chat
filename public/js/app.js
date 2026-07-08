@@ -11,7 +11,9 @@ import {
 } from "./nostr/identity.js";
 import { fetchRelayList } from "./nostr/relayList.js";
 import { RelayPool } from "./nostr/relayPool.js";
-import { makeChatMessage, makePresenceEvent, getGeohash, getName, CHAT_KIND, PRESENCE_KIND, sortRelaysByGeohash, verifyEvent } from "./nostr/protocol.js";
+import { buildChatEvent, buildPresenceEvent, signEvent, getGeohash, getName, CHAT_KIND, PRESENCE_KIND, sortRelaysByGeohash, verifyEvent } from "./nostr/protocol.js";
+import { mineNonceTag, POW_DIFFICULTY } from "./nostr/pow.js";
+import { createMessageRateLimiter, createPresenceRateLimiter } from "./ratelimit.js";
 import { t, formatAgo, setLocale, detectLocale, onLocaleChange, preferredContentLanguage } from "./i18n/index.js";
 import { createSuggest } from "./ui/suggest.js";
 import { createDmClient, DM_MAX_CONTENT_BYTES } from "./nostr/dm.js";
@@ -1942,14 +1944,19 @@ function deliver(event) {
 // announce our presence in the channel we're currently viewing. purely timer-
 // driven (not on join): whatever channel you happen to be in when the timer
 // fires. in the global view there's no channel to announce, so we stay quiet.
-function broadcastPresence() {
+async function broadcastPresence() {
 	if (!focusedGeo) return;
-	const event = makePresenceEvent({
-		geohash: focusedGeo,
+	const geo = focusedGeo;
+	// mined like chat messages (see transmit) so PoW-filtering peers list us
+	const unsigned = buildPresenceEvent({
+		geohash: geo,
 		name: name || "anon",
-		sk: identity.sk,
 		pk: identity.pk,
 	});
+	const nonceTag = await mineNonceTag(unsigned, POW_DIFFICULTY);
+	if (nonceTag) unsigned.tags.push(nonceTag);
+	if (focusedGeo !== geo) return; // hopped channels while mining - stale announce
+	const event = signEvent(unsigned, identity.sk);
 	deliver(event);
 }
 
@@ -2059,8 +2066,30 @@ function localPresence(geo) {
 	return out;
 }
 
-function ingestEvent(ev) {
+// inbound anti-spam (see ratelimit.js): iOS bitchat's dual token buckets on
+// chat, a looser sender-only bucket on presence. our own events always pass -
+// filtering must never eat the echo that confirms a send. stats surface via
+// the glubSpamStats() console helper.
+const chatLimiter = createMessageRateLimiter();
+const presenceLimiter = createPresenceRateLimiter();
+const spamStats = { mined: 0, presenceDrops: 0 };
+window.glubSpamStats = () => ({ ...chatLimiter.stats, ...spamStats });
+
+function isOwnEvent(ev) {
+	return ev.pubkey.toLowerCase() === identity.pk.toLowerCase();
+}
+
+// `live` = arrived after its source's EOSE (or via the assist live stream), as
+// opposed to a stored-backlog replay. rate buckets only bite live events: a
+// backlog replay compresses hours of legitimate history into one burst of
+// arrivals, and metering that by arrival time would eat real messages on every
+// reload. backlog damage is separately bounded (REQ limit + MAX_LINES buffer).
+function ingestEvent(ev, live = true) {
 	if (ev.kind === PRESENCE_KIND) {
+		if (live && !isOwnEvent(ev) && !presenceLimiter.allow("nostr:" + ev.pubkey.toLowerCase())) {
+			spamStats.presenceDrops++;
+			return;
+		}
 		trackPresence(ev);
 		return;
 	}
@@ -2078,12 +2107,18 @@ function ingestEvent(ev) {
 	seen.add(ev.id);
 	if (seen.size > 5000) seen.clear();
 
+	// rate buckets last: everything cheaper (kind, geohash, dedup) already ran,
+	// and dedup ensures a relayed copy of an allowed event can't double-spend
+	// its sender's tokens.
+	if (live && !isOwnEvent(ev) && !chatLimiter.allow("nostr:" + ev.pubkey.toLowerCase(), ev.content)) return;
+
 	renderEvent(ev);
 }
 
 const pool = new RelayPool({
 	onStatusChange: renderTopbar,
-	onEvent: ingestEvent,
+	// (ev, relayUrl, live) - drop the url, keep the live/backlog phase flag
+	onEvent: (ev, _url, live) => ingestEvent(ev, live),
 	// broadcast-only set size (assist mode). The nearest-N relays to a focused
 	// geohash can be a sparse/flaky regional set, so keep enough of them open
 	// that a send reliably reaches relays the api is also watching.
@@ -2124,7 +2159,8 @@ async function mirrorBuffer() {
 		if (!Array.isArray(data.events)) return;
 
 		for (const ev of data.events) {
-			if (!seen.has(ev.id) && verifyEvent(ev)) ingestEvent(ev);
+			// historical: a mirrored buffer is a compressed replay, not live traffic
+			if (!seen.has(ev.id) && verifyEvent(ev)) ingestEvent(ev, false);
 		}
 		// fewer than we asked for => we've mirrored the api's entire buffer, so
 		// mark the start of available history.
@@ -2385,12 +2421,22 @@ function botName() {
 // composer (e.g. a mistyped "/import"). this is the single broadcast chokepoint.
 const NSEC_RE = /nsec1[0-9a-z]{20,}/i;
 
-function transmit(content, geo, displayName = name) {
+async function transmit(content, geo, displayName = name) {
 	if (NSEC_RE.test(content)) {
 		appendSystem(t("system.nsec_blocked"));
 		return;
 	}
-	const event = makeChatMessage({ content, geohash: geo, name: displayName, sk: identity.sk, pk: identity.pk });
+	// NIP-13: grind a nonce tag into the unsigned event (~0.1s at difficulty 12,
+	// off-thread) before signing. android's default inbound filter drops events
+	// without one, so this is as much interop as spam defense. mining failure
+	// falls back to an unmined send - spam defense never blocks a message.
+	const unsigned = buildChatEvent({ content, geohash: geo, name: displayName, pk: identity.pk });
+	const nonceTag = await mineNonceTag(unsigned, POW_DIFFICULTY);
+	if (nonceTag) {
+		unsigned.tags.push(nonceTag);
+		spamStats.mined++;
+	}
+	const event = signEvent(unsigned, identity.sk);
 	seen.add(event.id);
 	// track before rendering so renderEvent's pendingAck picks it up, then
 	// broadcast + arm the confirm/rebroadcast timer.

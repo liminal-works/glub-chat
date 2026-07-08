@@ -180,12 +180,21 @@ export class RelayPool {
 				return;
 			}
 
+			// end of this socket's stored backlog: everything after arrives live.
+			// tracked per socket (a reconnect REQs again and replays a fresh
+			// backlog), and surfaced so ingest can treat replayed history more
+			// gently than live traffic (e.g. rate limiters only bite live events).
+			if (frame[0] === "EOSE" && frame[1] === this.subId) {
+				ws._eosed = true;
+				return;
+			}
+
 			if (frame[0] !== "EVENT") return;
 
 			const ev = frame[2];
 			if (!ev?.id || !ev?.pubkey) return;
 
-			this.onEvent(ev, url);
+			this.onEvent(ev, url, !!ws._eosed);
 		});
 
 		this.onStatusChange();

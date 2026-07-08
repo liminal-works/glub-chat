@@ -15,42 +15,53 @@ export function subscribeFilter(limit = 500) {
 	return { kinds: [CHAT_KIND, PRESENCE_KIND], limit };
 }
 
-export function makeChatMessage({ content, geohash, name, sk, pk }) {
-	// "teleport" marks a message posted into a geohash we're not physically in -
-	// always true for this web client, since you pick any channel regardless of
-	// location. Matches what bitchat/the reference web client sends.
+// "teleport" marks a message posted into a geohash we're not physically in -
+// always true for this web client, since you pick any channel regardless of
+// location. Matches what bitchat/the reference web client sends.
+function geoTags(geohash, name) {
 	const tags = [["g", geohash], ["t", "teleport"]];
 	if (name) tags.push(["n", name]);
+	return tags;
+}
 
-	return finalizeEvent(
-		{
-			kind: CHAT_KIND,
-			created_at: Math.floor(Date.now() / 1000),
-			tags,
-			content,
-			pubkey: pk,
-		},
-		sk
-	);
+// build/sign are split so events can be worked on between the two steps -
+// NIP-13 mining appends a nonce tag to the UNSIGNED event (the nonce changes
+// the id, so it must be settled before signing). created_at is stamped at
+// build time and must not change afterwards for the same reason.
+export function buildChatEvent({ content, geohash, name, pk }) {
+	return {
+		kind: CHAT_KIND,
+		created_at: Math.floor(Date.now() / 1000),
+		tags: geoTags(geohash, name),
+		content,
+		pubkey: pk,
+	};
 }
 
 // a presence/announce heartbeat: "i'm in this geohash". Same tag conventions as
 // a chat message (g + teleport + n) but the ephemeral 20001 kind and empty
 // content - the name in the `n` tag is the whole payload.
-export function makePresenceEvent({ geohash, name, sk, pk }) {
-	const tags = [["g", geohash], ["t", "teleport"]];
-	if (name) tags.push(["n", name]);
+export function buildPresenceEvent({ geohash, name, pk }) {
+	return {
+		kind: PRESENCE_KIND,
+		created_at: Math.floor(Date.now() / 1000),
+		tags: geoTags(geohash, name),
+		content: "",
+		pubkey: pk,
+	};
+}
 
-	return finalizeEvent(
-		{
-			kind: PRESENCE_KIND,
-			created_at: Math.floor(Date.now() / 1000),
-			tags,
-			content: "",
-			pubkey: pk,
-		},
-		sk
-	);
+export function signEvent(unsigned, sk) {
+	return finalizeEvent(unsigned, sk);
+}
+
+// one-step build+sign, for callers that don't mine
+export function makeChatMessage({ content, geohash, name, sk, pk }) {
+	return signEvent(buildChatEvent({ content, geohash, name, pk }), sk);
+}
+
+export function makePresenceEvent({ geohash, name, sk, pk }) {
+	return signEvent(buildPresenceEvent({ geohash, name, pk }), sk);
 }
 
 export function getTag(ev, key) {

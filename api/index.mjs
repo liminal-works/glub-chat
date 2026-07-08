@@ -57,6 +57,11 @@ const media = createMediaStore({ dir: MEDIA_DIR, maxItems: MEDIA_MAX_ITEMS });
 
 const app = express();
 
+// the static server proxies /api -> here from loopback and appends the real
+// client to x-forwarded-for; trusting loopback makes req.ip resolve to that
+// client, so the per-IP rate buckets below see individual users.
+app.set("trust proxy", "loopback");
+
 // read-only public data, so any origin may read it (a client may point at this
 // api from a different host).
 app.use((req, res, next) => {
@@ -66,6 +71,27 @@ app.use((req, res, next) => {
 	if (req.method === "OPTIONS") return res.sendStatus(204);
 	next();
 });
+
+// per-IP token-bucket middleware for the abusable write/compute endpoints.
+// generous enough that no human ever notices; a script hammering an endpoint
+// gets 429s instead of burning relays, disk, or the translation budget.
+function ipBucket({ capacity, refillPerSec }) {
+	const buckets = new Map(); // ip -> { tokens, last }
+	return (req, res, next) => {
+		if (buckets.size > 10_000) buckets.clear(); // bound memory under address churn
+		const now = Date.now();
+		let b = buckets.get(req.ip);
+		if (!b) buckets.set(req.ip, (b = { tokens: capacity, last: now }));
+		b.tokens = Math.min(capacity, b.tokens + ((now - b.last) / 1000) * refillPerSec);
+		b.last = now;
+		if (b.tokens < 1) {
+			res.status(429).json({ ok: false, error: "rate limited" });
+			return;
+		}
+		b.tokens -= 1;
+		next();
+	};
+}
 
 // liveness + how much history we hold + how many relays we're watching; the
 // client pings this to decide whether to lean on the api or fall back to relays,
@@ -78,7 +104,9 @@ app.get("/api/health", (req, res) => {
 // already has open (so the client doesn't open its own), stores it, and streams
 // it back. The client signs locally - we only ever receive a signed event, never
 // a key. Re-verified before anything happens to it.
-app.post("/api/publish", express.json({ limit: "32kb" }), (req, res) => {
+// burst of 12 then ~1 every 2s - matches the client-side sender bucket's
+// spirit while leaving room for rebroadcast retries and presence heartbeats
+app.post("/api/publish", ipBucket({ capacity: 12, refillPerSec: 0.5 }), express.json({ limit: "32kb" }), (req, res) => {
 	const relays = aggregator.publish(req.body);
 	if (relays < 0) {
 		res.status(400).json({ ok: false, error: "invalid event" });
@@ -91,7 +119,8 @@ app.post("/api/publish", express.json({ limit: "32kb" }), (req, res) => {
 // (see translate.mjs). the client sends the text (not an event id) so it can
 // translate anything on screen - others' messages, replies, even DMs. 503 when
 // no provider key is set, so the client can hide the action gracefully.
-app.post("/api/translate", express.json({ limit: "16kb" }), async (req, res) => {
+// translation spends a metered provider budget: burst of 5, then ~4/minute
+app.post("/api/translate", ipBucket({ capacity: 5, refillPerSec: 1 / 15 }), express.json({ limit: "16kb" }), async (req, res) => {
 	const text = String(req.body?.text || "").trim();
 	const target = String(req.body?.target || "en");
 	if (!text) {

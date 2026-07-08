@@ -1,5 +1,6 @@
 import WebSocket from "ws";
 import { fetchRelayList } from "../public/js/nostr/relayList.js";
+import { createMessageRateLimiter, createPresenceRateLimiter } from "../public/js/ratelimit.js";
 import { CHAT_KIND, PRESENCE_KIND, getGeohash, getName, verifyEvent } from "./nostr.mjs";
 
 // Use the `ws` library (not Node's built-in/undici WebSocket): it's the
@@ -36,6 +37,15 @@ export function createAggregator(store, { onStored } = {}) {
 	const seenIds = new Set(); // event ids already processed from relays - skip re-verifying duplicates
 	const SEEN_MAX = 50_000; // bound the dedup set; cleared wholesale when it grows past this
 
+	// live-traffic rate buckets (same module + constants the client runs; see
+	// public/js/ratelimit.js). the store is a rolling most-recent-N buffer, so an
+	// unmetered flood doesn't just spam subscribers - it EVICTS real history.
+	// only live events are metered: each relay's stored backlog (pre-EOSE) is a
+	// compressed replay of hours, and store.insert dedups it anyway.
+	const chatLimiter = createMessageRateLimiter();
+	const presenceLimiter = createPresenceRateLimiter();
+	const spamDrops = { chat: 0, presence: 0 };
+
 	// returns an event's geohash if it's acceptable to store/relay, else "".
 	// Only signed kind-20000 chat events with a sane geohash and a non-future
 	// timestamp (skewed/forged clocks) pass.
@@ -51,10 +61,15 @@ export function createAggregator(store, { onStored } = {}) {
 
 	// validate + store a single event arriving from a relay. Exposed for unit
 	// tests (no live relay needed). Streams to subscribers only when it's new, so
-	// relays resending the same event don't double-fire.
-	function ingest(ev) {
+	// relays resending the same event don't double-fire. `live` = arrived after
+	// its source socket's EOSE (backlog replays bypass the rate buckets).
+	function ingest(ev, live = true) {
 		const geo = acceptableGeo(ev);
 		if (!geo) return false;
+		if (live && !chatLimiter.allow("nostr:" + ev.pubkey.toLowerCase(), ev.content)) {
+			spamDrops.chat++;
+			return false;
+		}
 		const inserted = store.insert(ev, geo);
 		if (inserted && onStored) onStored(ev, geo);
 		return inserted;
@@ -63,13 +78,19 @@ export function createAggregator(store, { onStored } = {}) {
 	// record a presence (kind-20001) heartbeat. Like chat events these are signed
 	// and carry a geohash; we keep only the latest sighting per pubkey per channel
 	// and let prunePresence() age them out.
-	function trackPresence(ev) {
+	function trackPresence(ev, live = true) {
 		if (!ev || ev.kind !== PRESENCE_KIND) return false;
 		if (typeof ev.pubkey !== "string") return false;
 		if (ev.created_at > Math.floor(Date.now() / 1000) + MAX_FUTURE_SECS) return false;
 		const geo = getGeohash(ev);
 		if (!geo || geo.length > MAX_GEOHASH_LEN) return false;
 		if (!verifyEvent(ev)) return false;
+		// bucket only after the signature proves the sender: a forged heartbeat
+		// must never be able to drain a real user's bucket and mute their presence
+		if (live && !presenceLimiter.allow("nostr:" + ev.pubkey.toLowerCase())) {
+			spamDrops.presence++;
+			return false;
+		}
 
 		let chan = presence.get(geo);
 		if (!chan) presence.set(geo, (chan = new Map()));
@@ -136,14 +157,25 @@ export function createAggregator(store, { onStored } = {}) {
 		return sent;
 	}
 
-	function handleFrame(raw) {
+	// `conn` is the per-socket state ({ eosed }); direct callers (tests, one-off
+	// frames) default to live, the stricter path.
+	function handleFrame(raw, conn = { eosed: true }) {
 		let frame;
 		try {
 			frame = JSON.parse(raw);
 		} catch {
 			return;
 		}
-		if (!Array.isArray(frame) || frame[0] !== "EVENT") return;
+		if (!Array.isArray(frame)) return;
+
+		// end of this relay's stored backlog - everything after arrives live and
+		// is subject to the rate buckets.
+		if (frame[0] === "EOSE" && frame[1] === SUB_ID) {
+			conn.eosed = true;
+			return;
+		}
+
+		if (frame[0] !== "EVENT") return;
 		const ev = frame[2];
 		if (!ev || typeof ev.id !== "string") return;
 
@@ -153,8 +185,8 @@ export function createAggregator(store, { onStored } = {}) {
 		if (seenIds.size >= SEEN_MAX) seenIds.clear();
 		seenIds.add(ev.id);
 
-		if (ev.kind === PRESENCE_KIND) trackPresence(ev);
-		else ingest(ev);
+		if (ev.kind === PRESENCE_KIND) trackPresence(ev, conn.eosed);
+		else ingest(ev, conn.eosed);
 	}
 
 	function connectRelay(url, attempt = 0) {
@@ -191,7 +223,8 @@ export function createAggregator(store, { onStored } = {}) {
 				])
 			);
 		});
-		ws.on("message", (data) => handleFrame(data.toString()));
+		const conn = { eosed: false }; // per-socket backlog/live phase (see handleFrame)
+		ws.on("message", (data) => handleFrame(data.toString(), conn));
 		ws.on("error", () => {});
 		ws.on("close", retry);
 	}
@@ -243,7 +276,7 @@ export function createAggregator(store, { onStored } = {}) {
 		for (const ws of sockets.values()) {
 			if (ws.readyState === WebSocket.OPEN) connected++;
 		}
-		return { monitored: managed.size, connected };
+		return { monitored: managed.size, connected, spamDrops: { ...spamDrops } };
 	}
 
 	return { start, stats, ingest, publish, handleFrame, trackPresence, presenceFor };

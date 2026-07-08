@@ -19,13 +19,18 @@ const app = express();
 if (API_ORIGIN) {
 	const target = new URL(API_ORIGIN);
 	app.use("/api", (req, res) => {
+		// stamp the real client address so the api's per-IP rate limits see
+		// individual users instead of one shared 127.0.0.1 bucket. OVERWRITE any
+		// inbound x-forwarded-for - this proxy is the only hop the api trusts, and
+		// appending would let clients mint fresh rate buckets by rotating fake
+		// addresses in the header.
 		const proxyReq = http.request(
 			{
 				host: target.hostname,
 				port: target.port,
 				path: req.originalUrl, // includes /api/... and the query string
 				method: req.method,
-				headers: { ...req.headers, host: target.host },
+				headers: { ...req.headers, host: target.host, "x-forwarded-for": req.socket.remoteAddress },
 			},
 			(proxyRes) => {
 				// stream the response straight through - keeps SSE (/api/stream) live

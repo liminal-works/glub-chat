@@ -1662,7 +1662,43 @@ if (name) {
 	openNameGate();
 }
 
-brandEl.addEventListener("click", openNameGate);
+// --- panic wipe (triple-tap the brand, like native bitchat's title) ----------
+// three taps inside a second nukes everything local: localStorage is cleared
+// (nsec, name, DM history, mutes, theme, every preference), a fresh random name
+// is written for the new identity, and the page reloads - the reload is the
+// actual wipe, since no in-memory state (feed, conversations, caches, blocks)
+// can survive it. a fresh keypair mints itself on boot because glub_sk is gone.
+function panic() {
+	const anon = randomAnonName();
+	try {
+		localStorage.clear();
+		setStoredName(anon); // land directly in chat as a fresh anon - no name gate
+		sessionStorage.setItem("glub_panic", "1"); // one-shot boot notice after the reload
+	} catch {
+		// storage may be unavailable (private mode edge) - reload still resets the session
+	}
+	location.reload();
+}
+
+// single tap still opens the name gate, but on a short fuse so a triple-tap can
+// preempt it (the gate is a full-screen overlay - once it opens, later taps
+// would never reach the brand).
+let brandTaps = [];
+let brandOpenTimer = null;
+brandEl.addEventListener("click", () => {
+	const now = Date.now();
+	brandTaps = brandTaps.filter((t) => now - t < 900);
+	brandTaps.push(now);
+	if (brandTaps.length >= 3) {
+		clearTimeout(brandOpenTimer);
+		brandOpenTimer = null;
+		brandTaps = [];
+		panic();
+		return;
+	}
+	clearTimeout(brandOpenTimer);
+	brandOpenTimer = setTimeout(openNameGate, 350);
+});
 
 // tapping the topbar envelope opens the DM inbox
 dmPill.addEventListener("click", openDmList);
@@ -2255,6 +2291,13 @@ function bootSequence() {
 	setTimeout(() => {
 		pushSystem(`<span class="boot">${escapeHtml(t("system.boot_2"))}</span>`);
 	}, 300);
+	// one-shot confirmation after a panic wipe (set just before that reload)
+	try {
+		if (sessionStorage.getItem("glub_panic")) {
+			sessionStorage.removeItem("glub_panic");
+			appendSystem(t("system.panic"), SYSTEM_TTL_LONG_MS);
+		}
+	} catch {}
 }
 
 (async function init() {

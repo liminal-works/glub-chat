@@ -201,6 +201,7 @@ export default {
 		theme_current: "текущая",
 		theme_set: "тема: {name}",
 		theme_unknown: "неизвестная тема: {name} (список: /theme)",
+		panic: "паника! все локальные данные стёрты - создана новая идентичность",
 		assist_active: "серверный ассист активен",
 		relay_global_teleport: "#{geo}: не место на карте, подключаюсь к глобальным релеям...",
 		relay_local: "#{geo}: подключаюсь к местным релеям...",

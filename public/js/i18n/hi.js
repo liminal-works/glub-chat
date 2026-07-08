@@ -186,6 +186,7 @@ export default {
 		theme_current: "वर्तमान",
 		theme_set: "थीम: {name}",
 		theme_unknown: "अनजान थीम: {name} (सूची: /theme)",
+		panic: "पैनिक! सारा लोकल डेटा मिट गया - नई पहचान बनी",
 		assist_active: "सर्वर असिस्ट सक्रिय है",
 		relay_global_teleport: "#{geo}: नक्शे की जगह नहीं, ग्लोबल रिले से जुड़ रहे हैं...",
 		relay_local: "#{geo}: स्थानीय रिले से जुड़ रहे हैं...",

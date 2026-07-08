@@ -197,6 +197,7 @@ export default {
 		theme_current: "current",
 		theme_set: "theme: {name}",
 		theme_unknown: "unknown theme: {name} (try /theme to list)",
+		panic: "panic! all local data wiped - fresh identity minted",
 		assist_active: "server assist is active",
 		relay_global_teleport: "#{geo}: not a location, connecting to global relay set...",
 		relay_local: "#{geo}: connecting to local relay set...",

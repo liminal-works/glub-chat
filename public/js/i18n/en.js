@@ -105,6 +105,7 @@ export default {
 		exit: "[EXIT]",
 		empty: "no one here yet",
 		present: "present",
+		coverage: "≈ {km} km / {mi} mi across",
 		ghosts: { one: "ghost", other: "ghosts" },
 	},
 

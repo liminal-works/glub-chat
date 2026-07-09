@@ -8,6 +8,7 @@ import { createProfiles } from "./profiles.mjs";
 import { proxyAvatar } from "./avatar.mjs";
 import { createMediaStore } from "./media.mjs";
 import { translateConfigured, translateText } from "./translate.mjs";
+import { geocode } from "./geocode.mjs";
 
 // The optional "server assist" API. Deliberately separate from the static file
 // server (server/index.mjs) so its failure modes - a wedged relay pool, a full
@@ -137,6 +138,20 @@ app.post("/api/translate", ipBucket({ capacity: 5, refillPerSec: 1 / 15 }), expr
 	} catch {
 		res.status(502).json({ ok: false, error: "translate failed" });
 	}
+});
+
+// reverse-geocode a geohash channel to a place name, precision-scoped to the
+// geohash length (see geocode.mjs). heavily cached; the light per-IP bucket is
+// really just a courtesy cap since cached hits don't hit the provider.
+app.get("/api/geocode", ipBucket({ capacity: 20, refillPerSec: 1 }), async (req, res) => {
+	const geo = String(req.query.geo || "");
+	if (!geo || !/^[0-9a-z]{1,12}$/i.test(geo)) {
+		res.status(400).json({ ok: false, error: "bad geohash" });
+		return;
+	}
+	const place = await geocode(geo);
+	res.set("Cache-Control", "public, max-age=86400");
+	res.json({ ok: true, place });
 });
 
 // live presences for a channel (kind-20001 heartbeats the api has seen recently).

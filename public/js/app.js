@@ -11,7 +11,7 @@ import {
 } from "./nostr/identity.js";
 import { fetchRelayList } from "./nostr/relayList.js";
 import { RelayPool } from "./nostr/relayPool.js";
-import { buildChatEvent, buildPresenceEvent, signEvent, getGeohash, getName, CHAT_KIND, PRESENCE_KIND, sortRelaysByGeohash, verifyEvent } from "./nostr/protocol.js";
+import { buildChatEvent, buildPresenceEvent, signEvent, getGeohash, getName, CHAT_KIND, PRESENCE_KIND, sortRelaysByGeohash, geohashCell, verifyEvent } from "./nostr/protocol.js";
 import { mineNonceTag, POW_DIFFICULTY, idDifficulty, committedDifficulty } from "./nostr/pow.js";
 import { createMessageRateLimiter, createPresenceRateLimiter } from "./ratelimit.js";
 import { t, formatAgo, setLocale, detectLocale, onLocaleChange, preferredContentLanguage } from "./i18n/index.js";
@@ -76,6 +76,7 @@ const nsecStatus = document.getElementById("nsecStatus");
 const settingsClose = document.getElementById("settingsClose");
 const usersGate = document.getElementById("usersGate");
 const usersTitle = document.getElementById("usersTitle");
+const usersLocation = document.getElementById("usersLocation");
 const usersList = document.getElementById("usersList");
 const usersClose = document.getElementById("usersClose");
 const profileGate = document.getElementById("profileGate");
@@ -1115,6 +1116,68 @@ function renderUsers(talking, present) {
 	usersList.innerHTML = html;
 }
 
+// --- channel location readout (beneath the users title) ---------------------
+
+// a geohash's cell size is pure client-side math (see geohashCell); the place
+// name needs the assist api and is best-effort. session cache keyed by geohash
+// (a geohash -> place never changes).
+const geoPlaceCache = new Map();
+
+// 2-letter ISO country code -> flag emoji (regional-indicator letters)
+function flagEmoji(cc) {
+	if (!/^[a-z]{2}$/i.test(cc || "")) return "";
+	return String.fromCodePoint(...[...cc.toUpperCase()].map((c) => 0x1f1e6 + c.charCodeAt(0) - 65));
+}
+
+function formatKm(km) {
+	return km >= 100 ? Math.round(km / 10) * 10 : Math.round(km * 10) / 10;
+}
+
+async function fetchGeoPlace(geo) {
+	const key = geo.toLowerCase();
+	if (geoPlaceCache.has(key)) return geoPlaceCache.get(key);
+	try {
+		// cache:"default" lets the browser reuse the api's 24h-cacheable response across reloads
+		const res = await fetch(`${API_BASE}/api/geocode?geo=${encodeURIComponent(geo)}`);
+		if (!res.ok) return null;
+		const data = await res.json();
+		const place = data && data.ok ? data.place : null;
+		geoPlaceCache.set(key, place); // cache the answer (incl. a confirmed null)
+		return place;
+	} catch {
+		return null; // no api reachable (pure mode) - coverage line stands alone
+	}
+}
+
+function renderUsersLocation(geo) {
+	let cell;
+	try {
+		cell = geohashCell(geo); // throws on a non-geohash (word) channel
+	} catch {
+		usersLocation.hidden = true;
+		usersLocation.innerHTML = "";
+		return;
+	}
+	// coverage span (the wider cell dimension) - always available, offline too
+	const km = Math.max(cell.widthKm, cell.heightKm);
+	const coverage = t("users.coverage", { km: formatKm(km), mi: formatKm(km * 0.621371) });
+	usersLocation.innerHTML =
+		`<div id="usersPlace" class="usersPlace"></div>` +
+		`<div class="usersCoverage">${escapeHtml(coverage)}</div>`;
+	usersLocation.hidden = false;
+
+	// decorate with the place name once (if) the api answers - guard against the
+	// panel having closed or the channel having changed in the meantime.
+	fetchGeoPlace(geo).then((place) => {
+		if (focusedGeo !== geo || !usersGate.classList.contains("show")) return;
+		const el = document.getElementById("usersPlace");
+		if (!el || !place || !place.country) return;
+		const parts = [place.city, place.region, place.country].filter(Boolean);
+		const flag = flagEmoji(place.cc);
+		el.textContent = parts.join(", ") + (flag ? " " + flag : "");
+	});
+}
+
 // snapshot of who's in the focused channel: actively-talking users (latest
 // message per pubkey, freshest first) at the top, then a barrier, then users
 // we've only detected via presence (kind-20001) heartbeats - "lurkers". In assist
@@ -1130,6 +1193,7 @@ async function openUsers() {
 	talkingPubkeys.add(identity.pk); // never show yourself as a ghost (assist snapshot includes you)
 
 	usersTitle.textContent = t("users.title", { geo: clipText(geo, 14) });
+	renderUsersLocation(geo);
 	showUsers(geo, talking, presentRows(localPresence(geo), talkingPubkeys));
 	usersGate.classList.add("show");
 

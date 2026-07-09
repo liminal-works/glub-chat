@@ -844,6 +844,33 @@ textarea {
 	cursor: pointer;
 }
 
+/* channel location readout under the title: the resolved place (when the api
+   answers) over the always-available cell-size coverage line. */
+.usersLocation {
+	margin-top: 4px;
+	line-height: 1.35;
+}
+
+.usersLocation[hidden] {
+	display: none;
+}
+
+.usersPlace {
+	color: var(--fg);
+	font-size: 13px;
+	word-break: break-word;
+}
+
+.usersPlace:empty {
+	display: none;
+}
+
+.usersCoverage {
+	color: var(--muted);
+	font-size: 11.5px;
+	letter-spacing: 0.02em;
+}
+
 .usersExit:hover,
 #status.tapExit:hover,
 #status:hover {

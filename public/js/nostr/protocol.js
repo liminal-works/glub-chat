@@ -107,6 +107,21 @@ export function decodeGeohash(geohash) {
 	return { lat: (latLo + latHi) / 2, lon: (lonLo + lonHi) / 2 };
 }
 
+// a geohash cell's center + real-world dimensions. each character is 5 bits,
+// split longitude-first (lon gets ceil(bits/2), lat the rest); the cell spans
+// 360/2^lonBits by 180/2^latBits degrees, converted to km at the cell's own
+// latitude (longitude degrees shrink toward the poles). throws on a non-geohash
+// string, same as decodeGeohash - callers use that to skip word-channels.
+export function geohashCell(geohash) {
+	const { lat, lon } = decodeGeohash(geohash);
+	const bits = geohash.length * 5;
+	const lonBits = Math.ceil(bits / 2);
+	const latBits = Math.floor(bits / 2);
+	const heightKm = (180 / 2 ** latBits) * 111.32;
+	const widthKm = (360 / 2 ** lonBits) * 111.32 * Math.cos((lat * Math.PI) / 180);
+	return { lat, lon, widthKm, heightKm };
+}
+
 // great-circle distance in km between two lat/lon points
 export function haversineKm(a, b) {
 	const R = 6371;

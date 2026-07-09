@@ -137,6 +137,7 @@ export default {
 	},
 
 	ack: {
+		sending: "sending…",
 		resending: "resending…",
 		failed: "[!] failed",
 		latency_lt1s: "<1s",

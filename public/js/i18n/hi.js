@@ -128,6 +128,7 @@ export default {
 	},
 
 	ack: {
+		sending: "भेज रहे हैं…",
 		resending: "फिर भेज रहे हैं…",
 		failed: "[!] विफल",
 		latency_lt1s: "<1s",

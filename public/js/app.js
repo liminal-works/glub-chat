@@ -278,6 +278,7 @@ const ASSIST_FALLBACK_MS = 12_000; // grace period before a dead stream falls ba
 const ASSIST_MAINTAIN_MS = 30_000; // health re-check cadence (status freshness + recovery)
 const ACK_TIMEOUT_MS = 15_000; // wait this long for an echo before rebroadcasting / giving up
 const MAX_SEND_ATTEMPTS = 3; // initial broadcast + up to 2 automatic rebroadcasts
+const ACK_LATENCY_TTL_MS = 4_000; // show the confirmed round-trip briefly, then let it fade away
 const PRESENCE_FRESH_MS = 5 * 60_000; // a user counts as "present" within this window (fresh message or presence)
 const PRESENCE_TICK_MS = 30_000; // re-evaluate presence/count on this cadence so stale users drop off without new activity
 // how often WE announce our own presence in the channel we're viewing. a semi-
@@ -545,10 +546,11 @@ function renderTranslation(entry) {
 }
 
 // send-confirmation badge for our own messages, styled like the timestamp:
-// blank on the first in-flight attempt, "resending…" once we start rebroadcasting
-// (the first attempt timed out without an echo), the round-trip latency once a
-// source replays it ("<1s" / "4s"), or "failed" if every attempt was exhausted
-// and it never came back.
+// "sending…" while the first attempt is in flight (so a not-yet-confirmed send
+// never reads as done), "resending…" once we start rebroadcasting (the first
+// attempt timed out without an echo), the round-trip latency once a source
+// replays it ("<1s" / "4s") - which lingers a few seconds then clears itself
+// (see confirmSent) - or "failed" if every attempt was exhausted.
 function ackTag(entry) {
 	if (!entry.mine) return "";
 	if (entry.ackSecs != null) {
@@ -557,7 +559,9 @@ function ackTag(entry) {
 	}
 	if (entry.ackFailed) return ` <span class="ts ack ackFail">${escapeHtml(t("ack.failed"))}</span>`;
 	if (entry.resending) return ` <span class="ts ack">${escapeHtml(t("ack.resending"))}</span>`;
-	return ""; // first attempt in flight: stay blank until it confirms / retries / fails
+	// still awaiting the echo-back that confirms this send propagated
+	if (pending.has(entry.id)) return ` <span class="ts ack">${escapeHtml(t("ack.sending"))}</span>`;
+	return ""; // historical line, or a confirmed one whose latency has since faded
 }
 
 // one preview block per image url in the message, blurred by default with a
@@ -2233,6 +2237,12 @@ function confirmSent(id) {
 	entry.resending = false;
 	entry.ackSecs = Math.max(0, Math.floor((Date.now() - rec.firstSentAt) / 1000));
 	rerenderEntryEl(entry);
+	// the latency reads as a brief confirmation, then clears itself - it's no
+	// longer in `pending`, so with ackSecs gone the badge falls back to blank.
+	setTimeout(() => {
+		entry.ackSecs = null;
+		rerenderEntryEl(entry);
+	}, ACK_LATENCY_TTL_MS);
 }
 
 // record a kind-20001 presence heartbeat from a relay we read. Kept latest-per-

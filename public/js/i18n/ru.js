@@ -99,6 +99,7 @@ export default {
 		title: "кто в #{geo}",
 		title_default: "участники",
 		exit: "[ВЫХОД]",
+		map: "[КАРТА]",
 		empty: "здесь пока никого",
 		present: "здесь",
 		international: "нейтральные воды",
@@ -108,6 +109,11 @@ export default {
 	origin: {
 		local: "местный",
 		teleport: "телепорт",
+	},
+
+	map: {
+		title: "карта геохешей",
+		hint: "тяните — вращать · колесо — зум · тап по ячейке — войти",
 	},
 
 	topbar: {

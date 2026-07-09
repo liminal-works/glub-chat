@@ -111,10 +111,24 @@
 				<div class="usersPanel">
 					<div class="usersHeader">
 						<span id="usersTitle" data-i18n="users.title_default">users</span>
-						<strong id="usersClose" class="usersExit" data-i18n="users.exit">[EXIT]</strong>
+						<span class="usersHeaderBtns">
+							<strong id="usersMap" class="usersExit" data-i18n="users.map">[MAP]</strong>
+							<strong id="usersClose" class="usersExit" data-i18n="users.exit">[EXIT]</strong>
+						</span>
 					</div>
 					<div id="usersLocation" class="usersLocation" hidden></div>
 					<div id="usersList" class="usersList"></div>
+				</div>
+			</div>
+
+			<div id="mapGate" class="gate">
+				<div class="mapPanel">
+					<div class="usersHeader">
+						<span id="mapTitle" data-i18n="map.title">geohash map</span>
+						<strong id="mapClose" class="usersExit" data-i18n="users.exit">[EXIT]</strong>
+					</div>
+					<canvas id="mapCanvas" class="mapCanvas"></canvas>
+					<div id="mapHint" class="mapHint" data-i18n="map.hint">drag to spin · scroll to zoom · tap a cell to join</div>
 				</div>
 			</div>
 

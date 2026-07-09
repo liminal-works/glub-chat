@@ -94,6 +94,7 @@ export default {
 		title: "#{geo} में लोग",
 		title_default: "लोग",
 		exit: "[बाहर]",
+		map: "[नक्शा]",
 		empty: "यहाँ अभी कोई नहीं",
 		present: "मौजूद",
 		international: "अंतरराष्ट्रीय",
@@ -103,6 +104,11 @@ export default {
 	origin: {
 		local: "स्थानीय",
 		teleport: "टेलीपोर्ट",
+	},
+
+	map: {
+		title: "जियोहैश नक्शा",
+		hint: "घुमाने को खींचें · ज़ूम को स्क्रॉल · जुड़ने को सेल टैप करें",
 	},
 
 	topbar: {

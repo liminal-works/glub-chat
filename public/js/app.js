@@ -16,6 +16,7 @@ import { mineNonceTag, POW_DIFFICULTY, idDifficulty, committedDifficulty } from 
 import { createMessageRateLimiter, createPresenceRateLimiter } from "./ratelimit.js";
 import { t, formatAgo, setLocale, detectLocale, onLocaleChange, preferredContentLanguage } from "./i18n/index.js";
 import { createSuggest } from "./ui/suggest.js";
+import { createMap } from "./ui/map.js";
 import { createDmClient, DM_MAX_CONTENT_BYTES } from "./nostr/dm.js";
 import { THEMES, themeNames, activeTheme, applyTheme, persistTheme, initTheme, hexToRgb } from "./themes.js";
 
@@ -79,6 +80,10 @@ const usersTitle = document.getElementById("usersTitle");
 const usersLocation = document.getElementById("usersLocation");
 const usersList = document.getElementById("usersList");
 const usersClose = document.getElementById("usersClose");
+const usersMap = document.getElementById("usersMap");
+const mapGate = document.getElementById("mapGate");
+const mapClose = document.getElementById("mapClose");
+const mapCanvas = document.getElementById("mapCanvas");
 const profileGate = document.getElementById("profileGate");
 const profileCard = document.getElementById("profileCard");
 const profileBanner = document.getElementById("profileBanner");
@@ -1368,6 +1373,72 @@ function closeUsers() {
 	usersGate.classList.remove("show");
 }
 
+// --- geohash globe map ------------------------------------------------------
+
+// live activity per geohash, from the recent message buffer: each message's
+// channel scores by recency (a smooth decay over the last ~20 min), so busy
+// channels glow brighter and quiet ones fade. keyed by full geohash; the map
+// rolls these up to whatever depth it's showing.
+const ACTIVITY_WINDOW_MS = 20 * 60_000;
+function buildActivityMap() {
+	const now = Date.now();
+	const out = new Map();
+	for (const e of entries) {
+		if (e.system || !e.geo || e.geo === "?") continue;
+		if (!/^[0-9a-z]{1,12}$/.test(e.geo)) continue; // geohash channels only
+		const ageMs = now - e.ts * 1000;
+		if (ageMs > ACTIVITY_WINDOW_MS || ageMs < -60_000) continue;
+		const w = 1 - ageMs / ACTIVITY_WINDOW_MS; // 1 = just now, 0 = window edge
+		out.set(e.geo, Math.min(1, (out.get(e.geo) || 0) + w * 0.5));
+	}
+	return out;
+}
+
+let mapInstance = null;
+let mapActivityTimer = null;
+
+function mapColors() {
+	const cs = getComputedStyle(document.documentElement);
+	return {
+		accent: cs.getPropertyValue("--accent").trim() || "#30d158",
+		fg: cs.getPropertyValue("--fg").trim() || "#8fe89c",
+		muted: cs.getPropertyValue("--muted").trim() || "#7a828c",
+		bg: cs.getPropertyValue("--bg").trim() || "#000",
+	};
+}
+
+function openMap() {
+	if (!mapInstance) {
+		mapInstance = createMap({
+			canvas: mapCanvas,
+			colors: mapColors,
+			onPick: (gh) => {
+				closeMap();
+				closeUsers();
+				focusChannel(gh);
+			},
+		});
+	}
+	closeUsers();
+	mapGate.classList.add("show");
+	mapInstance.setActivity(buildActivityMap());
+	// the canvas has no size until the gate is visible - size it next frame
+	requestAnimationFrame(() => {
+		mapInstance.resize();
+		mapInstance.open();
+	});
+	// refresh the activity glow while the map is up (new messages keep arriving)
+	clearInterval(mapActivityTimer);
+	mapActivityTimer = setInterval(() => mapInstance.setActivity(buildActivityMap()), 4000);
+}
+
+function closeMap() {
+	mapGate.classList.remove("show");
+	clearInterval(mapActivityTimer);
+	mapActivityTimer = null;
+	if (mapInstance) mapInstance.close();
+}
+
 // ===========================================================================
 // Direct messages (bitchat NIP-17 gift wraps). E2E-encrypted with the local
 // key, so this rides its own always-on relay client independent of assist mode.
@@ -2006,6 +2077,8 @@ usersClose.addEventListener("click", closeUsers);
 usersGate.addEventListener("click", (e) => {
 	if (e.target === usersGate) closeUsers();
 });
+usersMap.addEventListener("click", openMap);
+mapClose.addEventListener("click", closeMap);
 // tap a user row to open their nostr profile card (when profiles are on)
 usersList.addEventListener("click", (e) => {
 	if (!profilesActive()) return;

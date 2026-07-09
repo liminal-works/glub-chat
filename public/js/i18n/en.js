@@ -103,6 +103,7 @@ export default {
 		title: "users in #{geo}",
 		title_default: "users",
 		exit: "[EXIT]",
+		map: "[MAP]",
 		empty: "no one here yet",
 		present: "present",
 		international: "international",
@@ -112,6 +113,11 @@ export default {
 	origin: {
 		local: "local",
 		teleport: "teleport",
+	},
+
+	map: {
+		title: "geohash map",
+		hint: "drag to spin · scroll to zoom · tap a cell to join",
 	},
 
 	topbar: {

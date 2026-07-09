@@ -844,6 +844,45 @@ textarea {
 	cursor: pointer;
 }
 
+.usersHeaderBtns {
+	display: inline-flex;
+	gap: 14px;
+}
+
+/* --- geohash globe map --- */
+.mapPanel {
+	width: 100%;
+	max-width: 640px;
+	height: min(88vh, 720px);
+	display: flex;
+	flex-direction: column;
+	border: 1px solid var(--chrome-border);
+	background: var(--chrome-bg);
+	padding: 14px;
+	box-sizing: border-box;
+}
+
+.mapCanvas {
+	flex: 1;
+	min-height: 0;
+	width: 100%;
+	margin-top: 8px;
+	touch-action: none; /* we own drag/pinch */
+	cursor: grab;
+}
+
+.mapCanvas:active {
+	cursor: grabbing;
+}
+
+.mapHint {
+	margin-top: 8px;
+	text-align: center;
+	color: var(--muted);
+	font-size: 11.5px;
+	letter-spacing: 0.02em;
+}
+
 /* channel location readout under the title: the resolved place (when the api
    answers) over the always-available cell-size coverage line. */
 .usersLocation {

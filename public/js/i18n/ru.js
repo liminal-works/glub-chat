@@ -23,7 +23,7 @@ export default {
 		assist_label: "серверный ассист",
 		profiles_label: "профили nostr",
 		retro_label: "ретро-терминал",
-		pow_label: "pow-фильтр спама",
+		pow_label: "proof of work",
 		pow_off: "выкл",
 		pow_lenient: "8 · мягкий",
 		pow_standard: "12 · стандарт",
@@ -62,6 +62,7 @@ export default {
 		soon: "{action} — скоро",
 		self: "это вы",
 		reply_banner: "отвечаете @{name}",
+		pow_badge: "pow {n}",
 	},
 
 	translate: {

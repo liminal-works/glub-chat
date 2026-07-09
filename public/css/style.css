@@ -1276,19 +1276,45 @@ textarea {
 	pointer-events: none;
 }
 
-/* compact terminal-styled dropdown for the few settings that aren't on/off
-   (the pow filter's difficulty picker) */
+/* terminal-styled dropdown for the few settings that aren't on/off (the proof-
+   of-work level). native chrome is stripped (no ios pill) and replaced with our
+   own bordered box + caret so it reads like the rest of the controls. the open
+   list is still OS-drawn - unavoidable for <select> - but the resting control
+   matches. the wrapper hosts the caret since <select> can't take ::after. */
+.settingSelectWrap {
+	position: relative;
+	display: inline-flex;
+	align-items: center;
+}
+
+.settingSelectWrap::after {
+	content: "▾";
+	position: absolute;
+	right: 9px;
+	color: var(--muted);
+	font-size: 11px;
+	pointer-events: none;
+}
+
 .settingSelect {
+	appearance: none;
+	-webkit-appearance: none;
 	border: 1px solid var(--chrome-border);
-	background: var(--field-bg);
+	border-radius: 0;
+	background: transparent;
 	color: var(--accent);
 	font: inherit;
 	font-size: 13px;
-	padding: 5px 8px;
+	font-weight: 700;
+	letter-spacing: 0.02em;
+	padding: 6px 24px 6px 11px;
 	cursor: pointer;
 	outline: 0;
+	transition: border-color 0.15s ease;
+	-webkit-tap-highlight-color: transparent;
 }
 
+.settingSelect:hover,
 .settingSelect:focus {
 	border-color: var(--chrome-border-strong);
 }
@@ -1296,6 +1322,7 @@ textarea {
 .settingSelect option {
 	background: var(--chrome-bg);
 	color: var(--fg);
+	font-weight: 400;
 }
 
 /* bracketed text toggle in the terminal style ([ on ] / [ off ]) - the real
@@ -1524,6 +1551,19 @@ textarea {
 
 .actionTitle .sfx {
 	opacity: 0.6;
+}
+
+/* the tapped message's proof-of-work, a muted monospace badge trailing the
+   handle in the action popup */
+.powBadge {
+	color: var(--muted);
+	font-size: 11px;
+	font-weight: 400;
+	letter-spacing: 0.04em;
+	border: 1px solid var(--chrome-border);
+	padding: 1px 5px;
+	vertical-align: 1px;
+	white-space: nowrap;
 }
 
 /* cropped preview of the tapped message, so you can see which one you're acting

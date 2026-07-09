@@ -435,10 +435,20 @@ function linkify(safe) {
 	return html;
 }
 
+// true if entry clears the active proof-of-work bar (android's semantics: a
+// nonce must be present AND its committed difficulty AND the delivered id must
+// both reach the bar). your own messages always pass.
+function entryPassesPow(entry) {
+	const required = getPowFilter();
+	if (!required || entry.mine) return true;
+	return entry.powCommitted >= required && entry.pow >= required;
+}
+
 function entryVisible(entry) {
 	if (entry.ts < clearedBefore) return false; // hidden by /clear (local view filter)
 	if (entry.system) return true;
 	if (isBlocked(entry.pubkey)) return false; // blocked author (session-only, local)
+	if (!entryPassesPow(entry)) return false; // below the proof-of-work bar (live view filter)
 	if (focusedGeo) return entry.geo === focusedGeo; // focused: just this channel (mutes don't apply - you opened it on purpose)
 	return !mutedChannels.has(entry.geo); // global feed: drop muted channels
 }
@@ -846,6 +856,8 @@ function renderEvent(ev) {
 		pendingAck: pending.has(ev.id), // a message we just sent, awaiting echo-back confirmation
 		action: isActionMessage(text),
 		reply: parseReplyMessage(text), // { targetUser, quotedText, body } if this quotes another message
+		pow: idDifficulty(ev.id), // NIP-13 leading-zero bits actually delivered
+		powCommitted: committedDifficulty(ev), // difficulty its nonce tag claims (0 = no nonce)
 		wall: looksLikeWall(text), // screen-eating content starts hard-collapsed
 		images: extractImageUrls(text),
 		expanded: false,
@@ -1459,7 +1471,13 @@ function openActionPopup(pubkey, entry) {
 		content,
 		entryId: entry && entry.id ? entry.id : null, // translate acts on the stored entry
 	};
-	actionTitle.innerHTML = handleHtml(name, pubkey);
+	// handle line, with the tapped message's delivered proof-of-work appended as a
+	// muted badge - a way to eyeball a sender's effort without cluttering chat.
+	const powBadge =
+		entry && !entry.system && typeof entry.pow === "number"
+			? ` <span class="powBadge">${escapeHtml(t("actions.pow_badge", { n: entry.pow }))}</span>`
+			: "";
+	actionTitle.innerHTML = handleHtml(name, pubkey) + powBadge;
 	// cropped preview of the tapped message, so you can see what you're acting on
 	actionPreview.textContent = content;
 	actionPreview.hidden = !content;
@@ -1874,7 +1892,9 @@ retroToggle.addEventListener("change", () => {
 
 powSelect.addEventListener("change", () => {
 	setPowFilter(parseInt(powSelect.value, 10) || 0);
-	// applies to everything ingested from here on; already-rendered lines stay
+	// live view filter: re-run visibility over the whole buffer so raising the
+	// bar hides sub-threshold lines and lowering it brings them right back.
+	rerenderTerminal();
 });
 
 settingsClose.addEventListener("click", closeSettings);
@@ -2162,12 +2182,12 @@ function isOwnEvent(ev) {
 	return ev.pubkey.toLowerCase() === identity.pk.toLowerCase();
 }
 
-// opt-in inbound NIP-13 filter, android's semantics: a nonce tag is required,
-// the committed difficulty (its 3rd element) must reach the bar, and the
-// actual id must deliver it. stateless, so unlike the rate buckets it applies
-// to backlog replays too - filtering stored spam out of history is half the
-// point. own events always pass regardless of setting.
-function passesPowFilter(ev) {
+// presence-only NIP-13 gate (android's semantics). chat uses the equivalent
+// entryPassesPow() as a live VIEW filter instead of dropping here, so sliding
+// the level restores/hides stored messages instantly; presence has no stored
+// buffer to re-filter, so it's gated at ingest and repopulates on the next
+// heartbeat. own events always pass.
+function presencePassesPow(ev) {
 	const required = getPowFilter();
 	if (!required || isOwnEvent(ev)) return true;
 	if (committedDifficulty(ev) < required || idDifficulty(ev.id) < required) {
@@ -2184,7 +2204,7 @@ function passesPowFilter(ev) {
 // reload. backlog damage is separately bounded (REQ limit + MAX_LINES buffer).
 function ingestEvent(ev, live = true) {
 	if (ev.kind === PRESENCE_KIND) {
-		if (!passesPowFilter(ev)) return;
+		if (!presencePassesPow(ev)) return;
 		if (live && !isOwnEvent(ev) && !presenceLimiter.allow("nostr:" + ev.pubkey.toLowerCase())) {
 			spamStats.presenceDrops++;
 			return;
@@ -2194,7 +2214,7 @@ function ingestEvent(ev, live = true) {
 	}
 	if (ev.kind !== CHAT_KIND) return;
 	if (!getGeohash(ev)) return;
-	if (!passesPowFilter(ev)) return;
+	// chat pow is a view filter (entryPassesPow), not an ingest drop - see above
 	// reject far-future timestamps (a skewed/forged clock) - they'd otherwise sit
 	// permanently pinned below every real message
 	if (ev.created_at > Math.floor(Date.now() / 1000) + MAX_FUTURE_SECS) return;

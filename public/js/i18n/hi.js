@@ -23,7 +23,7 @@ export default {
 		assist_label: "सर्वर असिस्ट",
 		profiles_label: "nostr प्रोफ़ाइल",
 		retro_label: "रेट्रो टर्मिनल",
-		pow_label: "pow स्पैम फ़िल्टर",
+		pow_label: "proof of work",
 		pow_off: "बंद",
 		pow_lenient: "8 · नरम",
 		pow_standard: "12 · मानक",
@@ -62,6 +62,7 @@ export default {
 		soon: "{action} — जल्द आ रहा है",
 		self: "यह आप हैं",
 		reply_banner: "@{name} को जवाब",
+		pow_badge: "pow {n}",
 	},
 
 	translate: {

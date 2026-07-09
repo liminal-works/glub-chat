@@ -96,7 +96,6 @@ export default {
 		exit: "[बाहर]",
 		empty: "यहाँ अभी कोई नहीं",
 		present: "मौजूद",
-		coverage: "≈ {km} किमी / {mi} मील",
 		ghosts: { one: "भूत", other: "भूत" },
 	},
 

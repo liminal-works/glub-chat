@@ -1129,8 +1129,24 @@ function flagEmoji(cc) {
 	return String.fromCodePoint(...[...cc.toUpperCase()].map((c) => 0x1f1e6 + c.charCodeAt(0) - 65));
 }
 
-function formatKm(km) {
-	return km >= 100 ? Math.round(km / 10) * 10 : Math.round(km * 10) / 10;
+// distance unit follows the device's region: the handful of miles-first places
+// get mi, everyone else km (matching how native picks a single unit per line).
+function usesImperial() {
+	try {
+		const region = (new Intl.Locale(navigator.language).region || "").toUpperCase();
+		return ["US", "GB", "MM", "LR"].includes(region);
+	} catch {
+		return false;
+	}
+}
+
+// native's coverage style: a "~" prefix, one decimal below 100, whole numbers
+// above (~777 mi, ~24.3 mi, ~3.0 mi, ~0.1 mi).
+function formatDistance(km) {
+	const imperial = usesImperial();
+	const val = imperial ? km * 0.621371 : km;
+	const n = val < 100 ? val.toFixed(1) : String(Math.round(val));
+	return `~${n} ${imperial ? "mi" : "km"}`;
 }
 
 async function fetchGeoPlace(geo) {
@@ -1158,12 +1174,15 @@ function renderUsersLocation(geo) {
 		usersLocation.innerHTML = "";
 		return;
 	}
-	// coverage span (the wider cell dimension) - always available, offline too
-	const km = Math.max(cell.widthKm, cell.heightKm);
-	const coverage = t("users.coverage", { km: formatKm(km), mi: formatKm(km * 0.621371) });
+	// meta line: the channel's coverage distance and the cell-center coordinates
+	// (decimals scale with the geohash precision), bullet-separated like native.
+	// always available - pure client math, offline too.
+	const dp = Math.max(1, Math.min(5, geo.length - 1));
+	const coords = `${cell.lat.toFixed(dp)}, ${cell.lon.toFixed(dp)}`;
+	const meta = `${formatDistance(cell.spanKm)} • ${coords}`;
 	usersLocation.innerHTML =
 		`<div id="usersPlace" class="usersPlace"></div>` +
-		`<div class="usersCoverage">${escapeHtml(coverage)}</div>`;
+		`<div class="usersCoverage">${escapeHtml(meta)}</div>`;
 	usersLocation.hidden = false;
 
 	// decorate with the place name once (if) the api answers - guard against the
@@ -1174,7 +1193,10 @@ function renderUsersLocation(geo) {
 		if (!el || !place || !place.country) return;
 		const parts = [place.city, place.region, place.country].filter(Boolean);
 		const flag = flagEmoji(place.cc);
-		el.textContent = parts.join(", ") + (flag ? " " + flag : "");
+		// "~" marks an approximate sub-country locale (like native); a bare country
+		// name (a 1-2 char geohash) isn't approximate - it IS the whole country.
+		const approx = place.city || place.region ? "~" : "";
+		el.textContent = approx + parts.join(", ") + (flag ? " " + flag : "");
 	});
 }
 

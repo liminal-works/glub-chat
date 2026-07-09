@@ -101,7 +101,6 @@ export default {
 		exit: "[ВЫХОД]",
 		empty: "здесь пока никого",
 		present: "здесь",
-		coverage: "≈ {km} км / {mi} миль",
 		ghosts: { one: "призрак", few: "призрака", many: "призраков", other: "призраков" },
 	},
 

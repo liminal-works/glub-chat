@@ -107,19 +107,18 @@ export function decodeGeohash(geohash) {
 	return { lat: (latLo + latHi) / 2, lon: (lonLo + lonHi) / 2 };
 }
 
-// a geohash cell's center + real-world dimensions. each character is 5 bits,
-// split longitude-first (lon gets ceil(bits/2), lat the rest); the cell spans
-// 360/2^lonBits by 180/2^latBits degrees, converted to km at the cell's own
-// latitude (longitude degrees shrink toward the poles). throws on a non-geohash
-// string, same as decodeGeohash - callers use that to skip word-channels.
+// a geohash cell's center + nominal size. each character is 5 bits, split
+// longitude-first (lon gets ceil(bits/2)); the cell is 360/2^lonBits degrees
+// wide. spanKm is that width at the EQUATOR (not latitude-adjusted) - native
+// bitchat quotes this figure for a channel's coverage (a 2-char geohash reads
+// ~1250km / ~777mi, a 5-char ~4.9km / ~3.0mi), so we reproduce it. throws on a
+// non-geohash string, same as decodeGeohash - callers use that to skip
+// word-channels.
 export function geohashCell(geohash) {
 	const { lat, lon } = decodeGeohash(geohash);
-	const bits = geohash.length * 5;
-	const lonBits = Math.ceil(bits / 2);
-	const latBits = Math.floor(bits / 2);
-	const heightKm = (180 / 2 ** latBits) * 111.32;
-	const widthKm = (360 / 2 ** lonBits) * 111.32 * Math.cos((lat * Math.PI) / 180);
-	return { lat, lon, widthKm, heightKm };
+	const lonBits = Math.ceil((geohash.length * 5) / 2);
+	const spanKm = (360 / 2 ** lonBits) * 111.32;
+	return { lat, lon, spanKm };
 }
 
 // great-circle distance in km between two lat/lon points

@@ -1386,6 +1386,11 @@ function buildActivityMap() {
 	for (const e of entries) {
 		if (e.system || !e.geo || e.geo === "?") continue;
 		if (!/^[0-9a-z]{1,12}$/.test(e.geo)) continue; // geohash channels only
+		// only count messages you could actually see on join: a cell shouldn't glow
+		// off /clear'd, blocked, or below-pow traffic and then open empty.
+		if (e.ts < clearedBefore) continue;
+		if (isBlocked(e.pubkey)) continue;
+		if (!entryPassesPow(e)) continue;
 		const ageMs = now - e.ts * 1000;
 		if (ageMs > ACTIVITY_WINDOW_MS || ageMs < -60_000) continue;
 		const w = 1 - ageMs / ACTIVITY_WINDOW_MS; // 1 = just now, 0 = window edge
@@ -1425,6 +1430,8 @@ function openMap() {
 	// the canvas has no size until the gate is visible - size it next frame
 	requestAnimationFrame(() => {
 		mapInstance.resize();
+		// drop onto your current channel if you're focused on a geohash one
+		if (focusedGeo && /^[0-9a-z]{1,12}$/.test(focusedGeo)) mapInstance.focusGeohash(focusedGeo);
 		mapInstance.open();
 	});
 	// refresh the activity glow while the map is up (new messages keep arriving)

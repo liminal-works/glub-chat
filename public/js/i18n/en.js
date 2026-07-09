@@ -117,7 +117,7 @@ export default {
 
 	map: {
 		title: "geohash map",
-		hint: "drag to spin · scroll to zoom · tap a cell to join",
+		hint: "drag to spin · zoom to explore · select a cell to join",
 	},
 
 	topbar: {

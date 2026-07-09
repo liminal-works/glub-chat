@@ -275,15 +275,6 @@ export function createMap({ canvas, onPick, colors }) {
 		ctx.strokeStyle = withAlpha(c.accent, hovered ? 0.95 : 0.28 + 0.5 * intensity);
 		ctx.stroke();
 
-		// activity pulse dot at the cell center
-		if (intensity > 0 && center.front) {
-			const t = (Math.sin(performance.now() / 380) + 1) / 2;
-			ctx.beginPath();
-			ctx.arc(center.x, center.y, 2 + 2.4 * intensity * (0.5 + 0.5 * t), 0, TWO_PI);
-			ctx.fillStyle = withAlpha(c.accent, 0.55 + 0.35 * t);
-			ctx.fill();
-		}
-
 		if ((label || hovered) && center.front) {
 			ctx.font = `${hovered ? 13 : 11}px ui-monospace, monospace`;
 			ctx.textAlign = "center";
@@ -366,8 +357,10 @@ export function createMap({ canvas, onPick, colors }) {
 			drag.x = e.clientX;
 			drag.y = e.clientY;
 			lastInteract = performance.now();
-		} else {
-			// hover highlight (desktop)
+		} else if (e.pointerType === "mouse") {
+			// hover highlight - mouse only. on touch it's unusable: a scroll/spin
+			// drags the pointer across cells and flickers the selection, so we skip
+			// it entirely and let taps pick directly.
 			hoverGeo = geoAt(e.clientX - r.left, e.clientY - r.top);
 		}
 	}
@@ -425,6 +418,23 @@ export function createMap({ canvas, onPick, colors }) {
 	function setActivity(map) {
 		activity = map instanceof Map ? map : new Map(Object.entries(map || {}));
 	}
+	// rotate the globe so `gh`'s cell sits under the center, and zoom in enough to
+	// frame it - used to drop you onto your current channel when the map opens.
+	function focusGeohash(gh) {
+		if (!gh || !/^[0-9a-z]{1,12}$/.test(gh)) return;
+		const b = geohashBounds(gh);
+		yaw = wrapLon((b.lonLo + b.lonHi) / 2);
+		pitch = Math.max(-89, Math.min(89, (b.latLo + b.latHi) / 2));
+		// zoom in so the region reads clearly, but cap the framed depth at 3: past
+		// that the grid gets so fine that enumeration can't reach the center and the
+		// view blanks. so we land on the neighborhood, and you zoom/tap the rest.
+		const depth = Math.min(gh.length, 3);
+		const { lon: lonBits } = bitsFor(depth);
+		const wDeg = 360 / 2 ** lonBits;
+		const minDim = Math.min(W, H) || 1;
+		setZoom(90 / (minDim * 0.42 * wDeg * DEG)); // ~90px cells at this depth
+		lastInteract = performance.now();
+	}
 	function destroy() {
 		close();
 		canvas.removeEventListener("pointerdown", onDown);
@@ -442,7 +452,7 @@ export function createMap({ canvas, onPick, colors }) {
 	canvas.addEventListener("wheel", onWheel, { passive: false });
 	window.addEventListener("resize", resize);
 
-	return { open, close, setActivity, destroy, resize };
+	return { open, close, setActivity, focusGeohash, destroy, resize };
 }
 
 // --- helpers -----------------------------------------------------------------

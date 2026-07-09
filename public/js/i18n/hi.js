@@ -96,6 +96,7 @@ export default {
 		exit: "[बाहर]",
 		empty: "यहाँ अभी कोई नहीं",
 		present: "मौजूद",
+		international: "अंतरराष्ट्रीय",
 		ghosts: { one: "भूत", other: "भूत" },
 	},
 

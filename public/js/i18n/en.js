@@ -105,6 +105,7 @@ export default {
 		exit: "[EXIT]",
 		empty: "no one here yet",
 		present: "present",
+		international: "international",
 		ghosts: { one: "ghost", other: "ghosts" },
 	},
 

@@ -101,6 +101,7 @@ export default {
 		exit: "[ВЫХОД]",
 		empty: "здесь пока никого",
 		present: "здесь",
+		international: "нейтральные воды",
 		ghosts: { one: "призрак", few: "призрака", many: "призраков", other: "призраков" },
 	},
 

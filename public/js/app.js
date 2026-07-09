@@ -1149,19 +1149,23 @@ function formatDistance(km) {
 	return `~${n} ${imperial ? "mi" : "km"}`;
 }
 
+// tri-state: a place object (geocoded), null (api answered but it's nowhere -
+// open ocean etc. -> "international"), or undefined (api unreachable / pure mode
+// -> we simply don't know, show coverage only). only the first two are cached.
 async function fetchGeoPlace(geo) {
 	const key = geo.toLowerCase();
 	if (geoPlaceCache.has(key)) return geoPlaceCache.get(key);
 	try {
 		// cache:"default" lets the browser reuse the api's 24h-cacheable response across reloads
 		const res = await fetch(`${API_BASE}/api/geocode?geo=${encodeURIComponent(geo)}`);
-		if (!res.ok) return null;
+		if (!res.ok) return undefined;
 		const data = await res.json();
-		const place = data && data.ok ? data.place : null;
-		geoPlaceCache.set(key, place); // cache the answer (incl. a confirmed null)
+		if (!data || !data.ok) return undefined;
+		const place = data.place || null; // null = confirmed non-place
+		geoPlaceCache.set(key, place);
 		return place;
 	} catch {
-		return null; // no api reachable (pure mode) - coverage line stands alone
+		return undefined; // no api reachable (pure mode) - coverage line stands alone
 	}
 }
 
@@ -1190,7 +1194,12 @@ function renderUsersLocation(geo) {
 	fetchGeoPlace(geo).then((place) => {
 		if (focusedGeo !== geo || !usersGate.classList.contains("show")) return;
 		const el = document.getElementById("usersPlace");
-		if (!el || !place || !place.country) return;
+		if (!el || place === undefined) return; // api unreachable - leave coverage-only
+		if (!place || !place.country) {
+			// geocodable coordinates that resolve to nowhere (open ocean, poles...)
+			el.textContent = t("users.international");
+			return;
+		}
 		const parts = [place.city, place.region, place.country].filter(Boolean);
 		const flag = flagEmoji(place.cc);
 		// "~" marks an approximate sub-country locale (like native); a bare country

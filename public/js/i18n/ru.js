@@ -100,6 +100,7 @@ export default {
 		title_default: "участники",
 		exit: "[ВЫХОД]",
 		map: "[КАРТА]",
+		notes: "[ЗАМЕТКИ]",
 		empty: "здесь пока никого",
 		present: "здесь",
 		international: "нейтральные воды",
@@ -114,6 +115,21 @@ export default {
 	map: {
 		title: "карта геохешей",
 		hint: "тяните — вращать · зум — обзор · выберите ячейку — войти",
+	},
+
+	notes: {
+		title: "заметки",
+		placeholder: "оставьте заметку в этом канале…",
+		post: "оставить",
+		loading: "загрузка заметок…",
+		empty: "заметок пока нет — оставьте первую",
+		no_relays: "нет релеев для этого канала",
+		delete: "удалить",
+		fades_in: "исчезнет через {time}",
+		expiry_never: "никогда",
+		expiry_1d: "1 день",
+		expiry_3d: "3 дня",
+		expiry_7d: "7 дней",
 	},
 
 	topbar: {

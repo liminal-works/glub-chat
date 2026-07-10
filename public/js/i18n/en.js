@@ -104,6 +104,7 @@ export default {
 		title_default: "users",
 		exit: "[EXIT]",
 		map: "[MAP]",
+		notes: "[NOTES]",
 		empty: "no one here yet",
 		present: "present",
 		international: "international",
@@ -118,6 +119,22 @@ export default {
 	map: {
 		title: "geohash map",
 		hint: "drag to spin · zoom to explore · select a cell to join",
+	},
+
+	// the location-notes sheet: a persistent per-channel bulletin board (kind-1)
+	notes: {
+		title: "notes",
+		placeholder: "leave a note for this channel…",
+		post: "post",
+		loading: "loading notes…",
+		empty: "no notes here yet — leave the first",
+		no_relays: "no relays for this channel",
+		delete: "delete",
+		fades_in: "fades in {time}",
+		expiry_never: "never",
+		expiry_1d: "1 day",
+		expiry_3d: "3 days",
+		expiry_7d: "7 days",
 	},
 
 	topbar: {

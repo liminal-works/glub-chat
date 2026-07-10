@@ -18,6 +18,7 @@ import { t, formatAgo, setLocale, detectLocale, onLocaleChange, preferredContent
 import { createSuggest } from "./ui/suggest.js";
 import { createMap } from "./ui/map.js";
 import { createDmClient, DM_MAX_CONTENT_BYTES } from "./nostr/dm.js";
+import { createNotesClient } from "./nostr/notes.js";
 import { THEMES, themeNames, activeTheme, applyTheme, persistTheme, initTheme, hexToRgb } from "./themes.js";
 
 // re-apply the persisted theme before anything renders (module scripts run
@@ -84,6 +85,14 @@ const usersMap = document.getElementById("usersMap");
 const mapGate = document.getElementById("mapGate");
 const mapClose = document.getElementById("mapClose");
 const mapCanvas = document.getElementById("mapCanvas");
+const usersNotes = document.getElementById("usersNotes");
+const notesGate = document.getElementById("notesGate");
+const notesTitle = document.getElementById("notesTitle");
+const notesClose = document.getElementById("notesClose");
+const notesList = document.getElementById("notesList");
+const notesInput = document.getElementById("notesInput");
+const notesExpiry = document.getElementById("notesExpiry");
+const notesPost = document.getElementById("notesPost");
 const profileGate = document.getElementById("profileGate");
 const profileCard = document.getElementById("profileCard");
 const profileBanner = document.getElementById("profileBanner");
@@ -1233,6 +1242,7 @@ async function openUsers() {
 	talkingPubkeys.add(identity.pk); // never show yourself as a ghost (assist snapshot includes you)
 
 	usersTitle.textContent = t("users.title", { geo: clipText(geo, 14) });
+	updateNotesButton();
 	renderUsersLocation(geo);
 	showUsers(geo, talking, presentRows(localPresence(geo), talkingPubkeys));
 	usersGate.classList.add("show");
@@ -1444,6 +1454,121 @@ function closeMap() {
 	clearInterval(mapActivityTimer);
 	mapActivityTimer = null;
 	if (mapInstance) mapInstance.close();
+}
+
+// --- location notes ---------------------------------------------------------
+// bitchat's per-geohash bulletin board: persistent (stored) nostr kind-1 notes
+// tagged to the focused channel's geohash + its 8 neighbors, fetched on demand
+// over their own relay client (nostr/notes.js) - independent of the chat pool
+// and assist mode, the same way DMs are. Notes can expire via NIP-40 and own
+// notes are deletable via NIP-09.
+
+let notesClient = null;
+
+// nearest-first relay urls for a channel - the same source the chat pool uses.
+function geoRelaysFor(geohash) {
+	if (!allRelays.length) return [];
+	return sortRelaysByGeohash(allRelays, geohash).map((r) => r.url);
+}
+
+// notes are channel-scoped, so the surface only exists while focused on a real
+// geohash (word-channels like #🥩 have no location and are excluded).
+function notesEnabledGeo() {
+	return focusedGeo && /^[0-9a-z]{1,12}$/.test(focusedGeo) ? focusedGeo : null;
+}
+
+function updateNotesButton() {
+	usersNotes.hidden = !notesEnabledGeo();
+}
+
+function ensureNotesClient() {
+	if (!notesClient) {
+		notesClient = createNotesClient({
+			getIdentity: () => identity,
+			getRelays: geoRelaysFor,
+			onChange: renderNotes,
+		});
+	}
+	return notesClient;
+}
+
+function openNotes() {
+	const geo = notesEnabledGeo();
+	if (!geo) return;
+	closeUsers();
+	ensureNotesClient();
+	notesTitle.innerHTML = `${escapeHtml(t("notes.title"))} <span class="notesTitleGeo">#${escapeHtml(geo)}</span>`;
+	notesInput.value = "";
+	updateNotesPostBtn();
+	notesGate.classList.add("show");
+	notesClient.open(geo);
+}
+
+function closeNotes() {
+	notesGate.classList.remove("show");
+	if (notesClient) notesClient.close();
+}
+
+// compact "fades in 23h / 2d" for a NIP-40 expiry (epoch secs).
+function notesFadesIn(expiresAt) {
+	const s = Math.max(0, expiresAt - Math.floor(Date.now() / 1000));
+	const d = Math.floor(s / 86400);
+	const h = Math.ceil(s / 3600);
+	const span = d >= 1 ? `${d}d` : h >= 1 ? `${h}h` : "<1h";
+	return t("notes.fades_in", { time: span });
+}
+
+function noteRowHtml(n) {
+	const who = (n.name || "").trim() || "anon";
+	const tag = n.pubkey.slice(-4);
+	const color = pubkeyColor(n.pubkey);
+	const expiry = n.expiresAt
+		? `<span class="noteExpiry">· ${escapeHtml(notesFadesIn(n.expiresAt))}</span>`
+		: "";
+	const del = n.mine
+		? `<button class="noteDelete" data-note-del="${escapeHtml(n.id)}">${escapeHtml(t("notes.delete"))}</button>`
+		: "";
+	return (
+		`<div class="noteItem${n.mine ? " mine" : ""}">` +
+		`<div class="noteMeta">` +
+		`<span class="noteAuthor" style="color:${color}">@${escapeHtml(clipText(who, 22))}<span class="sfx">#${escapeHtml(tag)}</span></span>` +
+		`<span class="noteTime">${escapeHtml(formatAgo(n.createdAt))}</span>` +
+		expiry +
+		del +
+		`</div>` +
+		`<div class="noteBody">${linkify(escapeHtml(n.content))}</div>` +
+		`</div>`
+	);
+}
+
+function renderNotes(snapshot) {
+	const snap = snapshot || (notesClient ? notesClient.getState() : { state: "idle", notes: [] });
+	const notes = snap.notes || [];
+	if (!notes.length) {
+		const key =
+			snap.state === "no_relays" ? "notes.no_relays" : snap.state === "loading" ? "notes.loading" : "notes.empty";
+		notesList.innerHTML = `<div class="notesStatus">${escapeHtml(t(key))}</div>`;
+		return;
+	}
+	notesList.innerHTML = notes.map(noteRowHtml).join("");
+}
+
+function updateNotesPostBtn() {
+	notesPost.disabled = !notesInput.value.trim();
+}
+
+function submitNote() {
+	const content = notesInput.value.trim();
+	if (!content || !notesClient) return;
+	if (NSEC_RE.test(content)) {
+		appendSystem(t("system.nsec_blocked"));
+		return;
+	}
+	const expiresInSecs = Number(notesExpiry.value) || 0;
+	const res = notesClient.post({ content, name, expiresInSecs });
+	if (!res.ok) return;
+	notesInput.value = "";
+	updateNotesPostBtn();
 }
 
 // ===========================================================================
@@ -2086,6 +2211,24 @@ usersGate.addEventListener("click", (e) => {
 });
 usersMap.addEventListener("click", openMap);
 mapClose.addEventListener("click", closeMap);
+usersNotes.addEventListener("click", openNotes);
+notesClose.addEventListener("click", closeNotes);
+notesGate.addEventListener("click", (e) => {
+	if (e.target === notesGate) closeNotes();
+});
+notesInput.addEventListener("input", updateNotesPostBtn);
+// Enter posts, Shift+Enter inserts a newline (the note body is multi-line).
+notesInput.addEventListener("keydown", (e) => {
+	if (e.key === "Enter" && !e.shiftKey) {
+		e.preventDefault();
+		submitNote();
+	}
+});
+notesPost.addEventListener("click", submitNote);
+notesList.addEventListener("click", (e) => {
+	const del = e.target.closest("[data-note-del]");
+	if (del && notesClient) notesClient.remove(del.getAttribute("data-note-del"));
+});
 // tap a user row to open their nostr profile card (when profiles are on)
 usersList.addEventListener("click", (e) => {
 	if (!profilesActive()) return;
@@ -2671,6 +2814,7 @@ function focusChannel(geo) {
 	focusedGeo = geo;
 	updatePlaceholder();
 	updateFocusedUserCount();
+	updateNotesButton();
 	renderTopbar();
 	rerenderTerminal(); // assist mode: focus is just an instant local filter of the buffer
 
@@ -2682,8 +2826,10 @@ function focusChannel(geo) {
 function exitFocus() {
 	focusedGeo = null;
 	suggest.hide();
+	closeNotes(); // notes are channel-scoped; leaving the channel closes them
 	updatePlaceholder();
 	updateFocusedUserCount();
+	updateNotesButton();
 	renderTopbar();
 	rerenderTerminal();
 

@@ -112,6 +112,7 @@
 					<div class="usersHeader">
 						<span id="usersTitle" data-i18n="users.title_default">users</span>
 						<span class="usersHeaderBtns">
+							<strong id="usersNotes" class="usersExit" data-i18n="users.notes" hidden>[NOTES]</strong>
 							<strong id="usersMap" class="usersExit" data-i18n="users.map">[MAP]</strong>
 							<strong id="usersClose" class="usersExit" data-i18n="users.exit">[EXIT]</strong>
 						</span>
@@ -129,6 +130,28 @@
 					</div>
 					<canvas id="mapCanvas" class="mapCanvas"></canvas>
 					<div id="mapHint" class="mapHint" data-i18n="map.hint">drag to spin · zoom to explore · select a cell to join</div>
+				</div>
+			</div>
+
+			<div id="notesGate" class="gate">
+				<div class="notesPanel">
+					<div class="usersHeader">
+						<span id="notesTitle" data-i18n="notes.title">location notes</span>
+						<strong id="notesClose" class="usersExit" data-i18n="users.exit">[EXIT]</strong>
+					</div>
+					<div id="notesList" class="notesList"></div>
+					<div class="notesComposer">
+						<textarea id="notesInput" class="notesInput" rows="2" maxlength="500" spellcheck="true" data-i18n-placeholder="notes.placeholder" placeholder="leave a note for this channel…"></textarea>
+						<div class="notesComposerRow">
+							<select id="notesExpiry" class="notesExpiry" aria-label="expiry">
+								<option value="0" data-i18n="notes.expiry_never">never</option>
+								<option value="86400" data-i18n="notes.expiry_1d">1 day</option>
+								<option value="259200" data-i18n="notes.expiry_3d">3 days</option>
+								<option value="604800" data-i18n="notes.expiry_7d">7 days</option>
+							</select>
+							<button id="notesPost" class="notesPost" type="button" data-i18n="notes.post">post</button>
+						</div>
+					</div>
 				</div>
 			</div>
 

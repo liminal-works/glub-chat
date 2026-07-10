@@ -95,6 +95,7 @@ export default {
 		title_default: "लोग",
 		exit: "[बाहर]",
 		map: "[नक्शा]",
+		notes: "[नोट्स]",
 		empty: "यहाँ अभी कोई नहीं",
 		present: "मौजूद",
 		international: "अंतरराष्ट्रीय",
@@ -109,6 +110,21 @@ export default {
 	map: {
 		title: "जियोहैश नक्शा",
 		hint: "घुमाने को खींचें · देखने को ज़ूम करें · जुड़ने को सेल चुनें",
+	},
+
+	notes: {
+		title: "नोट्स",
+		placeholder: "इस चैनल के लिए एक नोट छोड़ें…",
+		post: "पोस्ट",
+		loading: "नोट्स लोड हो रहे हैं…",
+		empty: "यहाँ अभी कोई नोट नहीं — पहला छोड़ें",
+		no_relays: "इस चैनल के लिए कोई रिले नहीं",
+		delete: "हटाएँ",
+		fades_in: "{time} में मिट जाएगा",
+		expiry_never: "कभी नहीं",
+		expiry_1d: "1 दिन",
+		expiry_3d: "3 दिन",
+		expiry_7d: "7 दिन",
 	},
 
 	topbar: {

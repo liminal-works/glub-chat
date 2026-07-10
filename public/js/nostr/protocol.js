@@ -51,6 +51,48 @@ export function buildPresenceEvent({ geohash, name, pk }) {
 	};
 }
 
+// bitchat's "location notes": persistent (stored) kind-1 text notes tagged to a
+// geohash, optionally expiring via NIP-40. Unlike chat (ephemeral 20000) these
+// stick around on relays, so a channel accrues a little bulletin board. Deletes
+// are NIP-09 kind-5. No teleport tag and no PoW - matches native exactly.
+export const NOTE_KIND = 1;
+export const DELETE_KIND = 5;
+
+// build an unsigned location note. expiresAt is a unix-seconds number or null
+// (null = never expires). name goes in an `n` tag like chat.
+export function buildNoteEvent({ content, geohash, name, pk, expiresAt = null }) {
+	const tags = [["g", geohash]];
+	if (name) tags.push(["n", name]);
+	if (expiresAt) tags.push(["expiration", String(Math.floor(expiresAt))]);
+	return {
+		kind: NOTE_KIND,
+		created_at: Math.floor(Date.now() / 1000),
+		tags,
+		content,
+		pubkey: pk,
+	};
+}
+
+export function makeNote({ content, geohash, name, expiresAt, sk, pk }) {
+	return signEvent(buildNoteEvent({ content, geohash, name, pk, expiresAt }), sk);
+}
+
+// a NIP-09 deletion request for one of your own notes (relays that honor it drop
+// the referenced event; we also drop it locally regardless).
+export function makeDeleteEvent({ eventId, sk, pk }) {
+	return signEvent(
+		{ kind: DELETE_KIND, created_at: Math.floor(Date.now() / 1000), tags: [["e", eventId]], content: "", pubkey: pk },
+		sk,
+	);
+}
+
+// the NIP-40 expiration (unix secs) an event carries, or null.
+export function noteExpiration(ev) {
+	const raw = getTag(ev, "expiration");
+	const n = Number(raw);
+	return raw && Number.isFinite(n) ? n : null;
+}
+
 export function signEvent(unsigned, sk) {
 	return finalizeEvent(unsigned, sk);
 }
@@ -105,6 +147,50 @@ export function decodeGeohash(geohash) {
 	}
 
 	return { lat: (latLo + latHi) / 2, lon: (lonLo + lonHi) / 2 };
+}
+
+// encode a lat/lon to a geohash of the given length (inverse of decodeGeohash).
+export function encodeGeohash(lat, lon, len) {
+	let latLo = -90, latHi = 90, lonLo = -180, lonHi = 180;
+	let even = true, bit = 0, ch = 0, out = "";
+	while (out.length < len) {
+		if (even) {
+			const mid = (lonLo + lonHi) / 2;
+			if (lon >= mid) { ch = (ch << 1) | 1; lonLo = mid; } else { ch <<= 1; lonHi = mid; }
+		} else {
+			const mid = (latLo + latHi) / 2;
+			if (lat >= mid) { ch = (ch << 1) | 1; latLo = mid; } else { ch <<= 1; latHi = mid; }
+		}
+		even = !even;
+		if (++bit === 5) { out += GEOHASH_BASE32[ch]; bit = 0; ch = 0; }
+	}
+	return out;
+}
+
+// the geohash's 8 surrounding cells (same length), for the ±1-cell subscription
+// window bitchat uses so notes posted just over a cell edge still surface. found
+// by stepping the center by one cell width/height and re-encoding; interior
+// cells resolve exactly, edge cases (poles/antimeridian) just clamp/wrap.
+export function geohashNeighbors(geohash) {
+	const { lat, lon } = decodeGeohash(geohash);
+	const len = geohash.length;
+	const lonBits = Math.ceil((len * 5) / 2);
+	const latBits = Math.floor((len * 5) / 2);
+	const lonStep = 360 / 2 ** lonBits;
+	const latStep = 180 / 2 ** latBits;
+	const out = [];
+	for (const dLat of [latStep, 0, -latStep]) {
+		for (const dLon of [-lonStep, 0, lonStep]) {
+			if (dLat === 0 && dLon === 0) continue;
+			const nlat = Math.max(-90, Math.min(90, lat + dLat));
+			let nlon = lon + dLon;
+			if (nlon > 180) nlon -= 360;
+			else if (nlon < -180) nlon += 360;
+			const gh = encodeGeohash(nlat, nlon, len);
+			if (gh !== geohash && !out.includes(gh)) out.push(gh);
+		}
+	}
+	return out;
 }
 
 // a geohash cell's center + nominal size. each character is 5 bits, split

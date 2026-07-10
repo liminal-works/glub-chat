@@ -141,7 +141,7 @@
 					</div>
 					<div id="notesList" class="notesList"></div>
 					<div class="notesComposer">
-						<textarea id="notesInput" class="notesInput" rows="2" maxlength="500" enterkeyhint="send" spellcheck="true" autocomplete="off" data-i18n-placeholder="notes.placeholder" placeholder="leave a note for this channel…"></textarea>
+						<textarea id="notesInput" class="notesInput" rows="2" maxlength="500" enterkeyhint="send" spellcheck="true" autocorrect="on" autocapitalize="sentences" autocomplete="on" data-i18n-placeholder="notes.placeholder" placeholder="leave a note for this channel…"></textarea>
 						<div class="notesComposerRow">
 							<select id="notesExpiry" class="notesExpiry" aria-label="expiry">
 								<option value="0" data-i18n="notes.expiry_never">never</option>
@@ -211,7 +211,7 @@
 					<div id="dmThread" class="dmThread"></div>
 					<div id="dmInputbar" class="dmInputbar">
 						<span class="prompt" aria-hidden="true">&gt;</span>
-						<input id="dmInput" type="text" enterkeyhint="send" spellcheck="true" autocomplete="off" maxlength="255" placeholder="encrypted message…" data-i18n-placeholder="dm.placeholder" />
+						<input id="dmInput" type="text" enterkeyhint="send" spellcheck="true" autocorrect="on" autocapitalize="sentences" autocomplete="on" maxlength="255" placeholder="encrypted message…" data-i18n-placeholder="dm.placeholder" />
 						<button id="dmSendBtn" type="button" data-i18n="composer.send">send</button>
 					</div>
 				</div>
@@ -239,7 +239,7 @@
 				<div id="inputbar">
 					<input id="mediaFile" type="file" accept="image/*" hidden />
 					<span class="prompt" aria-hidden="true">&gt;</span>
-					<input id="chatInput" type="text" enterkeyhint="send" spellcheck="true" autocomplete="off" placeholder="#channel message..." data-i18n-placeholder="composer.placeholder_global" />
+					<input id="chatInput" type="text" enterkeyhint="send" spellcheck="true" autocorrect="on" autocapitalize="sentences" autocomplete="on" placeholder="#channel message..." data-i18n-placeholder="composer.placeholder_global" />
 					<button id="mediaBtn" type="button" hidden>+</button>
 					<button id="sendBtn" type="button" data-i18n="composer.send">send</button>
 				</div>

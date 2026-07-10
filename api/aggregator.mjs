@@ -1,7 +1,17 @@
 import WebSocket from "ws";
 import { fetchRelayList } from "../public/js/nostr/relayList.js";
 import { createMessageRateLimiter, createPresenceRateLimiter } from "../public/js/ratelimit.js";
-import { CHAT_KIND, PRESENCE_KIND, getGeohash, getName, verifyEvent } from "./nostr.mjs";
+import {
+	CHAT_KIND,
+	PRESENCE_KIND,
+	NOTE_KIND,
+	DELETE_KIND,
+	getGeohash,
+	getName,
+	noteExpiration,
+	deletionTargets,
+	verifyEvent,
+} from "./nostr.mjs";
 
 // Use the `ws` library (not Node's built-in/undici WebSocket): it's the
 // battle-tested standard the nostr ecosystem relies on and holds far more
@@ -22,6 +32,13 @@ const PRESENCE_PRUNE_MS = 60_000; // sweep stale presences this often
 // the presence subscription to just the recent window + a hard replay cap.
 const PRESENCE_SINCE_SECS = PRESENCE_FRESH_MS / 1000;
 const PRESENCE_REPLAY_LIMIT = 200;
+// location notes (kind 1) are persistent, so unlike presence we do want history -
+// but bounded, so a relay's kind-1 backlog can't dump unbounded work at connect.
+// (non-geohash notes are dropped before signature verification, so the verify
+// cost is limited to actual geohash notes.)
+const NOTES_SINCE_SECS = 180 * 24 * 60 * 60; // ignore notes older than ~6 months
+const NOTES_REPLAY_LIMIT = 500; // per-relay backlog cap on connect
+const NOTES_PRUNE_MS = 5 * 60_000; // sweep expired/overflow notes this often
 
 // The relay aggregator: subscribes to every relay it can, signature-verifies
 // events, and stores geohash chat events. Unlike the browser client (which caps
@@ -44,7 +61,8 @@ export function createAggregator(store, { onStored } = {}) {
 	// compressed replay of hours, and store.insert dedups it anyway.
 	const chatLimiter = createMessageRateLimiter();
 	const presenceLimiter = createPresenceRateLimiter();
-	const spamDrops = { chat: 0, presence: 0 };
+	const noteLimiter = createMessageRateLimiter(); // notes are low-volume; reuse the chat bucket shape
+	const spamDrops = { chat: 0, presence: 0, note: 0 };
 
 	// returns an event's geohash if it's acceptable to store/relay, else "".
 	// Only signed kind-20000 chat events with a sane geohash and a non-future
@@ -126,24 +144,72 @@ export function createAggregator(store, { onStored } = {}) {
 		}
 	}
 
+	// store a location note (kind 1). Only signed notes with a sane geohash and a
+	// non-past NIP-40 expiry are cached; non-geohash kind-1 (the bulk of the global
+	// text-note firehose) is dropped BEFORE the signature check, so verify cost is
+	// bounded to actual geohash notes.
+	function ingestNote(ev, live = true) {
+		if (!ev || ev.kind !== NOTE_KIND) return false;
+		if (typeof ev.id !== "string" || typeof ev.pubkey !== "string") return false;
+		if (ev.created_at > Math.floor(Date.now() / 1000) + MAX_FUTURE_SECS) return false;
+		const geo = getGeohash(ev);
+		if (!geo || geo.length > MAX_GEOHASH_LEN) return false; // not a geohash note - ignore
+		const expiresAt = noteExpiration(ev);
+		if (expiresAt != null && expiresAt <= Math.floor(Date.now() / 1000)) return false; // already expired
+		if (!verifyEvent(ev)) return false;
+		if (live && !noteLimiter.allow("nostr:" + ev.pubkey.toLowerCase(), ev.content)) {
+			spamDrops.note++;
+			return false;
+		}
+		return store.insertNote(ev, geo.toLowerCase(), expiresAt);
+	}
+
+	// honor a NIP-09 deletion (kind 5): drop any cached note it references, but only
+	// notes authored by the deletion's signer (store.deleteNote enforces this too).
+	function handleDeletion(ev, _live = true) {
+		if (!ev || ev.kind !== DELETE_KIND) return false;
+		if (typeof ev.pubkey !== "string") return false;
+		const targets = deletionTargets(ev);
+		if (targets.length === 0) return false;
+		if (!verifyEvent(ev)) return false;
+		let removed = 0;
+		for (const id of targets) removed += store.deleteNote(id, ev.pubkey);
+		return removed > 0;
+	}
+
 	// publish a client-signed event on the client's behalf (assist mode holds no
 	// relay sockets of its own): validate and fan it out to every connected relay.
-	// Accepts chat (stored + streamed to subscribers, always, so a re-publish can
-	// re-confirm) and presence (tracked, so we and other assist clients see it).
-	// Returns the relay count, or -1 if the event is invalid.
+	// Accepts chat (stored + streamed to subscribers), presence (tracked), location
+	// notes (cached), and note deletions (applied to the cache). Returns the relay
+	// count, or -1 if the event is invalid.
 	function publish(ev) {
-		if (!ev || (ev.kind !== CHAT_KIND && ev.kind !== PRESENCE_KIND)) return -1;
-		if (typeof ev.id !== "string" || typeof ev.pubkey !== "string") return -1;
+		if (!ev || typeof ev.id !== "string" || typeof ev.pubkey !== "string") return -1;
 		if (ev.created_at > Math.floor(Date.now() / 1000) + MAX_FUTURE_SECS) return -1;
-		const geo = getGeohash(ev);
-		if (!geo || geo.length > MAX_GEOHASH_LEN) return -1;
-		if (!verifyEvent(ev)) return -1;
 
-		if (ev.kind === CHAT_KIND) {
-			store.insert(ev, geo); // idempotent
-			if (onStored) onStored(ev, geo);
+		if (ev.kind === CHAT_KIND || ev.kind === PRESENCE_KIND) {
+			const geo = getGeohash(ev);
+			if (!geo || geo.length > MAX_GEOHASH_LEN) return -1;
+			if (!verifyEvent(ev)) return -1;
+			if (ev.kind === CHAT_KIND) {
+				store.insert(ev, geo); // idempotent
+				if (onStored) onStored(ev, geo);
+			} else {
+				trackPresence(ev); // record our own presence like any relay-sourced one
+			}
+		} else if (ev.kind === NOTE_KIND) {
+			const geo = getGeohash(ev);
+			if (!geo || geo.length > MAX_GEOHASH_LEN) return -1;
+			const expiresAt = noteExpiration(ev);
+			if (expiresAt != null && expiresAt <= Math.floor(Date.now() / 1000)) return -1;
+			if (!verifyEvent(ev)) return -1;
+			store.insertNote(ev, geo.toLowerCase(), expiresAt); // idempotent
+		} else if (ev.kind === DELETE_KIND) {
+			const targets = deletionTargets(ev);
+			if (targets.length === 0) return -1;
+			if (!verifyEvent(ev)) return -1;
+			for (const id of targets) store.deleteNote(id, ev.pubkey); // NIP-09, author-scoped
 		} else {
-			trackPresence(ev); // record our own presence like any relay-sourced one
+			return -1;
 		}
 
 		const payload = JSON.stringify(["EVENT", ev]);
@@ -186,6 +252,8 @@ export function createAggregator(store, { onStored } = {}) {
 		seenIds.add(ev.id);
 
 		if (ev.kind === PRESENCE_KIND) trackPresence(ev, conn.eosed);
+		else if (ev.kind === NOTE_KIND) ingestNote(ev, conn.eosed);
+		else if (ev.kind === DELETE_KIND) handleDeletion(ev, conn.eosed);
 		else ingest(ev, conn.eosed);
 	}
 
@@ -213,13 +281,16 @@ export function createAggregator(store, { onStored } = {}) {
 		ws.on("open", () => {
 			// two filters in one REQ: full chat history (unchanged), but presence
 			// scoped to the live window so we don't ingest a giant heartbeat backlog.
-			const since = Math.floor(Date.now() / 1000) - PRESENCE_SINCE_SECS;
+			const now = Math.floor(Date.now() / 1000);
+			const since = now - PRESENCE_SINCE_SECS;
 			ws.send(
 				JSON.stringify([
 					"REQ",
 					SUB_ID,
 					{ kinds: [CHAT_KIND] },
 					{ kinds: [PRESENCE_KIND], since, limit: PRESENCE_REPLAY_LIMIT },
+					// location notes + their NIP-09 deletions, bounded history
+					{ kinds: [NOTE_KIND, DELETE_KIND], since: now - NOTES_SINCE_SECS, limit: NOTES_REPLAY_LIMIT },
 				])
 			);
 		});
@@ -269,6 +340,8 @@ export function createAggregator(store, { onStored } = {}) {
 		await loadAndConnect();
 		scheduleRefresh();
 		setInterval(prunePresence, PRESENCE_PRUNE_MS).unref();
+		store.pruneNotes(); // sweep any expired notes carried across a restart
+		setInterval(() => store.pruneNotes(), NOTES_PRUNE_MS).unref();
 	}
 
 	function stats() {
@@ -279,5 +352,5 @@ export function createAggregator(store, { onStored } = {}) {
 		return { monitored: managed.size, connected, spamDrops: { ...spamDrops } };
 	}
 
-	return { start, stats, ingest, publish, handleFrame, trackPresence, presenceFor };
+	return { start, stats, ingest, ingestNote, handleDeletion, publish, handleFrame, trackPresence, presenceFor };
 }

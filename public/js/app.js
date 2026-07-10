@@ -1487,6 +1487,19 @@ function ensureNotesClient() {
 			getIdentity: () => identity,
 			getRelays: geoRelaysFor,
 			onChange: renderNotes,
+			// with server assist on, read/write notes through the API: it keeps a
+			// persistent cache and answers a geohash PREFIX query, so a channel gets
+			// every note nested under it at any depth (relays can't prefix-filter).
+			assist: {
+				isActive: () => liveSource === "assist",
+				fetchNotes: async (geo) => {
+					const res = await fetch(`${API_BASE}/api/notes?geo=${encodeURIComponent(geo)}`, { cache: "no-store" });
+					if (!res.ok) return [];
+					const data = await res.json();
+					return Array.isArray(data.notes) ? data.notes : [];
+				},
+				publish: (event) => publishViaApi(event),
+			},
 		});
 	}
 	return notesClient;

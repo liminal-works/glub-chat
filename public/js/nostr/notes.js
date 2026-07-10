@@ -23,9 +23,15 @@ const SAMPLE_LIMIT = 300; // recent kind-1 events the broad filter samples per r
 const SAMPLE_LOOKBACK_SECS = 365 * 24 * 60 * 60; // don't sample notes older than ~a year
 const MAX_RELAYS = 6; // how many geo-nearest relays we hold open for a channel
 const PRUNE_INTERVAL_MS = 60_000; // NIP-40 notes can lapse while the sheet is open
+const ASSIST_REFETCH_MS = 20_000; // re-pull the assist cache while the sheet is open
 const MAX_BACKOFF_MS = 30_000;
 
-export function createNotesClient({ getIdentity, getRelays, onChange }) {
+// `assist` (optional) routes reads/writes through the server-assist API instead
+// of relays when active: { isActive(), fetchNotes(geohash) -> [event], publish(event) }.
+// The API keeps a persistent cache and answers a geohash PREFIX query, so in
+// assist mode a channel gets every note nested under it (any depth) - the thing
+// relays can't filter. When assist is off we fall back to the direct-relay path.
+export function createNotesClient({ getIdentity, getRelays, onChange, assist } = {}) {
 	const sockets = new Map(); // url -> WebSocket
 	let gen = 0; // bumped on open/close; stale sockets & timers no-op
 	let geohash = null; // the channel we're showing notes for (lowercased)
@@ -39,6 +45,7 @@ export function createNotesClient({ getIdentity, getRelays, onChange }) {
 	let subExact = null;
 	let subBroad = null;
 	let pruneTimer = null;
+	let assistTimer = null; // periodic re-fetch while assist mode is serving notes
 	let eosed = false;
 
 	const nowSecs = () => Math.floor(Date.now() / 1000);
@@ -195,38 +202,68 @@ export function createNotesClient({ getIdentity, getRelays, onChange }) {
 
 	// --- public ----------------------------------------------------------------
 
+	// pull the assist cache for the current channel and merge it in. Runs on open
+	// and on a timer while the sheet is up; ingest() dedups so it's additive. The
+	// server already prefix-scoped the result; we re-verify + prefix-check each.
+	async function assistRefresh() {
+		const myGen = gen;
+		let events = [];
+		try {
+			events = (await assist.fetchNotes(geohash)) || [];
+		} catch {
+			events = [];
+		}
+		if (myGen !== gen) return; // channel switched while the fetch was in flight
+		eosed = true;
+		for (const ev of events) if (ev?.id && ev?.pubkey) ingest(ev);
+		if (state === "loading") setState(notes.length ? "ready" : "empty");
+		emit();
+	}
+
 	// open the notes stream for a geohash channel. safe to call repeatedly; each
-	// call retargets (closes the old sockets, resubscribes to the new cell).
+	// call retargets (closes the old sockets/timers, refetches for the new cell).
 	function open(gh) {
 		gen++;
 		closeAll();
 		clearInterval(pruneTimer);
+		clearInterval(assistTimer);
 		geohash = String(gh).toLowerCase();
 		prefix = geohash;
 		notes = [];
 		seen.clear();
 		eosed = false;
+		setState("loading");
+		emit();
+		pruneTimer = setInterval(prune, PRUNE_INTERVAL_MS);
+
+		// assist mode: the server answers prefix queries, so read from it instead of
+		// opening relay sockets (the client holds none in assist mode anyway).
+		if (assist?.isActive?.()) {
+			assistRefresh();
+			assistTimer = setInterval(assistRefresh, ASSIST_REFETCH_MS);
+			return;
+		}
+
+		// direct-relay path
 		const suffix = Math.random().toString(36).slice(2, 10);
 		subExact = `glub-notes-x-${suffix}`;
 		subBroad = `glub-notes-b-${suffix}`;
-
 		const relays = (getRelays(geohash) || []).slice(0, MAX_RELAYS);
 		if (relays.length === 0) {
 			setState("no_relays");
 			emit();
 			return;
 		}
-		setState("loading");
-		emit();
 		for (const url of relays) connect(url, 0);
-		pruneTimer = setInterval(prune, PRUNE_INTERVAL_MS);
 	}
 
 	function close() {
 		gen++;
 		closeAll();
 		clearInterval(pruneTimer);
+		clearInterval(assistTimer);
 		pruneTimer = null;
+		assistTimer = null;
 		setState("idle");
 	}
 
@@ -245,7 +282,9 @@ export function createNotesClient({ getIdentity, getRelays, onChange }) {
 		} catch {
 			return { ok: false, relays: 0 };
 		}
-		const relays = broadcast(event);
+		// assist mode publishes through the API (no client relay sockets); otherwise
+		// broadcast to our own sockets.
+		const relays = assist?.isActive?.() ? (assist.publish(event), 1) : broadcast(event);
 		// optimistic local echo so the note appears instantly
 		if (
 			insert({
@@ -273,7 +312,8 @@ export function createNotesClient({ getIdentity, getRelays, onChange }) {
 		const { sk, pk } = getIdentity();
 		try {
 			const del = makeDeleteEvent({ eventId: noteId, sk, pk });
-			broadcast(del);
+			if (assist?.isActive?.()) assist.publish(del);
+			else broadcast(del);
 		} catch {
 			return false;
 		}

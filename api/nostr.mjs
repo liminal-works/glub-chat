@@ -7,6 +7,8 @@ import { verifyEvent } from "nostr-tools";
 export const CHAT_KIND = 20000;
 export const PRESENCE_KIND = 20001; // bitchat presence/announce ("i'm here") events
 export const METADATA_KIND = 0; // nostr profile metadata (NIP-01 set_metadata)
+export const NOTE_KIND = 1; // location notes: persistent geohash-tagged text notes
+export const DELETE_KIND = 5; // NIP-09 deletion request
 
 // parse a kind-0 metadata event's JSON content into the fields we surface. only
 // the display bits (name/about/picture/nip05), each length-capped. null if the
@@ -55,6 +57,19 @@ export function getGeohash(ev) {
 
 export function getName(ev) {
 	return getTag(ev, "n");
+}
+
+// the NIP-40 expiration (unix secs) an event carries, or null.
+export function noteExpiration(ev) {
+	const raw = getTag(ev, "expiration");
+	const n = Number(raw);
+	return raw && Number.isFinite(n) ? n : null;
+}
+
+// the event ids a NIP-09 deletion (kind 5) references via its `e` tags.
+export function deletionTargets(ev) {
+	const tags = Array.isArray(ev.tags) ? ev.tags : [];
+	return tags.filter((t) => Array.isArray(t) && t[0] === "e" && typeof t[1] === "string").map((t) => t[1]);
 }
 
 export { verifyEvent };

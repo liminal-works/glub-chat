@@ -260,6 +260,22 @@ app.get("/api/history", (req, res) => {
 	res.json({ events });
 });
 
+// location notes for a channel + everything nested under it. `?geo=` is a geohash
+// PREFIX: the server keeps a persistent cache of kind-1 geohash notes and answers
+// with every cached note whose geohash starts with it (newest first, unexpired) -
+// the prefix match relays can't do. This is the server-assist path for notes; the
+// client re-verifies each returned event's signature.
+app.get("/api/notes", ipBucket({ capacity: 20, refillPerSec: 1 }), (req, res) => {
+	const geo = String(req.query.geo || "").toLowerCase();
+	if (!/^[0-9a-z]{1,32}$/.test(geo)) {
+		res.status(400).json({ ok: false, error: "invalid geohash" });
+		return;
+	}
+	const limit = Number(req.query.limit);
+	const notes = store.notesByPrefix(geo, Number.isFinite(limit) ? limit : DEFAULT_LIMIT);
+	res.json({ notes });
+});
+
 // live event stream (SSE). A client with server-assist on listens here for new
 // events instead of opening its own relay read-subscriptions. `?geo=` scopes the
 // stream to one channel so a focused view doesn't receive every channel's chatter.

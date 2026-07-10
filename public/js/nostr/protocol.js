@@ -149,35 +149,6 @@ export function decodeGeohash(geohash) {
 	return { lat: (latLo + latHi) / 2, lon: (lonLo + lonHi) / 2 };
 }
 
-// every geohash cell contained within `prefix` down a bounded number of levels,
-// including `prefix` itself. Notes are tagged with the poster's exact channel
-// geohash, and a channel contains all finer channels nested under it (a note in
-// #9qh5 belongs to #9q), so subscribing to the whole subtree + matching g-tags
-// by prefix surfaces those nested notes instead of only exact-cell matches.
-//
-// Nostr `#g` filters are exact-match only (no prefix operator), so we enumerate
-// the descendant cells and hand the relay the explicit list. Depth is capped so
-// the filter stays a sane size (each level multiplies the count by 32) and we
-// don't descend past building-level precision, where notes don't exist.
-export const NOTES_SUBTREE_DEPTH = 2; // channel + this many finer levels
-const NOTES_MAX_PRECISION = 8; // don't enumerate past ~building precision
-const NOTES_MAX_CELLS = 1200; // hard cap on the #g array (relay safety)
-
-export function geohashSubtreeCells(prefix) {
-	const p = String(prefix).toLowerCase();
-	const cells = [p];
-	const maxLen = Math.min(p.length + NOTES_SUBTREE_DEPTH, NOTES_MAX_PRECISION);
-	let frontier = [p];
-	while (frontier.length && frontier[0].length < maxLen) {
-		const next = [];
-		for (const cell of frontier) for (const c of GEOHASH_BASE32) next.push(cell + c);
-		if (cells.length + next.length > NOTES_MAX_CELLS) break;
-		cells.push(...next);
-		frontier = next;
-	}
-	return cells;
-}
-
 // a geohash cell's center + nominal size. each character is 5 bits, split
 // longitude-first (lon gets ceil(bits/2)); the cell is 360/2^lonBits degrees
 // wide. spanKm is that width at the EQUATOR (not latitude-adjusted) - native

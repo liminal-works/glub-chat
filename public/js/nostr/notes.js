@@ -5,9 +5,10 @@
 // nearest relays for one channel at a time - independent of the main chat pool
 // and of assist mode, exactly like the DM client - and exposes open/post/remove.
 //
-// A channel shows every note nested under it: #9q surfaces notes posted in #9qh5
-// too. Nostr `#g` filters can't prefix-match, so we REQ the enumerated subtree of
-// cells (bounded depth) and accept events whose g-tag starts with the channel.
+// A channel shows every note nested under it, at any depth: #9q surfaces notes
+// posted in #9qh5, #9q5cc, etc. Nostr `#g` filters can't prefix-match, so we run
+// an exact `#g` floor for the channel's own notes plus a bounded sample of recent
+// kind-1 events that we prefix-filter client-side, keeping the newest MAX_NOTES.
 //
 // createNotesClient({ getIdentity, getRelays, onChange })
 //   getIdentity() -> { sk, pk }   (glub's single global identity; notes are not
@@ -15,10 +16,11 @@
 //   getRelays(geohash) -> [wssUrl] nearest-first
 //   onChange({ state, notes, geohash }) fires on every state/notes change
 
-import { verifyEvent, NOTE_KIND, makeNote, makeDeleteEvent, noteExpiration, geohashSubtreeCells, getName } from "./protocol.js";
+import { verifyEvent, NOTE_KIND, makeNote, makeDeleteEvent, noteExpiration, getName } from "./protocol.js";
 
-const REQ_LIMIT = 200; // matches native's relay-side cap
-const MAX_NOTES = 500; // defensive in-memory cap
+const MAX_NOTES = 100; // hard cap on notes we hold/show; we cut off past this
+const SAMPLE_LIMIT = 300; // recent kind-1 events the broad filter samples per relay
+const SAMPLE_LOOKBACK_SECS = 365 * 24 * 60 * 60; // don't sample notes older than ~a year
 const MAX_RELAYS = 6; // how many geo-nearest relays we hold open for a channel
 const PRUNE_INTERVAL_MS = 60_000; // NIP-40 notes can lapse while the sheet is open
 const MAX_BACKOFF_MS = 30_000;
@@ -28,11 +30,14 @@ export function createNotesClient({ getIdentity, getRelays, onChange }) {
 	let gen = 0; // bumped on open/close; stale sockets & timers no-op
 	let geohash = null; // the channel we're showing notes for (lowercased)
 	let prefix = null; // channel geohash; a note counts if its g-tag starts with it
-	let cells = []; // the subtree cells we REQ (exact list; relays can't prefix-match)
 	let notes = []; // reverse-chron [{ id, pubkey, content, createdAt, name, geohash, expiresAt, mine }]
 	const seen = new Set(); // note ids (dedupe + tombstone so deletes can't resurrect)
 	let state = "idle"; // idle | loading | ready | empty | no_relays
-	let subId = null;
+	// two subscriptions per socket: an exact #g filter so the channel's OWN notes
+	// are always guaranteed, and a broad recent-kind-1 sample we prefix-filter
+	// client-side for depth-agnostic nested notes (relays can't prefix-match #g).
+	let subExact = null;
+	let subBroad = null;
 	let pruneTimer = null;
 	let eosed = false;
 
@@ -66,9 +71,9 @@ export function createNotesClient({ getIdentity, getRelays, onChange }) {
 		if (ev.kind !== NOTE_KIND) return;
 		if (seen.has(ev.id)) return;
 		// accept a note whose g-tag is the channel or nests under it (prefix match),
-		// so #9q also surfaces notes posted in #9qh5 etc. the relay only delivers our
-		// enumerated subtree cells, but the prefix test is the real, depth-agnostic
-		// contract (and stays correct if a relay is loose about what it sends).
+		// so #9q also surfaces notes posted in #9qh5 etc. this is what makes the broad
+		// sample depth-agnostic: whatever recent kind-1 the relay hands us, we keep
+		// only the ones tagged under this channel.
 		const gTag = (ev.tags || []).find(
 			(t) => Array.isArray(t) && String(t[0]).toLowerCase() === "g" && String(t[1]).toLowerCase().startsWith(prefix),
 		);
@@ -98,8 +103,15 @@ export function createNotesClient({ getIdentity, getRelays, onChange }) {
 		}
 	}
 
-	function filter() {
-		return { kinds: [NOTE_KIND], "#g": [...cells], limit: REQ_LIMIT };
+	// the channel's own notes, relay-filtered and guaranteed regardless of volume
+	function exactFilter() {
+		return { kinds: [NOTE_KIND], "#g": [prefix], limit: MAX_NOTES };
+	}
+	// a bounded sample of recent notes; we prefix-filter these client-side so a
+	// note nested any number of levels under the channel still surfaces, without a
+	// depth cap. `limit` is what bounds the pull - we then keep the newest MAX_NOTES.
+	function broadFilter() {
+		return { kinds: [NOTE_KIND], since: nowSecs() - SAMPLE_LOOKBACK_SECS, limit: SAMPLE_LIMIT };
 	}
 
 	function connect(url, attempt = 0) {
@@ -114,7 +126,8 @@ export function createNotesClient({ getIdentity, getRelays, onChange }) {
 
 		ws.addEventListener("open", () => {
 			if (myGen !== gen) return;
-			ws.send(JSON.stringify(["REQ", subId, filter()]));
+			ws.send(JSON.stringify(["REQ", subExact, exactFilter()]));
+			ws.send(JSON.stringify(["REQ", subBroad, broadFilter()]));
 		});
 
 		ws.addEventListener("close", () => {
@@ -138,11 +151,12 @@ export function createNotesClient({ getIdentity, getRelays, onChange }) {
 				return;
 			}
 			if (!Array.isArray(frame)) return;
-			if (frame[0] === "CLOSED" && frame[1] === subId) {
-				ws.close();
-				return;
-			}
-			if (frame[0] === "EOSE" && frame[1] === subId) {
+			const sub = frame[1];
+			if (sub !== subExact && sub !== subBroad) return;
+			// a relay may reject the broad open-kind-1 filter; just let that sub lapse
+			// (the exact #g floor still runs) instead of tearing down the socket.
+			if (frame[0] === "CLOSED") return;
+			if (frame[0] === "EOSE") {
 				// first end-of-stored-events: if nothing landed, it's genuinely empty
 				if (!eosed) {
 					eosed = true;
@@ -152,7 +166,7 @@ export function createNotesClient({ getIdentity, getRelays, onChange }) {
 				}
 				return;
 			}
-			if (frame[0] !== "EVENT" || frame[1] !== subId) return;
+			if (frame[0] !== "EVENT") return;
 			const ev = frame[2];
 			if (ev?.id && ev?.pubkey) ingest(ev);
 		});
@@ -189,11 +203,12 @@ export function createNotesClient({ getIdentity, getRelays, onChange }) {
 		clearInterval(pruneTimer);
 		geohash = String(gh).toLowerCase();
 		prefix = geohash;
-		cells = geohashSubtreeCells(geohash); // channel + nested descendants
 		notes = [];
 		seen.clear();
 		eosed = false;
-		subId = `glub-notes-${Math.random().toString(36).slice(2, 10)}`;
+		const suffix = Math.random().toString(36).slice(2, 10);
+		subExact = `glub-notes-x-${suffix}`;
+		subBroad = `glub-notes-b-${suffix}`;
 
 		const relays = (getRelays(geohash) || []).slice(0, MAX_RELAYS);
 		if (relays.length === 0) {

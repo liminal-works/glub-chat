@@ -1520,8 +1520,10 @@ function notesFadesIn(expiresAt) {
 
 function noteRowHtml(n) {
 	const who = (n.name || "").trim() || "anon";
-	const tag = n.pubkey.slice(-4);
 	const color = pubkeyColor(n.pubkey);
+	// the cell the note was actually posted to - shown so you can see which
+	// channel under here it came from (a #9q view surfaces #9qh5 notes, etc).
+	const origin = `<span class="noteGeo">#${escapeHtml(clipText(n.geohash, 12))}</span>`;
 	const expiry = n.expiresAt
 		? `<span class="noteExpiry">· ${escapeHtml(notesFadesIn(n.expiresAt))}</span>`
 		: "";
@@ -1531,7 +1533,8 @@ function noteRowHtml(n) {
 	return (
 		`<div class="noteItem${n.mine ? " mine" : ""}">` +
 		`<div class="noteMeta">` +
-		`<span class="noteAuthor" style="color:${color}">@${escapeHtml(clipText(who, 22))}<span class="sfx">#${escapeHtml(tag)}</span></span>` +
+		`<span class="noteAuthor" style="color:${color}">@${escapeHtml(clipText(who, 22))}</span>` +
+		origin +
 		`<span class="noteTime">${escapeHtml(formatAgo(n.createdAt))}</span>` +
 		expiry +
 		del +

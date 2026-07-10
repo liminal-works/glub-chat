@@ -2824,6 +2824,16 @@ function updatePlaceholder() {
 	chatInput.placeholder = focusedGeo
 		? t("composer.placeholder_focused", { geo: focusedGeo })
 		: t("composer.placeholder_global");
+	updateSendLabel();
+}
+
+// in the global composer, typing just a channel (no space yet) will JOIN it -
+// mirror that on the button. once a space is typed you're composing a message
+// for that channel, so it flips back to SEND. focused mode is always "send".
+function updateSendLabel() {
+	const typed = chatInput.value.trimStart();
+	const joining = !focusedGeo && typed && !/\s/.test(typed);
+	sendBtn.textContent = t(joining ? "composer.join" : "composer.send");
 }
 
 function focusChannel(geo) {
@@ -3378,6 +3388,7 @@ function applySuggest(start, end, insert) {
 
 sendBtn.addEventListener("click", send);
 chatInput.addEventListener("input", refreshSuggest);
+chatInput.addEventListener("input", updateSendLabel);
 chatInput.addEventListener("blur", () => suggest.hide());
 chatInput.addEventListener("keydown", (e) => {
 	if (suggest.handleKey(e)) return; // popup consumes nav/select/escape

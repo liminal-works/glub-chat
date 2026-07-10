@@ -139,6 +139,7 @@ export default {
 		placeholder_focused: "संदेश -> #{geo}",
 		placeholder_reply: "@{name} को जवाब…",
 		send: "भेजें",
+		join: "जाएँ",
 	},
 
 	message: {

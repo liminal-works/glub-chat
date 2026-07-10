@@ -149,6 +149,7 @@ export default {
 		placeholder_focused: "message -> #{geo}",
 		placeholder_reply: "reply to @{name}…",
 		send: "send",
+		join: "join",
 	},
 
 	message: {

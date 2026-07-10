@@ -149,48 +149,33 @@ export function decodeGeohash(geohash) {
 	return { lat: (latLo + latHi) / 2, lon: (lonLo + lonHi) / 2 };
 }
 
-// encode a lat/lon to a geohash of the given length (inverse of decodeGeohash).
-export function encodeGeohash(lat, lon, len) {
-	let latLo = -90, latHi = 90, lonLo = -180, lonHi = 180;
-	let even = true, bit = 0, ch = 0, out = "";
-	while (out.length < len) {
-		if (even) {
-			const mid = (lonLo + lonHi) / 2;
-			if (lon >= mid) { ch = (ch << 1) | 1; lonLo = mid; } else { ch <<= 1; lonHi = mid; }
-		} else {
-			const mid = (latLo + latHi) / 2;
-			if (lat >= mid) { ch = (ch << 1) | 1; latLo = mid; } else { ch <<= 1; latHi = mid; }
-		}
-		even = !even;
-		if (++bit === 5) { out += GEOHASH_BASE32[ch]; bit = 0; ch = 0; }
-	}
-	return out;
-}
+// every geohash cell contained within `prefix` down a bounded number of levels,
+// including `prefix` itself. Notes are tagged with the poster's exact channel
+// geohash, and a channel contains all finer channels nested under it (a note in
+// #9qh5 belongs to #9q), so subscribing to the whole subtree + matching g-tags
+// by prefix surfaces those nested notes instead of only exact-cell matches.
+//
+// Nostr `#g` filters are exact-match only (no prefix operator), so we enumerate
+// the descendant cells and hand the relay the explicit list. Depth is capped so
+// the filter stays a sane size (each level multiplies the count by 32) and we
+// don't descend past building-level precision, where notes don't exist.
+export const NOTES_SUBTREE_DEPTH = 2; // channel + this many finer levels
+const NOTES_MAX_PRECISION = 8; // don't enumerate past ~building precision
+const NOTES_MAX_CELLS = 1200; // hard cap on the #g array (relay safety)
 
-// the geohash's 8 surrounding cells (same length), for the ±1-cell subscription
-// window bitchat uses so notes posted just over a cell edge still surface. found
-// by stepping the center by one cell width/height and re-encoding; interior
-// cells resolve exactly, edge cases (poles/antimeridian) just clamp/wrap.
-export function geohashNeighbors(geohash) {
-	const { lat, lon } = decodeGeohash(geohash);
-	const len = geohash.length;
-	const lonBits = Math.ceil((len * 5) / 2);
-	const latBits = Math.floor((len * 5) / 2);
-	const lonStep = 360 / 2 ** lonBits;
-	const latStep = 180 / 2 ** latBits;
-	const out = [];
-	for (const dLat of [latStep, 0, -latStep]) {
-		for (const dLon of [-lonStep, 0, lonStep]) {
-			if (dLat === 0 && dLon === 0) continue;
-			const nlat = Math.max(-90, Math.min(90, lat + dLat));
-			let nlon = lon + dLon;
-			if (nlon > 180) nlon -= 360;
-			else if (nlon < -180) nlon += 360;
-			const gh = encodeGeohash(nlat, nlon, len);
-			if (gh !== geohash && !out.includes(gh)) out.push(gh);
-		}
+export function geohashSubtreeCells(prefix) {
+	const p = String(prefix).toLowerCase();
+	const cells = [p];
+	const maxLen = Math.min(p.length + NOTES_SUBTREE_DEPTH, NOTES_MAX_PRECISION);
+	let frontier = [p];
+	while (frontier.length && frontier[0].length < maxLen) {
+		const next = [];
+		for (const cell of frontier) for (const c of GEOHASH_BASE32) next.push(cell + c);
+		if (cells.length + next.length > NOTES_MAX_CELLS) break;
+		cells.push(...next);
+		frontier = next;
 	}
-	return out;
+	return cells;
 }
 
 // a geohash cell's center + nominal size. each character is 5 bits, split

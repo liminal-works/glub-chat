@@ -885,10 +885,23 @@ textarea {
 }
 
 /* --- location notes: a per-geohash bulletin board (persistent kind-1) --- */
+/* notes has a text composer, so - like the DM thread - it lives inside #app
+   (which JS sizes to the visual viewport) and is absolutely positioned rather
+   than fixed to the layout viewport. That way the panel shrinks with the mobile
+   keyboard and its bottom-anchored composer rides above it instead of being
+   covered. */
+#notesGate {
+	position: absolute;
+	inset: 0;
+	align-items: stretch;
+	justify-content: center;
+	padding: calc(16px + env(safe-area-inset-top)) 16px calc(12px + env(safe-area-inset-bottom));
+}
+
 .notesPanel {
 	width: 100%;
 	max-width: 560px;
-	height: min(88vh, 720px);
+	height: 100%;
 	display: flex;
 	flex-direction: column;
 	gap: 12px;
@@ -1015,22 +1028,23 @@ textarea {
 	border-color: var(--chrome-border-strong);
 }
 
+/* borderless, matching the chat #sendBtn - just accent text that glows on hover */
 .notesPost {
 	margin-left: auto;
-	cursor: pointer;
+	border: 0;
+	background: transparent;
 	color: var(--accent);
-	background: none;
-	border: 1px solid var(--chrome-border);
 	font: inherit;
-	font-size: 14px;
-	padding: 5px 16px;
-	transition: border-color 0.15s ease, background-color 0.15s ease;
+	font-weight: 700;
+	cursor: pointer;
+	padding: 6px 0;
+	transition: text-shadow 0.15s ease, filter 0.15s ease;
 	-webkit-tap-highlight-color: transparent;
 }
 
 .notesPost:hover {
-	border-color: var(--chrome-border-strong);
-	background-color: color-mix(in srgb, var(--accent) 6%, transparent);
+	text-shadow: var(--glow);
+	filter: brightness(1.15);
 }
 
 .notesPost:active {
@@ -1040,6 +1054,8 @@ textarea {
 .notesPost:disabled {
 	opacity: 0.5;
 	cursor: default;
+	text-shadow: none;
+	filter: none;
 }
 
 /* channel location readout under the title: the resolved place (when the api

@@ -5,13 +5,17 @@
 // nearest relays for one channel at a time - independent of the main chat pool
 // and of assist mode, exactly like the DM client - and exposes open/post/remove.
 //
+// A channel shows every note nested under it: #9q surfaces notes posted in #9qh5
+// too. Nostr `#g` filters can't prefix-match, so we REQ the enumerated subtree of
+// cells (bounded depth) and accept events whose g-tag starts with the channel.
+//
 // createNotesClient({ getIdentity, getRelays, onChange })
 //   getIdentity() -> { sk, pk }   (glub's single global identity; notes are not
 //                                   per-geohash-derived the way native bitchat is)
 //   getRelays(geohash) -> [wssUrl] nearest-first
 //   onChange({ state, notes, geohash }) fires on every state/notes change
 
-import { verifyEvent, NOTE_KIND, makeNote, makeDeleteEvent, noteExpiration, geohashNeighbors, getName } from "./protocol.js";
+import { verifyEvent, NOTE_KIND, makeNote, makeDeleteEvent, noteExpiration, geohashSubtreeCells, getName } from "./protocol.js";
 
 const REQ_LIMIT = 200; // matches native's relay-side cap
 const MAX_NOTES = 500; // defensive in-memory cap
@@ -23,7 +27,8 @@ export function createNotesClient({ getIdentity, getRelays, onChange }) {
 	const sockets = new Map(); // url -> WebSocket
 	let gen = 0; // bumped on open/close; stale sockets & timers no-op
 	let geohash = null; // the channel we're showing notes for (lowercased)
-	let cells = new Set(); // valid g-tag values: center + 8 neighbors, lowercased
+	let prefix = null; // channel geohash; a note counts if its g-tag starts with it
+	let cells = []; // the subtree cells we REQ (exact list; relays can't prefix-match)
 	let notes = []; // reverse-chron [{ id, pubkey, content, createdAt, name, geohash, expiresAt, mine }]
 	const seen = new Set(); // note ids (dedupe + tombstone so deletes can't resurrect)
 	let state = "idle"; // idle | loading | ready | empty | no_relays
@@ -60,9 +65,12 @@ export function createNotesClient({ getIdentity, getRelays, onChange }) {
 	function ingest(ev) {
 		if (ev.kind !== NOTE_KIND) return;
 		if (seen.has(ev.id)) return;
-		// accept a note tagged to any of our 9 cells (a neighbor edge post counts)
+		// accept a note whose g-tag is the channel or nests under it (prefix match),
+		// so #9q also surfaces notes posted in #9qh5 etc. the relay only delivers our
+		// enumerated subtree cells, but the prefix test is the real, depth-agnostic
+		// contract (and stays correct if a relay is loose about what it sends).
 		const gTag = (ev.tags || []).find(
-			(t) => Array.isArray(t) && String(t[0]).toLowerCase() === "g" && cells.has(String(t[1]).toLowerCase()),
+			(t) => Array.isArray(t) && String(t[0]).toLowerCase() === "g" && String(t[1]).toLowerCase().startsWith(prefix),
 		);
 		if (!gTag) return;
 		// relays are untrusted transport - verify the signature ourselves
@@ -180,7 +188,8 @@ export function createNotesClient({ getIdentity, getRelays, onChange }) {
 		closeAll();
 		clearInterval(pruneTimer);
 		geohash = String(gh).toLowerCase();
-		cells = new Set([geohash, ...geohashNeighbors(geohash)].map((c) => c.toLowerCase()));
+		prefix = geohash;
+		cells = geohashSubtreeCells(geohash); // channel + nested descendants
 		notes = [];
 		seen.clear();
 		eosed = false;

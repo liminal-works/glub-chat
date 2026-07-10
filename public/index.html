@@ -112,8 +112,8 @@
 					<div class="usersHeader">
 						<span id="usersTitle" data-i18n="users.title_default">users</span>
 						<span class="usersHeaderBtns">
-							<strong id="usersNotes" class="usersExit" data-i18n="users.notes" hidden>[NOTES]</strong>
 							<strong id="usersMap" class="usersExit" data-i18n="users.map">[MAP]</strong>
+							<strong id="usersNotes" class="usersExit" data-i18n="users.notes" hidden>[NOTES]</strong>
 							<strong id="usersClose" class="usersExit" data-i18n="users.exit">[EXIT]</strong>
 						</span>
 					</div>
@@ -141,7 +141,7 @@
 					</div>
 					<div id="notesList" class="notesList"></div>
 					<div class="notesComposer">
-						<textarea id="notesInput" class="notesInput" rows="2" maxlength="500" spellcheck="true" data-i18n-placeholder="notes.placeholder" placeholder="leave a note for this channel…"></textarea>
+						<textarea id="notesInput" class="notesInput" rows="2" maxlength="500" enterkeyhint="send" spellcheck="true" autocomplete="off" data-i18n-placeholder="notes.placeholder" placeholder="leave a note for this channel…"></textarea>
 						<div class="notesComposerRow">
 							<select id="notesExpiry" class="notesExpiry" aria-label="expiry">
 								<option value="0" data-i18n="notes.expiry_never">never</option>

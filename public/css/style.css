@@ -1802,7 +1802,8 @@ textarea {
 
 /* the tapped message's proof-of-work, a muted monospace badge trailing the
    handle in the action popup */
-.powBadge {
+.powBadge,
+.clientBadge {
 	color: var(--muted);
 	font-size: 11px;
 	font-weight: 400;
@@ -1811,6 +1812,12 @@ textarea {
 	padding: 1px 5px;
 	vertical-align: 1px;
 	white-space: nowrap;
+}
+
+/* the client badge leans on the accent to read as "identity", not a metric */
+.clientBadge {
+	color: color-mix(in srgb, var(--accent) 55%, var(--muted));
+	border-color: color-mix(in srgb, var(--accent) 22%, transparent);
 }
 
 /* cropped preview of the tapped message, so you can see which one you're acting

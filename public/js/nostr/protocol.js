@@ -18,9 +18,14 @@ export function subscribeFilter(limit = 500) {
 // "teleport" marks a message posted into a geohash we're not physically in -
 // always true for this web client, since you pick any channel regardless of
 // location. Matches what bitchat/the reference web client sends.
-function geoTags(geohash, name) {
+// `client` (optional) stamps a ["client", name] tag - the informal convention
+// nostr clients use to identify themselves ("client":"amethyst" etc). On by
+// default, opt-out in settings. Attacker-controlled on the way IN, so anything
+// reading it must escape + length-cap.
+function geoTags(geohash, name, client) {
 	const tags = [["g", geohash], ["t", "teleport"]];
 	if (name) tags.push(["n", name]);
+	if (client) tags.push(["client", client]);
 	return tags;
 }
 
@@ -28,11 +33,11 @@ function geoTags(geohash, name) {
 // NIP-13 mining appends a nonce tag to the UNSIGNED event (the nonce changes
 // the id, so it must be settled before signing). created_at is stamped at
 // build time and must not change afterwards for the same reason.
-export function buildChatEvent({ content, geohash, name, pk }) {
+export function buildChatEvent({ content, geohash, name, pk, client }) {
 	return {
 		kind: CHAT_KIND,
 		created_at: Math.floor(Date.now() / 1000),
-		tags: geoTags(geohash, name),
+		tags: geoTags(geohash, name, client),
 		content,
 		pubkey: pk,
 	};
@@ -41,11 +46,11 @@ export function buildChatEvent({ content, geohash, name, pk }) {
 // a presence/announce heartbeat: "i'm in this geohash". Same tag conventions as
 // a chat message (g + teleport + n) but the ephemeral 20001 kind and empty
 // content - the name in the `n` tag is the whole payload.
-export function buildPresenceEvent({ geohash, name, pk }) {
+export function buildPresenceEvent({ geohash, name, pk, client }) {
 	return {
 		kind: PRESENCE_KIND,
 		created_at: Math.floor(Date.now() / 1000),
-		tags: geoTags(geohash, name),
+		tags: geoTags(geohash, name, client),
 		content: "",
 		pubkey: pk,
 	};
@@ -60,10 +65,11 @@ export const DELETE_KIND = 5;
 
 // build an unsigned location note. expiresAt is a unix-seconds number or null
 // (null = never expires). name goes in an `n` tag like chat.
-export function buildNoteEvent({ content, geohash, name, pk, expiresAt = null }) {
+export function buildNoteEvent({ content, geohash, name, pk, expiresAt = null, client }) {
 	const tags = [["g", geohash]];
 	if (name) tags.push(["n", name]);
 	if (expiresAt) tags.push(["expiration", String(Math.floor(expiresAt))]);
+	if (client) tags.push(["client", client]);
 	return {
 		kind: NOTE_KIND,
 		created_at: Math.floor(Date.now() / 1000),
@@ -73,8 +79,8 @@ export function buildNoteEvent({ content, geohash, name, pk, expiresAt = null })
 	};
 }
 
-export function makeNote({ content, geohash, name, expiresAt, sk, pk }) {
-	return signEvent(buildNoteEvent({ content, geohash, name, pk, expiresAt }), sk);
+export function makeNote({ content, geohash, name, expiresAt, sk, pk, client }) {
+	return signEvent(buildNoteEvent({ content, geohash, name, pk, expiresAt, client }), sk);
 }
 
 // a NIP-09 deletion request for one of your own notes (relays that honor it drop
@@ -117,6 +123,12 @@ export function getGeohash(ev) {
 
 export function getName(ev) {
 	return getTag(ev, "n");
+}
+
+// the ["client", name] tag, if the sender stamped one (the cross-client
+// convention for "which app posted this"). "" when absent.
+export function getClient(ev) {
+	return getTag(ev, "client");
 }
 
 const GEOHASH_BASE32 = "0123456789bcdefghjkmnpqrstuvwxyz";

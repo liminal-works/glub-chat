@@ -272,13 +272,13 @@ export function createNotesClient({ getIdentity, getRelays, onChange, assist } =
 	// false only when signing failed; a note with zero live relays still echoes
 	// locally and ships as sockets come up is out of scope (native drops it too),
 	// so we surface relays===0 to let the caller warn.
-	function post({ content, name, expiresInSecs }) {
+	function post({ content, name, expiresInSecs, client }) {
 		if (!geohash) return { ok: false, relays: 0 };
 		const { sk, pk } = getIdentity();
 		const expiresAt = expiresInSecs ? nowSecs() + expiresInSecs : null;
 		let event;
 		try {
-			event = makeNote({ content, geohash, name, expiresAt, sk, pk });
+			event = makeNote({ content, geohash, name, expiresAt, sk, pk, client });
 		} catch {
 			return { ok: false, relays: 0 };
 		}

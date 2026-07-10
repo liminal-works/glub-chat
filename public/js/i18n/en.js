@@ -21,6 +21,7 @@ export default {
 		assist_label: "server assist",
 		profiles_label: "nostr profiles",
 		retro_label: "retro terminal",
+		client_label: "client tag",
 		pow_label: "proof of work",
 		pow_off: "off",
 		pow_lenient: "8 · lenient",
@@ -61,6 +62,7 @@ export default {
 		self: "that's you",
 		reply_banner: "replying to @{name}",
 		pow_badge: "pow {n}",
+		client_badge: "via {name}",
 	},
 
 	// the translated-message block + its status/error lines

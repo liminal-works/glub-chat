@@ -11,7 +11,7 @@ import {
 } from "./nostr/identity.js";
 import { fetchRelayList } from "./nostr/relayList.js";
 import { RelayPool } from "./nostr/relayPool.js";
-import { buildChatEvent, buildPresenceEvent, signEvent, getGeohash, getName, CHAT_KIND, PRESENCE_KIND, sortRelaysByGeohash, geohashCell, verifyEvent } from "./nostr/protocol.js";
+import { buildChatEvent, buildPresenceEvent, signEvent, getGeohash, getName, getClient, CHAT_KIND, PRESENCE_KIND, sortRelaysByGeohash, geohashCell, verifyEvent } from "./nostr/protocol.js";
 import { mineNonceTag, POW_DIFFICULTY, idDifficulty, committedDifficulty } from "./nostr/pow.js";
 import { createMessageRateLimiter, createPresenceRateLimiter } from "./ratelimit.js";
 import { t, formatAgo, setLocale, detectLocale, onLocaleChange, preferredContentLanguage } from "./i18n/index.js";
@@ -68,6 +68,7 @@ const settingsGate = document.getElementById("settingsGate");
 const assistToggle = document.getElementById("assistToggle");
 const profilesToggle = document.getElementById("profilesToggle");
 const retroToggle = document.getElementById("retroToggle");
+const clientToggle = document.getElementById("clientToggle");
 const powSelect = document.getElementById("powSelect");
 const profilesRow = document.getElementById("profilesRow");
 const nsecInput = document.getElementById("nsecInput");
@@ -182,6 +183,25 @@ function profilesActive() {
 // CSS-gated on a `retro` class on <html> (see style.css). defaults OFF (clean
 // modern skin); opting in brings the full terminal aesthetic. persisted in
 // localStorage.
+// the cross-client "client" tag: we stamp outgoing events with this so other
+// nostr clients can show "via glub.chat", the way amethyst/primal/etc do. on by
+// default; the settings toggle opts out (nothing is stamped when off).
+const GLUB_CLIENT = "glub.chat";
+const STORAGE_CLIENT_KEY = "glub_client_tag";
+
+function getClientTagEnabled() {
+	return localStorage.getItem(STORAGE_CLIENT_KEY) !== "false"; // default on
+}
+
+function setClientTagEnabled(on) {
+	localStorage.setItem(STORAGE_CLIENT_KEY, on ? "true" : "false");
+}
+
+// the value to stamp on outgoing events (or null to omit the tag entirely)
+function outgoingClient() {
+	return getClientTagEnabled() ? GLUB_CLIENT : null;
+}
+
 const STORAGE_RETRO_KEY = "glub_retro";
 
 function getRetroEnabled() {
@@ -877,6 +897,7 @@ function renderEvent(ev) {
 		reply: parseReplyMessage(text), // { targetUser, quotedText, body } if this quotes another message
 		pow: idDifficulty(ev.id), // NIP-13 leading-zero bits actually delivered
 		powCommitted: committedDifficulty(ev), // difficulty its nonce tag claims (0 = no nonce)
+		client: getClient(ev), // ["client",…] tag if the sender stamped one ("" if not)
 		wall: looksLikeWall(text), // screen-eating content starts hard-collapsed
 		images: extractImageUrls(text),
 		expanded: false,
@@ -996,6 +1017,7 @@ function openSettings() {
 	assistToggle.checked = getAssistEnabled();
 	profilesToggle.checked = getProfilesEnabled();
 	retroToggle.checked = getRetroEnabled();
+	clientToggle.checked = getClientTagEnabled();
 	powSelect.value = String(getPowFilter());
 	syncProfilesRow();
 	nsecRevealed = false;
@@ -1581,7 +1603,7 @@ function submitNote() {
 		return;
 	}
 	const expiresInSecs = Number(notesExpiry.value) || 0;
-	const res = notesClient.post({ content, name, expiresInSecs });
+	const res = notesClient.post({ content, name, expiresInSecs, client: outgoingClient() });
 	if (!res.ok) return;
 	notesInput.value = "";
 	updateNotesPostBtn();
@@ -1795,7 +1817,13 @@ function openActionPopup(pubkey, entry) {
 		entry && !entry.system && typeof entry.pow === "number"
 			? ` <span class="powBadge">${escapeHtml(t("actions.pow_badge", { n: entry.pow }))}</span>`
 			: "";
-	actionTitle.innerHTML = handleHtml(name, pubkey) + powBadge;
+	// the sender's client tag, if any. omitted entirely when absent - most users
+	// are native bitchat, which sends no client tag, so "unknown" would be noise.
+	const clientBadge =
+		entry && !entry.system && entry.client
+			? ` <span class="clientBadge">${escapeHtml(t("actions.client_badge", { name: clipText(entry.client, 24) }))}</span>`
+			: "";
+	actionTitle.innerHTML = handleHtml(name, pubkey) + powBadge + clientBadge;
 	// cropped preview of the tapped message, so you can see what you're acting on
 	actionPreview.textContent = content;
 	actionPreview.hidden = !content;
@@ -2208,6 +2236,10 @@ retroToggle.addEventListener("change", () => {
 	syncRetro(); // pure CSS gate - takes effect instantly, nothing to re-render
 });
 
+clientToggle.addEventListener("change", () => {
+	setClientTagEnabled(clientToggle.checked); // applies to the next event you send
+});
+
 powSelect.addEventListener("change", () => {
 	setPowFilter(parseInt(powSelect.value, 10) || 0);
 	// live view filter: re-run visibility over the whole buffer so raising the
@@ -2393,6 +2425,7 @@ async function broadcastPresence() {
 		geohash: geo,
 		name: name || "anon",
 		pk: identity.pk,
+		client: outgoingClient(),
 	});
 	const nonceTag = await mineNonceTag(unsigned, POW_DIFFICULTY);
 	if (nonceTag) unsigned.tags.push(nonceTag);
@@ -2907,7 +2940,7 @@ async function transmit(content, geo, displayName = name) {
 	// off-thread) before signing. android's default inbound filter drops events
 	// without one, so this is as much interop as spam defense. mining failure
 	// falls back to an unmined send - spam defense never blocks a message.
-	const unsigned = buildChatEvent({ content, geohash: geo, name: displayName, pk: identity.pk });
+	const unsigned = buildChatEvent({ content, geohash: geo, name: displayName, pk: identity.pk, client: outgoingClient() });
 	const nonceTag = await mineNonceTag(unsigned, POW_DIFFICULTY);
 	if (nonceTag) {
 		unsigned.tags.push(nonceTag);

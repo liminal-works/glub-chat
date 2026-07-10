@@ -23,6 +23,7 @@ export default {
 		assist_label: "सर्वर असिस्ट",
 		profiles_label: "nostr प्रोफ़ाइल",
 		retro_label: "रेट्रो टर्मिनल",
+		client_label: "क्लाइंट टैग",
 		pow_label: "proof of work",
 		pow_off: "बंद",
 		pow_lenient: "8 · नरम",
@@ -63,6 +64,7 @@ export default {
 		self: "यह आप हैं",
 		reply_banner: "@{name} को जवाब",
 		pow_badge: "pow {n}",
+		client_badge: "{name} से",
 	},
 
 	translate: {

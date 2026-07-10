@@ -16,7 +16,7 @@
 //   getRelays(geohash) -> [wssUrl] nearest-first
 //   onChange({ state, notes, geohash }) fires on every state/notes change
 
-import { verifyEvent, NOTE_KIND, makeNote, makeDeleteEvent, noteExpiration, getName } from "./protocol.js";
+import { verifyEvent, NOTE_KIND, makeNote, makeDeleteEvent, noteExpiration, getName, getClient } from "./protocol.js";
 
 const MAX_NOTES = 100; // hard cap on notes we hold/show; we cut off past this
 const SAMPLE_LIMIT = 300; // recent kind-1 events the broad filter samples per relay
@@ -100,6 +100,7 @@ export function createNotesClient({ getIdentity, getRelays, onChange, assist } =
 			content: ev.content || "",
 			createdAt: ev.created_at,
 			name: getName(ev) || "",
+			client: getClient(ev), // ["client",…] tag if the sender stamped one
 			geohash: String(gTag[1]).toLowerCase(),
 			expiresAt: noteExpiration(ev),
 			mine,
@@ -293,6 +294,7 @@ export function createNotesClient({ getIdentity, getRelays, onChange, assist } =
 				content,
 				createdAt: event.created_at,
 				name: name || "",
+				client: client || "",
 				geohash,
 				expiresAt,
 				mine: true,

@@ -1553,6 +1553,31 @@ function notesFadesIn(expiresAt) {
 	return t("notes.fades_in", { time: span });
 }
 
+// translations of notes, keyed by note id, live here (not on the notes-client
+// snapshot, which is rebuilt on every refetch) so a translated note stays
+// translated across re-renders. value: { translating:true } | { text, detected }.
+const noteTranslations = new Map();
+
+// the translated-note block, mirroring chat's renderTranslation but reading the
+// per-note translation map. reuses the same .translation* CSS.
+function renderNoteTranslation(id, content) {
+	const tr = noteTranslations.get(id);
+	if (!tr) return "";
+	if (tr.translating) {
+		return `<span class="translationBlock"><span class="translationLabel">${escapeHtml(t("translate.working"))}</span></span>`;
+	}
+	if (!tr.text) return "";
+	const label = tr.detected
+		? t("translate.label_from", { lang: tr.detected.toUpperCase() })
+		: t("translate.label");
+	return (
+		`<span class="translationBlock">` +
+		`<span class="translationLabel">${escapeHtml(label)}</span>` +
+		`<span class="translationText">${linkify(escapeHtml(tr.text))}</span>` +
+		`</span>`
+	);
+}
+
 function noteRowHtml(n) {
 	const who = (n.name || "").trim() || "anon";
 	const color = pubkeyColor(n.pubkey);
@@ -1565,8 +1590,10 @@ function noteRowHtml(n) {
 	const del = n.mine
 		? `<button class="noteDelete" data-note-del="${escapeHtml(n.id)}">${escapeHtml(t("notes.delete"))}</button>`
 		: "";
+	// the row is tappable (data-note-id + data-pubkey) to open the action popup -
+	// translate/copy/mention/dm/block - just like tapping a chat message.
 	return (
-		`<div class="noteItem${n.mine ? " mine" : ""}">` +
+		`<div class="noteItem${n.mine ? " mine" : ""}" data-note-id="${escapeHtml(n.id)}" data-pubkey="${escapeHtml(n.pubkey)}">` +
 		`<div class="noteMeta">` +
 		`<span class="noteAuthor" style="color:${color}">@${escapeHtml(clipText(who, 22))}</span>` +
 		origin +
@@ -1575,13 +1602,15 @@ function noteRowHtml(n) {
 		del +
 		`</div>` +
 		`<div class="noteBody">${linkify(escapeHtml(n.content))}</div>` +
+		renderNoteTranslation(n.id, n.content) +
 		`</div>`
 	);
 }
 
 function renderNotes(snapshot) {
 	const snap = snapshot || (notesClient ? notesClient.getState() : { state: "idle", notes: [] });
-	const notes = snap.notes || [];
+	// blocking a note author hides their notes too, mirroring the chat feed
+	const notes = (snap.notes || []).filter((n) => !isBlocked(n.pubkey));
 	if (!notes.length) {
 		const key =
 			snap.state === "no_relays" ? "notes.no_relays" : snap.state === "loading" ? "notes.loading" : "notes.empty";
@@ -1589,6 +1618,78 @@ function renderNotes(snapshot) {
 		return;
 	}
 	notesList.innerHTML = notes.map(noteRowHtml).join("");
+}
+
+// find a note by id in the current snapshot (for the action popup + translate)
+function noteById(id) {
+	const snap = notesClient ? notesClient.getState() : null;
+	return snap ? (snap.notes || []).find((n) => n.id === id) : null;
+}
+
+// tapping a note opens the same action popup as a chat message, scoped to notes
+// (translate/copy/mention/dm/block). bails on the delete button + links so those
+// keep their own behavior, and on a text selection.
+function openNoteActionPopup(note) {
+	const pubkey = note.pubkey;
+	const name = (note.name || "").trim() || displayNameForPubkey(pubkey) || "anon";
+	actionContext = { pubkey, name, geo: note.geohash || "", content: note.content || "", entryId: null, noteId: note.id };
+	// notes carry no PoW, but may carry a client tag - show it like chat does
+	const clientBadge = note.client
+		? ` <span class="clientBadge">${escapeHtml(t("actions.client_badge", { name: clipText(note.client, 24) }))}</span>`
+		: "";
+	actionTitle.innerHTML = handleHtml(name, pubkey) + clientBadge;
+	actionPreview.textContent = note.content || "";
+	actionPreview.hidden = !note.content;
+	const isSelf = pubkey.toLowerCase() === identity.pk.toLowerCase();
+	// notes action set: translate, copy, mention, dm, block. reply/hug/slap are
+	// chat-channel concepts that don't map to a note, so they're hidden.
+	actionDm.hidden = isSelf;
+	actionBlock.hidden = isSelf;
+	actionMention.hidden = false;
+	actionReply.hidden = true;
+	actionHug.hidden = true;
+	actionSlap.hidden = true;
+	actionTranslate.hidden = liveSource !== "assist" || !note.content.trim();
+	const tr = noteTranslations.get(note.id);
+	actionTranslate.textContent = tr && tr.text ? t("actions.untranslate") : t("actions.translate");
+	actionGate.classList.add("show");
+}
+
+// translate a tapped note (assist api), storing the result in noteTranslations
+// and repainting the list. mirrors translateTapped for chat.
+async function translateTappedNote() {
+	const ctx = actionContext;
+	closeActionPopup();
+	if (!ctx || !ctx.noteId) return;
+	const id = ctx.noteId;
+	const existing = noteTranslations.get(id);
+	if (existing && existing.text) {
+		noteTranslations.delete(id); // toggle off
+		renderNotes();
+		return;
+	}
+	noteTranslations.set(id, { translating: true });
+	renderNotes();
+	const norm = (s) => String(s || "").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");
+	try {
+		const res = await fetch(`${API_BASE}/api/translate`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ text: ctx.content, target: preferredContentLanguage() }),
+		});
+		const data = await res.json().catch(() => ({}));
+		if (res.ok && data.ok && data.text && norm(data.text) !== norm(ctx.content)) {
+			noteTranslations.set(id, { text: data.text, detected: data.detected || "" });
+		} else {
+			noteTranslations.delete(id);
+			if (res.ok && data.ok && data.text) appendSystem(t("translate.same"));
+			else appendSystem(t(res.status === 503 ? "translate.unavailable" : "translate.failed"));
+		}
+	} catch {
+		noteTranslations.delete(id);
+		appendSystem(t("translate.failed"));
+	}
+	renderNotes();
 }
 
 function updateNotesPostBtn() {
@@ -1831,6 +1932,11 @@ function openActionPopup(pubkey, entry) {
 	const isSelf = pubkey.toLowerCase() === identity.pk.toLowerCase();
 	actionDm.hidden = isSelf;
 	actionBlock.hidden = isSelf;
+	// restore the chat-only actions (a preceding note popup may have hidden them)
+	actionReply.hidden = false;
+	actionHug.hidden = false;
+	actionSlap.hidden = false;
+	actionMention.hidden = false;
 	// translation runs through the assist api; hide it when the api isn't live, or
 	// when there's no real message text / no stored entry to attach the result to.
 	actionTranslate.hidden = liveSource !== "assist" || !content.trim() || !actionContext.entryId;
@@ -1878,6 +1984,7 @@ function startMention() {
 	const ctx = actionContext;
 	closeActionPopup();
 	if (!ctx) return;
+	if (ctx.noteId) closeNotes(); // mentioning from a note: reveal the composer behind it
 	cancelReply(); // a mention replaces whatever you were composing
 	const prefix = focusedGeo ? "" : `#${ctx.geo} `;
 	chatInput.value = `${prefix}@${ctx.name} `;
@@ -1916,6 +2023,7 @@ function blockUser() {
 	blockedPubkeys.add(ctx.pubkey.toLowerCase());
 	rerenderTerminal();
 	if (usersGate.classList.contains("show")) openUsers();
+	if (notesGate.classList.contains("show")) renderNotes(); // blocked authors' notes vanish too
 	appendSystem(t("system.blocked", { name: clipText(ctx.name || "anon", 24), tag: ctx.pubkey.slice(-4) }));
 }
 
@@ -2170,7 +2278,12 @@ actionDm.addEventListener("click", () => {
 });
 actionMention.addEventListener("click", startMention);
 actionReply.addEventListener("click", startReply);
-actionTranslate.addEventListener("click", translateTapped);
+actionTranslate.addEventListener("click", () => {
+	// same button, two subjects: a tapped note translates via the notes path, a
+	// tapped chat message via the chat path.
+	if (actionContext && actionContext.noteId) translateTappedNote();
+	else translateTapped();
+});
 actionCopy.addEventListener("click", copyTappedMessage);
 actionHug.addEventListener("click", () => sendEmote("hug"));
 actionSlap.addEventListener("click", () => sendEmote("slap"));
@@ -2275,7 +2388,16 @@ notesInput.addEventListener("keydown", (e) => {
 notesPost.addEventListener("click", submitNote);
 notesList.addEventListener("click", (e) => {
 	const del = e.target.closest("[data-note-del]");
-	if (del && notesClient) notesClient.remove(del.getAttribute("data-note-del"));
+	if (del) {
+		if (notesClient) notesClient.remove(del.getAttribute("data-note-del"));
+		return;
+	}
+	if (e.target.closest(".inlineLink")) return; // links keep their own behavior
+	if (window.getSelection && String(window.getSelection())) return; // don't hijack a text selection
+	const item = e.target.closest("[data-note-id]");
+	if (!item) return;
+	const note = noteById(item.getAttribute("data-note-id"));
+	if (note) openNoteActionPopup(note);
 });
 // tap a user row to open their nostr profile card (when profiles are on)
 usersList.addEventListener("click", (e) => {

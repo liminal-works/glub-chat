@@ -767,6 +767,7 @@ textarea {
 }
 
 .gateCard {
+	position: relative; /* anchors the [ settings ] link to the card's edges */
 	width: min(380px, 100%);
 	border: 1px solid var(--chrome-border);
 	background: var(--chrome-bg);
@@ -1793,17 +1794,17 @@ textarea {
    discoverable way into settings than the topbar "relays" readout. */
 .nameGateSettings {
 	position: absolute;
-	right: calc(16px + env(safe-area-inset-right));
-	bottom: calc(16px + env(safe-area-inset-bottom));
+	top: 100%; /* just below the card's bottom edge */
+	right: 0; /* flush with the card's right edge */
 	border: 0;
 	background: transparent;
-	color: var(--accent);
+	color: var(--accent); /* same green as the "enter a name" title */
+	text-shadow: var(--glow);
 	font: inherit;
 	font-size: 12px;
 	letter-spacing: 0.04em;
 	cursor: pointer;
 	padding: 6px 4px;
-	opacity: 0.72;
 	transition: opacity 0.15s ease, text-shadow 0.15s ease;
 	-webkit-tap-highlight-color: transparent;
 }

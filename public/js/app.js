@@ -96,6 +96,9 @@ const copyNsecBtn = document.getElementById("copyNsecBtn");
 const pasteNsecBtn = document.getElementById("pasteNsecBtn");
 const nsecStatus = document.getElementById("nsecStatus");
 const settingsClose = document.getElementById("settingsClose");
+const settingsList = document.getElementById("settingsList");
+const settingsDesc = document.getElementById("settingsDesc");
+const nameGateSettings = document.getElementById("nameGateSettings");
 const usersGate = document.getElementById("usersGate");
 const usersTitle = document.getElementById("usersTitle");
 const usersLocation = document.getElementById("usersLocation");
@@ -1076,6 +1079,22 @@ function syncProfilesRow() {
 	profilesRow.classList.toggle("disabled", !enabled);
 }
 
+// the settings description blurb swaps to whatever setting you touch; it opens
+// on the server-assist copy and resets there each time settings is reopened.
+const DEFAULT_SETTINGS_DESC = "settings.assist_description";
+let currentSettingsDesc = DEFAULT_SETTINGS_DESC;
+
+function renderSettingsDesc() {
+	settingsDesc.textContent = t(currentSettingsDesc);
+}
+
+function showSettingsDesc(key) {
+	if (!key) return;
+	currentSettingsDesc = key;
+	renderSettingsDesc();
+	settingsDesc.scrollTop = 0;
+}
+
 function openSettings() {
 	assistToggle.checked = getAssistEnabled();
 	profilesToggle.checked = getProfilesEnabled();
@@ -1087,6 +1106,8 @@ function openSettings() {
 	nsecRevealed = false;
 	renderNsecField();
 	setNsecStatus("");
+	currentSettingsDesc = DEFAULT_SETTINGS_DESC; // reset the blurb to the default
+	renderSettingsDesc();
 	settingsGate.classList.add("show");
 }
 
@@ -2499,10 +2520,20 @@ powSelect.addEventListener("change", () => {
 });
 
 settingsClose.addEventListener("click", closeSettings);
-// tapping the dimmed backdrop (outside the card) dismisses settings
+// tapping the dimmed backdrop (outside the panel) dismisses settings
 settingsGate.addEventListener("click", (e) => {
 	if (e.target === settingsGate) closeSettings();
 });
+// touching any setting swaps the description blurb to that setting's copy.
+// pointerdown covers mouse + touch; focusin covers keyboard tabbing.
+function onSettingsInteract(e) {
+	const row = e.target.closest("[data-desc]");
+	if (row) showSettingsDesc(row.getAttribute("data-desc"));
+}
+settingsList.addEventListener("pointerdown", onSettingsInteract);
+settingsList.addEventListener("focusin", onSettingsInteract);
+// the name gate's own way into settings (more discoverable than the topbar)
+nameGateSettings.addEventListener("click", openSettings);
 
 usersClose.addEventListener("click", closeUsers);
 usersGate.addEventListener("click", (e) => {
@@ -3085,6 +3116,7 @@ onLocaleChange(() => {
 	renderTopbar();
 	updatePlaceholder();
 	updateNewMessagesBar();
+	renderSettingsDesc(); // the settings blurb is set imperatively, not via data-i18n
 	rerenderTerminal();
 });
 

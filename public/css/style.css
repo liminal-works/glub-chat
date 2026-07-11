@@ -748,7 +748,8 @@ textarea {
    so these are keyframes triggered by .show. */
 .gate.show .gateCard,
 .gate.show .usersPanel,
-.gate.show .notesPanel {
+.gate.show .notesPanel,
+.gate.show .settingsPanel {
 	animation: cardIn 0.2s ease-out;
 }
 
@@ -1738,15 +1739,78 @@ textarea {
 	padding-left: 0;
 }
 
-#settingsClose {
+/* settings is a full-screen blurred panel like the users list: title + [EXIT]
+   pinned top, a fixed description blurb, then a scrolling categorized list. */
+#settingsGate {
+	align-items: stretch;
+	padding: calc(16px + env(safe-area-inset-top)) 16px calc(16px + env(safe-area-inset-bottom));
+}
+
+.settingsPanel {
 	width: 100%;
-	border: 1px solid var(--chrome-border);
+	max-width: 560px;
+	margin: 0 auto;
+	display: flex;
+	flex-direction: column;
+	gap: 12px;
+	min-height: 0;
+}
+
+#settingsTitle {
+	font-weight: 700;
+}
+
+/* the swappable description: locked to a fixed height so touching a setting
+   never jolts the list up or down. scrolls internally in the rare long case. */
+.settingsDesc {
+	height: 6em;
+	overflow-y: auto;
+	color: var(--muted);
+	font-size: 13px;
+	line-height: 1.4;
+	border-left: 2px solid color-mix(in srgb, var(--accent) 28%, transparent);
+	padding: 2px 0 2px 12px;
+}
+
+.settingsList {
+	flex: 1;
+	min-height: 0;
+	overflow: hidden auto;
+	/* the settingRow rhythm (margin-bottom) drives spacing; nothing extra here */
+}
+
+/* barriers double as category headers, so give them a touch more breathing room
+   than the users-list divider and drop the bottom margin of the row above. */
+.settingsList .usersBarrier {
+	margin: 14px 0 12px;
+}
+
+.settingsList .usersBarrier:first-child {
+	margin-top: 2px;
+}
+
+/* small accent link tucked into the name gate's bottom-right corner - a more
+   discoverable way into settings than the topbar "relays" readout. */
+.nameGateSettings {
+	position: absolute;
+	right: calc(16px + env(safe-area-inset-right));
+	bottom: calc(16px + env(safe-area-inset-bottom));
+	border: 0;
 	background: transparent;
 	color: var(--accent);
 	font: inherit;
-	font-weight: 700;
-	padding: 10px 12px;
+	font-size: 12px;
+	letter-spacing: 0.04em;
 	cursor: pointer;
+	padding: 6px 4px;
+	opacity: 0.72;
+	transition: opacity 0.15s ease, text-shadow 0.15s ease;
+	-webkit-tap-highlight-color: transparent;
+}
+
+.nameGateSettings:hover {
+	opacity: 1;
+	text-shadow: var(--glow);
 }
 
 /* boot-sequence lines: the few dim lines the client prints while waking up.

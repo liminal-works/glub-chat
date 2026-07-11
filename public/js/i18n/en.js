@@ -12,12 +12,30 @@ export default {
 		subtitle_2: "just pick a name to start chatting.",
 		input_placeholder: "alias",
 		enter: "enter",
+		settings: "[ settings ]",
 	},
 
 	settings: {
 		title: "settings",
+		cat_api: "api",
+		cat_client: "client",
+		cat_visual: "visual",
+		cat_filter: "filter",
+		cat_nostr: "nostr",
 		assist_description:
 			"server assist pulls deep history and lowers bandwidth via an optional API. your client still works fully on its own if it's off or unavailable.",
+		client_description:
+			"stamps a 'client' tag reading glub.chat onto your signed events, so other nostr apps can show where you posted from. off omits the tag entirely.",
+		local_description:
+			"drops the teleport tag so your events read as local rather than teleported in. off keeps teleport — the honest state of a location-free web client.",
+		retro_description:
+			"a heavier CRT terminal look: scanlines, phosphor glow, flicker. purely cosmetic — nothing about the protocol or your messages changes.",
+		pow_description:
+			"hides inbound messages below a proof-of-work difficulty. raises the cost of spam, at the price of dropping low-effort or non-mining clients.",
+		profiles_description:
+			"shows nostr display names and avatars for people who have a profile (needs server assist). off keeps everyone as their raw key handle.",
+		identity_description:
+			"your nostr secret key (nsec) is your whole identity, and never leaves this device. reveal it to back up, or paste one to import an identity.",
 		assist_label: "server assist",
 		profiles_label: "nostr profiles",
 		retro_label: "retro terminal",

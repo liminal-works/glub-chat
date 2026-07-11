@@ -408,6 +408,18 @@ textarea {
 	font-size: 0.8em;
 }
 
+/* a text-censored message: reads like a muted system aside, tap to reveal.
+   inherits .ts sizing/color; italic + pointer signal it's a placeholder. */
+.censoredMsg {
+	font-style: italic;
+	cursor: pointer;
+	-webkit-tap-highlight-color: transparent;
+}
+
+.censoredMsg:hover {
+	text-shadow: var(--glow);
+}
+
 /* send-latency badge on your own messages - same look as the timestamp */
 .ack {
 	margin-left: 2px;

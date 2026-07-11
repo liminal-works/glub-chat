@@ -20,6 +20,7 @@ import { createMap } from "./ui/map.js";
 import { createDmClient, DM_MAX_CONTENT_BYTES } from "./nostr/dm.js";
 import { createNotesClient } from "./nostr/notes.js";
 import { uploadImageToNostrBuild, NOSTR_BUILD_MAX_BYTES, NOSTR_BUILD_MAX_MB } from "./nostr/nip96.js";
+import { isProfane } from "./censor.js";
 import { THEMES, themeNames, activeTheme, applyTheme, persistTheme, initTheme, hexToRgb } from "./themes.js";
 
 // re-apply the persisted theme before anything renders (module scripts run
@@ -47,10 +48,26 @@ function isBlocked(pubkey) {
 	return !!pubkey && blockedPubkeys.has(pubkey.toLowerCase());
 }
 
-// groundwork for a future "/censor" command - for now images always start
-// blurred and are revealed per-tap (see revealedImages below).
-const mediaSettings = { censorImages: true };
+// client-side censorship (the /censor command), persisted to localStorage.
+// media: images blurred + tap-to-reveal (default on) vs auto-load (off).
+// text: messages containing listed profanity collapse to a nameless
+//   "* censored message *" placeholder, tap to reveal (default off).
+const STORAGE_CENSOR_MEDIA = "glub_censor_media";
+const STORAGE_CENSOR_TEXT = "glub_censor_text";
+const mediaSettings = { censorImages: localStorage.getItem(STORAGE_CENSOR_MEDIA) !== "false" };
+let censorMessages = localStorage.getItem(STORAGE_CENSOR_TEXT) === "true";
 const revealedImages = new Set(); // "entryId:idx" keys for images tapped open
+const revealedMessages = new Set(); // entry ids of censored messages tapped open
+
+function setCensorMedia(on) {
+	mediaSettings.censorImages = on;
+	localStorage.setItem(STORAGE_CENSOR_MEDIA, on ? "true" : "false");
+}
+
+function setCensorText(on) {
+	censorMessages = on;
+	localStorage.setItem(STORAGE_CENSOR_TEXT, on ? "true" : "false");
+}
 
 let identity = loadOrCreateIdentity(); // mutable: /rotate and /import replace it
 let name = getStoredName();
@@ -563,6 +580,24 @@ function messageInnerHtml(entry) {
 	return body + timeTag(entry.ts) + ackTag(entry);
 }
 
+// whether a message is currently hidden by text-censorship (setting on, content
+// flagged, not yet revealed). system lines are never censored.
+function isMessageCensored(entry) {
+	return censorMessages && !entry.system && entry.profane && !revealedMessages.has(entry.id);
+}
+
+// the complete inner html for an entry's line, including the optional #geo
+// prefix. A censored message collapses to a nameless "* censored message *"
+// placeholder (tap to reveal) with no prefix and no name; system + normal lines
+// are unchanged. This is the single composition point for every render path.
+function messageHtml(entry) {
+	if (isMessageCensored(entry)) {
+		return `<span class="ts censoredMsg" data-censor-reveal="${escapeHtml(entry.id)}">${escapeHtml(t("system.censored"))}</span>`;
+	}
+	const body = entry.system ? entry.html : messageInnerHtml(entry);
+	return (focusedGeo ? "" : entry.geoPrefix || "") + body;
+}
+
 // the translation block shown beneath a message once you've translated it (or
 // while it's in flight). rendered as its own legible line - accent-bordered, a
 // small "translated" label, then the text at full readability - rather than the
@@ -644,9 +679,9 @@ function renderEntryDom(entry, animate = false) {
 	if (entry.system) div.className += " system";
 	if (entry.mentionTint) div.style.background = entry.mentionTint;
 	// the #geo prefix is redundant in a focused channel (every line is that
-	// channel), so only prepend it in global view.
-	const body = entry.system ? entry.html : messageInnerHtml(entry);
-	div.innerHTML = (focusedGeo ? "" : entry.geoPrefix || "") + body;
+	// channel), so only prepend it in global view. messageHtml also handles the
+	// censored-message placeholder.
+	div.innerHTML = messageHtml(entry);
 	entry.el = div;
 
 	const idx = entries.indexOf(entry);
@@ -905,6 +940,8 @@ function renderEvent(ev) {
 		client: getClient(ev), // ["client",…] tag if the sender stamped one ("" if not)
 		wall: looksLikeWall(text), // screen-eating content starts hard-collapsed
 		images: extractImageUrls(text),
+		profane: isProfane(text), // flagged once; the /censor text setting gates display live
+
 		expanded: false,
 		el: null,
 	};
@@ -2528,7 +2565,7 @@ terminal.addEventListener("click", (e) => {
 	const entry = entries.find((en) => en.id === toggle.dataset.toggle);
 	if (!entry || !entry.el) return;
 	entry.expanded = !entry.expanded;
-	entry.el.innerHTML = (focusedGeo ? "" : entry.geoPrefix || "") + messageInnerHtml(entry);
+	entry.el.innerHTML = messageHtml(entry);
 });
 
 // tap a blurred image preview to reveal it, tap again to re-blur
@@ -2544,7 +2581,18 @@ terminal.addEventListener("click", (e) => {
 	const entryId = key.slice(0, key.lastIndexOf(":"));
 	const entry = entries.find((en) => en.id === entryId);
 	if (!entry || !entry.el) return;
-	entry.el.innerHTML = (focusedGeo ? "" : entry.geoPrefix || "") + messageInnerHtml(entry);
+	entry.el.innerHTML = messageHtml(entry);
+});
+
+// tap a censored message to reveal it (one-way for the session; the whole
+// message, name and all, comes back and taps normally after that)
+terminal.addEventListener("click", (e) => {
+	const rev = e.target.closest("[data-censor-reveal]");
+	if (!rev) return;
+	const id = rev.dataset.censorReveal;
+	revealedMessages.add(id);
+	const entry = entries.find((en) => en.id === id);
+	if (entry) rerenderEntryEl(entry);
 });
 
 function randomAnonName() {
@@ -2566,7 +2614,7 @@ nameForm.addEventListener("submit", (e) => {
 // single entry point for every event source (relays + history api): filter to
 // geohash chat, dedup by id, then render. Both paths share one dedup set.
 function rerenderEntryEl(entry) {
-	if (entry.el) entry.el.innerHTML = (focusedGeo ? "" : entry.geoPrefix || "") + messageInnerHtml(entry);
+	if (entry.el) entry.el.innerHTML = messageHtml(entry);
 }
 
 // how "you" appear (orange+bold vs. your real per-key color) hinges on
@@ -3358,6 +3406,35 @@ const COMMANDS = [
 			clearedBefore = 0;
 			rerenderTerminal();
 			appendSystem(t("system.uncleared"));
+		},
+	},
+	{
+		name: "censor",
+		run(arg) {
+			// /censor <media|text> <on|off>. media on = images blurred + tap-to-reveal;
+			// off = auto-load. text on = profanity-flagged messages hide behind a
+			// nameless "* censored message *" (tap to reveal). all client-side + local.
+			const [rawTarget = "", rawValue = ""] = arg.trim().split(/\s+/);
+			const target = rawTarget.toLowerCase();
+			const value = rawValue.toLowerCase();
+			const isMedia = ["media", "image", "images", "img", "pics", "pictures"].includes(target);
+			const isText = ["text", "texts", "message", "messages", "msg", "msgs", "string", "strings"].includes(target);
+			const on = ["on", "true", "1", "yes", "enable", "enabled"].includes(value);
+			const off = ["off", "false", "0", "no", "disable", "disabled"].includes(value);
+			if ((!isMedia && !isText) || (!on && !off)) {
+				appendSystem(t("system.censor_usage"));
+				return;
+			}
+			if (isMedia) {
+				setCensorMedia(on);
+				rerenderTerminal(); // repaint image previews (blurred vs auto-load)
+				if (notesGate.classList.contains("show")) renderNotes();
+				appendSystem(t(on ? "system.censor_media_on" : "system.censor_media_off"));
+			} else {
+				setCensorText(on);
+				rerenderTerminal(); // repaint censored vs revealed message lines
+				appendSystem(t(on ? "system.censor_text_on" : "system.censor_text_off"));
+			}
 		},
 	},
 	{

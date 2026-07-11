@@ -6,11 +6,19 @@
 // and of assist mode, exactly like the DM client - and exposes open/post/remove.
 //
 // A channel shows every note nested under it, at any depth: #9q surfaces notes
-// posted in #9qh5, #9q5cc, etc. Nostr `#g` filters can't prefix-match, so we run
-// an exact `#g` floor for the channel's own notes plus a bounded sample of recent
-// kind-1 events that we prefix-filter client-side, keeping the newest MAX_NOTES.
+// posted in #9qh5, #9q5cc, etc. Since `#g` filters can't prefix-match, notes are
+// gathered in up to three additive passes:
+//   1. a deliberate exact `#g` request for the current channel (its own notes,
+//      always, regardless of firehose volume);
+//   2. a firehose scan of recent kind-1 events - drop anything without a `g` tag,
+//      keep whatever's tagged under this channel (the prefix match). Steps 1+2 run
+//      over our own relay sockets and stand alone with no server dependency;
+//   3. (only with server assist on) a backfill from the API's long-lived note
+//      cache, merging in notes the server caught over time that our live scan
+//      missed. Purely additive - ingest() dedups across all three.
+// Everything is capped at the newest MAX_NOTES.
 //
-// createNotesClient({ getIdentity, getRelays, onChange })
+// createNotesClient({ getIdentity, getRelays, onChange, assist })
 //   getIdentity() -> { sk, pk }   (glub's single global identity; notes are not
 //                                   per-geohash-derived the way native bitchat is)
 //   getRelays(geohash) -> [wssUrl] nearest-first
@@ -203,9 +211,10 @@ export function createNotesClient({ getIdentity, getRelays, onChange, assist } =
 
 	// --- public ----------------------------------------------------------------
 
-	// pull the assist cache for the current channel and merge it in. Runs on open
-	// and on a timer while the sheet is up; ingest() dedups so it's additive. The
-	// server already prefix-scoped the result; we re-verify + prefix-check each.
+	// step 3 (server assist only): backfill from the server's long-lived cache -
+	// notes it caught over time that our live scan missed. Runs on open and on a
+	// timer; ingest() dedups so it's purely additive on top of the relay scan.
+	// The server already prefix-scoped the result; we re-verify + prefix-check each.
 	async function assistRefresh() {
 		const myGen = gen;
 		let events = [];
@@ -218,6 +227,7 @@ export function createNotesClient({ getIdentity, getRelays, onChange, assist } =
 		eosed = true;
 		for (const ev of events) if (ev?.id && ev?.pubkey) ingest(ev);
 		if (state === "loading") setState(notes.length ? "ready" : "empty");
+		else if (state === "empty" && notes.length) setState("ready");
 		emit();
 	}
 
@@ -237,25 +247,28 @@ export function createNotesClient({ getIdentity, getRelays, onChange, assist } =
 		emit();
 		pruneTimer = setInterval(prune, PRUNE_INTERVAL_MS);
 
-		// assist mode: the server answers prefix queries, so read from it instead of
-		// opening relay sockets (the client holds none in assist mode anyway).
-		if (assist?.isActive?.()) {
-			assistRefresh();
-			assistTimer = setInterval(assistRefresh, ASSIST_REFETCH_MS);
-			return;
-		}
-
-		// direct-relay path
+		// steps 1 + 2 (always, standalone): a deliberate #g request for this channel
+		// plus a firehose scan of recent kind-1 that we prefix-filter client-side, so
+		// a note nested anywhere under the channel surfaces. no dependence on assist.
 		const suffix = Math.random().toString(36).slice(2, 10);
 		subExact = `glub-notes-x-${suffix}`;
 		subBroad = `glub-notes-b-${suffix}`;
 		const relays = (getRelays(geohash) || []).slice(0, MAX_RELAYS);
-		if (relays.length === 0) {
+		for (const url of relays) connect(url, 0);
+
+		// step 3 (with server assist): additively backfill from the server cache and
+		// keep topping up while the sheet is open.
+		const assisting = !!assist?.isActive?.();
+		if (assisting) {
+			assistRefresh();
+			assistTimer = setInterval(assistRefresh, ASSIST_REFETCH_MS);
+		}
+
+		// nothing to read from at all (no relays, no assist)
+		if (relays.length === 0 && !assisting) {
 			setState("no_relays");
 			emit();
-			return;
 		}
-		for (const url of relays) connect(url, 0);
 	}
 
 	function close() {
@@ -283,9 +296,10 @@ export function createNotesClient({ getIdentity, getRelays, onChange, assist } =
 		} catch {
 			return { ok: false, relays: 0 };
 		}
-		// assist mode publishes through the API (no client relay sockets); otherwise
-		// broadcast to our own sockets.
-		const relays = assist?.isActive?.() ? (assist.publish(event), 1) : broadcast(event);
+		// always broadcast on our own sockets; with assist on, also hand it to the
+		// API for a wider fan-out and so the server caches it.
+		const relays = broadcast(event);
+		if (assist?.isActive?.()) assist.publish(event);
 		// optimistic local echo so the note appears instantly
 		if (
 			insert({
@@ -314,8 +328,8 @@ export function createNotesClient({ getIdentity, getRelays, onChange, assist } =
 		const { sk, pk } = getIdentity();
 		try {
 			const del = makeDeleteEvent({ eventId: noteId, sk, pk });
-			if (assist?.isActive?.()) assist.publish(del);
-			else broadcast(del);
+			broadcast(del); // always on our own sockets
+			if (assist?.isActive?.()) assist.publish(del); // + wider fan-out via the API
 		} catch {
 			return false;
 		}

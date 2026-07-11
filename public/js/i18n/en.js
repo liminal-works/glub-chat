@@ -32,6 +32,10 @@ export default {
 			"a heavier CRT terminal look: scanlines, phosphor glow, flicker. purely cosmetic — nothing about the protocol or your messages changes.",
 		pow_description:
 			"hides inbound messages below a proof-of-work difficulty. raises the cost of spam, at the price of dropping low-effort or non-mining clients.",
+		blur_description:
+			"blurs inbound images until you tap to reveal them. off loads every image automatically. on by default; purely local.",
+		censor_description:
+			"hides messages containing listed profanity behind a nameless '* censored message *' you can tap to reveal. off by default; purely local.",
 		profiles_description:
 			"shows nostr display names and avatars for people who have a profile (needs server assist). off keeps everyone as their raw key handle.",
 		identity_description:
@@ -41,6 +45,8 @@ export default {
 		retro_label: "retro terminal",
 		client_label: "client tag",
 		local_label: "local tag",
+		blur_label: "media blur",
+		censor_label: "text censor",
 		pow_label: "proof of work",
 		pow_off: "off",
 		pow_lenient: "8 · lenient",
@@ -203,7 +209,6 @@ export default {
 		clear: "clear the view",
 		join: "join any channel (spaces & case ok)",
 		unclear: "restore cleared messages",
-		censor: "censor media or text (/censor <media|text> <on|off>)",
 		echo: "echo a message via your bot",
 		mute: "hide a channel from the global feed",
 		unmute: "unhide a channel (blank = list muted)",
@@ -256,11 +261,6 @@ export default {
 		theme_set: "theme: {name}",
 		theme_unknown: "unknown theme: {name} (try /theme to list)",
 		censored: "* censored message *",
-		censor_usage: "usage: /censor <media|text> <on|off>",
-		censor_media_on: "media blurring enabled",
-		censor_media_off: "media blurring disabled",
-		censor_text_on: "text censoring enabled",
-		censor_text_off: "text censoring disabled",
 		panic: "panic cleared",
 		assist_active: "server assist is active",
 		relay_global_teleport: "#{geo}: not a location, connecting to global relay set...",

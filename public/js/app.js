@@ -48,7 +48,7 @@ function isBlocked(pubkey) {
 	return !!pubkey && blockedPubkeys.has(pubkey.toLowerCase());
 }
 
-// client-side censorship (the /censor command), persisted to localStorage.
+// client-side censorship (the settings-window toggles), persisted to localStorage.
 // media: images blurred + tap-to-reveal (default on) vs auto-load (off).
 // text: messages containing listed profanity collapse to a nameless
 //   "* censored message *" placeholder, tap to reveal (default off).
@@ -88,6 +88,8 @@ const profilesToggle = document.getElementById("profilesToggle");
 const retroToggle = document.getElementById("retroToggle");
 const clientToggle = document.getElementById("clientToggle");
 const localToggle = document.getElementById("localToggle");
+const blurToggle = document.getElementById("blurToggle");
+const censorToggle = document.getElementById("censorToggle");
 const powSelect = document.getElementById("powSelect");
 const profilesRow = document.getElementById("profilesRow");
 const nsecInput = document.getElementById("nsecInput");
@@ -964,7 +966,7 @@ function renderEvent(ev) {
 		client: getClient(ev), // ["client",…] tag if the sender stamped one ("" if not)
 		wall: looksLikeWall(text), // screen-eating content starts hard-collapsed
 		images: extractImageUrls(text),
-		profane: isProfane(text), // flagged once; the /censor text setting gates display live
+		profane: isProfane(text), // flagged once; the text-censor setting gates display live
 
 		expanded: false,
 		el: null,
@@ -1101,6 +1103,8 @@ function openSettings() {
 	retroToggle.checked = getRetroEnabled();
 	clientToggle.checked = getClientTagEnabled();
 	localToggle.checked = getLocalTagEnabled();
+	blurToggle.checked = mediaSettings.censorImages;
+	censorToggle.checked = censorMessages;
 	powSelect.value = String(getPowFilter());
 	syncProfilesRow();
 	nsecRevealed = false;
@@ -2512,6 +2516,17 @@ localToggle.addEventListener("change", () => {
 	setLocalTagEnabled(localToggle.checked); // on => next events omit the teleport tag
 });
 
+blurToggle.addEventListener("change", () => {
+	setCensorMedia(blurToggle.checked); // on => images blur + tap-to-reveal
+	rerenderTerminal();
+	if (notesGate.classList.contains("show")) renderNotes();
+});
+
+censorToggle.addEventListener("change", () => {
+	setCensorText(censorToggle.checked); // on => profanity-flagged messages hide
+	rerenderTerminal();
+});
+
 powSelect.addEventListener("change", () => {
 	setPowFilter(parseInt(powSelect.value, 10) || 0);
 	// live view filter: re-run visibility over the whole buffer so raising the
@@ -3483,35 +3498,6 @@ const COMMANDS = [
 			clearedBefore = 0;
 			rerenderTerminal();
 			appendSystem(t("system.uncleared"));
-		},
-	},
-	{
-		name: "censor",
-		run(arg) {
-			// /censor <media|text> <on|off>. media on = images blurred + tap-to-reveal;
-			// off = auto-load. text on = profanity-flagged messages hide behind a
-			// nameless "* censored message *" (tap to reveal). all client-side + local.
-			const [rawTarget = "", rawValue = ""] = arg.trim().split(/\s+/);
-			const target = rawTarget.toLowerCase();
-			const value = rawValue.toLowerCase();
-			const isMedia = ["media", "image", "images", "img", "pics", "pictures"].includes(target);
-			const isText = ["text", "texts", "message", "messages", "msg", "msgs", "string", "strings"].includes(target);
-			const on = ["on", "true", "1", "yes", "enable", "enabled"].includes(value);
-			const off = ["off", "false", "0", "no", "disable", "disabled"].includes(value);
-			if ((!isMedia && !isText) || (!on && !off)) {
-				appendSystem(t("system.censor_usage"));
-				return;
-			}
-			if (isMedia) {
-				setCensorMedia(on);
-				rerenderTerminal(); // repaint image previews (blurred vs auto-load)
-				if (notesGate.classList.contains("show")) renderNotes();
-				appendSystem(t(on ? "system.censor_media_on" : "system.censor_media_off"));
-			} else {
-				setCensorText(on);
-				rerenderTerminal(); // repaint censored vs revealed message lines
-				appendSystem(t(on ? "system.censor_text_on" : "system.censor_text_off"));
-			}
 		},
 	},
 	{

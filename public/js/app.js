@@ -19,6 +19,7 @@ import { createSuggest } from "./ui/suggest.js";
 import { createMap } from "./ui/map.js";
 import { createDmClient, DM_MAX_CONTENT_BYTES } from "./nostr/dm.js";
 import { createNotesClient } from "./nostr/notes.js";
+import { uploadImageToNostrBuild, NOSTR_BUILD_MAX_BYTES, NOSTR_BUILD_MAX_MB } from "./nostr/nip96.js";
 import { THEMES, themeNames, activeTheme, applyTheme, persistTheme, initTheme, hexToRgb } from "./themes.js";
 
 // re-apply the persisted theme before anything renders (module scripts run
@@ -94,6 +95,9 @@ const notesList = document.getElementById("notesList");
 const notesInput = document.getElementById("notesInput");
 const notesExpiry = document.getElementById("notesExpiry");
 const notesPost = document.getElementById("notesPost");
+const notesAttach = document.getElementById("notesAttach");
+const notesFile = document.getElementById("notesFile");
+const notesUploadHint = document.getElementById("notesUploadHint");
 const profileGate = document.getElementById("profileGate");
 const profileCard = document.getElementById("profileCard");
 const profileBanner = document.getElementById("profileBanner");
@@ -1535,6 +1539,7 @@ function openNotes() {
 	ensureNotesClient();
 	notesTitle.innerHTML = `${escapeHtml(t("notes.title"))} <span class="notesTitleGeo">#${escapeHtml(geo)}</span>`;
 	notesInput.value = "";
+	setNotesUploadHint("");
 	updateNotesPostBtn();
 	notesGate.classList.add("show");
 	notesClient.open(geo);
@@ -1713,6 +1718,52 @@ function submitNote() {
 	if (!res.ok) return;
 	notesInput.value = "";
 	updateNotesPostBtn();
+}
+
+// --- note image attach (nostr.build) ----------------------------------------
+// notes can persist forever, so their media needs a permanent host - the api's
+// media store is temporary. Uploads go straight from the browser to nostr.build
+// (NIP-96 + NIP-98, signed with the local identity key; no api key, no server
+// hop, works with assist on or off) and the returned url is appended to the
+// note text, where it renders through the existing image-preview path.
+
+let notesUploadBusy = false;
+let notesHintTimer = null;
+
+function setNotesUploadHint(text, isError) {
+	clearTimeout(notesHintTimer);
+	notesUploadHint.textContent = text || "";
+	notesUploadHint.classList.toggle("error", !!isError);
+	if (isError) {
+		notesHintTimer = setTimeout(() => {
+			notesUploadHint.textContent = "";
+			notesUploadHint.classList.remove("error");
+		}, 5000);
+	}
+}
+
+async function attachNoteImage(file) {
+	if (!file || notesUploadBusy) return;
+	if (!file.type.startsWith("image/")) return;
+	if (file.size > NOSTR_BUILD_MAX_BYTES) {
+		setNotesUploadHint(t("notes.too_large", { max: NOSTR_BUILD_MAX_MB }), true);
+		return;
+	}
+	notesUploadBusy = true;
+	notesAttach.disabled = true;
+	setNotesUploadHint(t("notes.uploading"));
+	try {
+		const { url } = await uploadImageToNostrBuild(file, identity);
+		// append the hosted url to whatever's typed; it ships inside the note text
+		const cur = notesInput.value.replace(/\s+$/, "");
+		notesInput.value = cur ? `${cur} ${url}` : url;
+		updateNotesPostBtn();
+		setNotesUploadHint("");
+	} catch {
+		setNotesUploadHint(t("notes.upload_failed"), true);
+	}
+	notesUploadBusy = false;
+	notesAttach.disabled = false;
 }
 
 // ===========================================================================
@@ -2392,6 +2443,14 @@ notesInput.addEventListener("keydown", (e) => {
 	}
 });
 notesPost.addEventListener("click", submitNote);
+notesAttach.addEventListener("click", () => {
+	if (!notesUploadBusy) notesFile.click();
+});
+notesFile.addEventListener("change", () => {
+	const file = notesFile.files && notesFile.files[0];
+	notesFile.value = ""; // let the same file be re-picked after a failure
+	attachNoteImage(file);
+});
 notesList.addEventListener("click", (e) => {
 	const del = e.target.closest("[data-note-del]");
 	if (del) {

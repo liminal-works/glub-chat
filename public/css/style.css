@@ -1034,9 +1034,57 @@ textarea {
 	border-color: var(--chrome-border-strong);
 }
 
+/* upload feedback ("uploading…" / errors) filling the space between the expiry
+   picker and the attach/post cluster; empty when idle so it costs no layout. */
+.notesUploadHint {
+	flex: 1;
+	min-width: 0;
+	text-align: right;
+	color: var(--muted);
+	font-size: 12px;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.notesUploadHint.error {
+	color: var(--danger);
+}
+
+/* attach "+": mirrors the chat composer's #mediaBtn - borderless accent glyph
+   with a generous gap before "post" so the two don't read as one control. */
+.notesAttach {
+	border: 0;
+	background: transparent;
+	color: var(--accent);
+	font: inherit;
+	font-size: 18px;
+	font-weight: 700;
+	cursor: pointer;
+	padding: 6px 0;
+	margin-right: 12px;
+	transition: text-shadow 0.15s ease, filter 0.15s ease;
+	-webkit-tap-highlight-color: transparent;
+}
+
+.notesAttach:hover {
+	text-shadow: var(--glow);
+	filter: brightness(1.15);
+}
+
+.notesAttach:active {
+	transform: translateY(1px);
+}
+
+.notesAttach:disabled {
+	opacity: 0.5;
+	cursor: default;
+	text-shadow: none;
+	filter: none;
+}
+
 /* borderless, matching the chat #sendBtn - just accent text that glows on hover */
 .notesPost {
-	margin-left: auto;
 	border: 0;
 	background: transparent;
 	color: var(--accent);

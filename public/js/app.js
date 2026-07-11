@@ -1603,6 +1603,9 @@ function noteRowHtml(n) {
 		del +
 		`</div>` +
 		`<div class="noteBody">${linkify(escapeHtml(n.content))}</div>` +
+		// image previews, same blurred tap-to-reveal treatment as chat (renderImage-
+		// Previews reads .id + .images, so a lightweight shim is all it needs)
+		renderImagePreviews({ id: n.id, images: extractImageUrls(n.content) }) +
 		renderNoteTranslation(n.id, n.content) +
 		`</div>`
 	);
@@ -2393,6 +2396,16 @@ notesList.addEventListener("click", (e) => {
 	const del = e.target.closest("[data-note-del]");
 	if (del) {
 		if (notesClient) notesClient.remove(del.getAttribute("data-note-del"));
+		return;
+	}
+	// tap a blurred image preview to reveal it, tap again to re-blur (same store +
+	// key format as chat), then repaint the list
+	const imgToggle = e.target.closest("[data-img-toggle]");
+	if (imgToggle && imgToggle.dataset.imgToggle) {
+		const key = imgToggle.dataset.imgToggle;
+		if (revealedImages.has(key)) revealedImages.delete(key);
+		else revealedImages.add(key);
+		renderNotes();
 		return;
 	}
 	if (e.target.closest(".inlineLink")) return; // links keep their own behavior

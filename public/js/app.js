@@ -144,6 +144,7 @@ const actionPreview = document.getElementById("actionPreview");
 const actionDm = document.getElementById("actionDm");
 const actionGrid = document.getElementById("actionGrid");
 const actionMention = document.getElementById("actionMention");
+const actionCopyNpub = document.getElementById("actionCopyNpub");
 const actionReply = document.getElementById("actionReply");
 const actionTranslate = document.getElementById("actionTranslate");
 const actionCopy = document.getElementById("actionCopy");
@@ -1691,11 +1692,14 @@ function openNoteActionPopup(note) {
 	// chat-channel concepts that don't map to a note, so they're hidden.
 	actionDm.hidden = isSelf;
 	actionBlock.hidden = isSelf;
-	actionMention.hidden = false;
+	// notes swap the chat "mention" for "copy npub" (there's no channel context to
+	// mention into from a note, but grabbing the author's npub is useful)
+	actionMention.hidden = true;
+	actionCopyNpub.hidden = false;
 	actionReply.hidden = true;
 	actionHug.hidden = true;
 	actionSlap.hidden = true;
-	actionGrid.classList.add("solo"); // only mention remains - let it span full width
+	actionGrid.classList.add("solo"); // only one action remains - let it span full width
 	actionTranslate.hidden = liveSource !== "assist" || !note.content.trim();
 	const tr = noteTranslations.get(note.id);
 	actionTranslate.textContent = tr && tr.text ? t("actions.untranslate") : t("actions.translate");
@@ -2030,6 +2034,7 @@ function openActionPopup(pubkey, entry) {
 	actionHug.hidden = false;
 	actionSlap.hidden = false;
 	actionMention.hidden = false;
+	actionCopyNpub.hidden = true; // notes-only action
 	actionGrid.classList.remove("solo"); // full 2x2 quick-actions grid
 	// translation runs through the assist api; hide it when the api isn't live, or
 	// when there's no real message text / no stored entry to attach the result to.
@@ -2050,6 +2055,19 @@ async function copyTappedMessage() {
 		appendSystem(t("system.msg_copied"));
 	} catch {
 		appendSystem(t("system.copy_failed"));
+	}
+}
+
+// copy the tapped author's npub (bech32 pubkey) - the notes-popup action
+async function copyTappedNpub() {
+	const pubkey = actionContext && actionContext.pubkey;
+	closeActionPopup();
+	if (!pubkey) return;
+	try {
+		await navigator.clipboard.writeText(pkToNpub(pubkey));
+		appendSystem(t("profile.npub_copied"));
+	} catch {
+		appendSystem(t("profile.npub_copy_failed"));
 	}
 }
 
@@ -2371,6 +2389,7 @@ actionDm.addEventListener("click", () => {
 	if (actionContext) openDmConversation(actionContext.pubkey);
 });
 actionMention.addEventListener("click", startMention);
+actionCopyNpub.addEventListener("click", copyTappedNpub);
 actionReply.addEventListener("click", startReply);
 actionTranslate.addEventListener("click", () => {
 	// same button, two subjects: a tapped note translates via the notes path, a

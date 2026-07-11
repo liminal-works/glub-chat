@@ -131,10 +131,10 @@ export default {
 		uploading: "загрузка…",
 		upload_failed: "не удалось загрузить — попробуйте ещё раз",
 		too_large: "файл слишком большой (макс. {max}мб)",
-		expiry_never: "никогда",
-		expiry_1d: "1 день",
-		expiry_3d: "3 дня",
-		expiry_7d: "7 дней",
+		expiry_never: "срок: никогда",
+		expiry_1d: "срок: 1 день",
+		expiry_3d: "срок: 3 дня",
+		expiry_7d: "срок: 7 дней",
 	},
 
 	topbar: {

@@ -136,10 +136,10 @@ export default {
 		uploading: "uploading…",
 		upload_failed: "upload failed — try again",
 		too_large: "file too large (max {max}mb)",
-		expiry_never: "never",
-		expiry_1d: "1 day",
-		expiry_3d: "3 days",
-		expiry_7d: "7 days",
+		expiry_never: "expiry: never",
+		expiry_1d: "expiry: 1 day",
+		expiry_3d: "expiry: 3 days",
+		expiry_7d: "expiry: 7 days",
 	},
 
 	topbar: {

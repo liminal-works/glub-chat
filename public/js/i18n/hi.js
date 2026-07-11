@@ -126,10 +126,10 @@ export default {
 		uploading: "अपलोड हो रहा है…",
 		upload_failed: "अपलोड विफल — फिर कोशिश करें",
 		too_large: "फ़ाइल बहुत बड़ी है (अधिकतम {max}mb)",
-		expiry_never: "कभी नहीं",
-		expiry_1d: "1 दिन",
-		expiry_3d: "3 दिन",
-		expiry_7d: "7 दिन",
+		expiry_never: "समाप्ति: कभी नहीं",
+		expiry_1d: "समाप्ति: 1 दिन",
+		expiry_3d: "समाप्ति: 3 दिन",
+		expiry_7d: "समाप्ति: 7 दिन",
 	},
 
 	topbar: {

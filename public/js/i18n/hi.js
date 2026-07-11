@@ -24,6 +24,7 @@ export default {
 		profiles_label: "nostr प्रोफ़ाइल",
 		retro_label: "रेट्रो टर्मिनल",
 		client_label: "क्लाइंट टैग",
+		local_label: "लोकल टैग",
 		pow_label: "proof of work",
 		pow_off: "बंद",
 		pow_lenient: "8 · नरम",

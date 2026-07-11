@@ -22,6 +22,7 @@ export default {
 		profiles_label: "nostr profiles",
 		retro_label: "retro terminal",
 		client_label: "client tag",
+		local_label: "local tag",
 		pow_label: "proof of work",
 		pow_off: "off",
 		pow_lenient: "8 · lenient",

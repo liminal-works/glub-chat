@@ -87,6 +87,7 @@ const assistToggle = document.getElementById("assistToggle");
 const profilesToggle = document.getElementById("profilesToggle");
 const retroToggle = document.getElementById("retroToggle");
 const clientToggle = document.getElementById("clientToggle");
+const localToggle = document.getElementById("localToggle");
 const powSelect = document.getElementById("powSelect");
 const profilesRow = document.getElementById("profilesRow");
 const nsecInput = document.getElementById("nsecInput");
@@ -223,6 +224,25 @@ function setClientTagEnabled(on) {
 // the value to stamp on outgoing events (or null to omit the tag entirely)
 function outgoingClient() {
 	return getClientTagEnabled() ? GLUB_CLIENT : null;
+}
+
+// "local tag": bitchat has no explicit local tag - the ABSENCE of the teleport
+// tag reads as local. So "local tag on" just omits teleport from our events;
+// off (default) keeps teleport, which is what a location-agnostic web client
+// honestly is. Persisted, default off.
+const STORAGE_LOCAL_KEY = "glub_local_tag";
+
+function getLocalTagEnabled() {
+	return localStorage.getItem(STORAGE_LOCAL_KEY) === "true"; // default off
+}
+
+function setLocalTagEnabled(on) {
+	localStorage.setItem(STORAGE_LOCAL_KEY, on ? "true" : "false");
+}
+
+// whether outgoing chat/presence carry the teleport tag (local tag on => omit it)
+function outgoingTeleport() {
+	return !getLocalTagEnabled();
 }
 
 const STORAGE_RETRO_KEY = "glub_retro";
@@ -1061,6 +1081,7 @@ function openSettings() {
 	profilesToggle.checked = getProfilesEnabled();
 	retroToggle.checked = getRetroEnabled();
 	clientToggle.checked = getClientTagEnabled();
+	localToggle.checked = getLocalTagEnabled();
 	powSelect.value = String(getPowFilter());
 	syncProfilesRow();
 	nsecRevealed = false;
@@ -2466,6 +2487,10 @@ clientToggle.addEventListener("change", () => {
 	setClientTagEnabled(clientToggle.checked); // applies to the next event you send
 });
 
+localToggle.addEventListener("change", () => {
+	setLocalTagEnabled(localToggle.checked); // on => next events omit the teleport tag
+});
+
 powSelect.addEventListener("change", () => {
 	setPowFilter(parseInt(powSelect.value, 10) || 0);
 	// live view filter: re-run visibility over the whole buffer so raising the
@@ -2690,6 +2715,7 @@ async function broadcastPresence() {
 		name: name || "anon",
 		pk: identity.pk,
 		client: outgoingClient(),
+		teleport: outgoingTeleport(),
 	});
 	const nonceTag = await mineNonceTag(unsigned, POW_DIFFICULTY);
 	if (nonceTag) unsigned.tags.push(nonceTag);
@@ -3204,7 +3230,7 @@ async function transmit(content, geo, displayName = name) {
 	// off-thread) before signing. android's default inbound filter drops events
 	// without one, so this is as much interop as spam defense. mining failure
 	// falls back to an unmined send - spam defense never blocks a message.
-	const unsigned = buildChatEvent({ content, geohash: geo, name: displayName, pk: identity.pk, client: outgoingClient() });
+	const unsigned = buildChatEvent({ content, geohash: geo, name: displayName, pk: identity.pk, client: outgoingClient(), teleport: outgoingTeleport() });
 	const nonceTag = await mineNonceTag(unsigned, POW_DIFFICULTY);
 	if (nonceTag) {
 		unsigned.tags.push(nonceTag);

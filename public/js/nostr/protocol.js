@@ -16,14 +16,16 @@ export function subscribeFilter(limit = 500) {
 }
 
 // "teleport" marks a message posted into a geohash we're not physically in -
-// always true for this web client, since you pick any channel regardless of
-// location. Matches what bitchat/the reference web client sends.
+// bitchat treats the tag's ABSENCE as "local" (there is no explicit local tag).
+// This web client defaults to teleport (you pick any channel regardless of
+// location), but the "local tag" setting can omit it to read as local instead.
 // `client` (optional) stamps a ["client", name] tag - the informal convention
 // nostr clients use to identify themselves ("client":"amethyst" etc). On by
 // default, opt-out in settings. Attacker-controlled on the way IN, so anything
 // reading it must escape + length-cap.
-function geoTags(geohash, name, client) {
-	const tags = [["g", geohash], ["t", "teleport"]];
+function geoTags(geohash, name, client, teleport = true) {
+	const tags = [["g", geohash]];
+	if (teleport) tags.push(["t", "teleport"]); // omitted => reads as "local"
 	if (name) tags.push(["n", name]);
 	if (client) tags.push(["client", client]);
 	return tags;
@@ -33,11 +35,11 @@ function geoTags(geohash, name, client) {
 // NIP-13 mining appends a nonce tag to the UNSIGNED event (the nonce changes
 // the id, so it must be settled before signing). created_at is stamped at
 // build time and must not change afterwards for the same reason.
-export function buildChatEvent({ content, geohash, name, pk, client }) {
+export function buildChatEvent({ content, geohash, name, pk, client, teleport = true }) {
 	return {
 		kind: CHAT_KIND,
 		created_at: Math.floor(Date.now() / 1000),
-		tags: geoTags(geohash, name, client),
+		tags: geoTags(geohash, name, client, teleport),
 		content,
 		pubkey: pk,
 	};
@@ -46,11 +48,11 @@ export function buildChatEvent({ content, geohash, name, pk, client }) {
 // a presence/announce heartbeat: "i'm in this geohash". Same tag conventions as
 // a chat message (g + teleport + n) but the ephemeral 20001 kind and empty
 // content - the name in the `n` tag is the whole payload.
-export function buildPresenceEvent({ geohash, name, pk, client }) {
+export function buildPresenceEvent({ geohash, name, pk, client, teleport = true }) {
 	return {
 		kind: PRESENCE_KIND,
 		created_at: Math.floor(Date.now() / 1000),
-		tags: geoTags(geohash, name, client),
+		tags: geoTags(geohash, name, client, teleport),
 		content: "",
 		pubkey: pk,
 	};

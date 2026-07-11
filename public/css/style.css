@@ -1856,6 +1856,12 @@ textarea {
 	gap: 8px;
 }
 
+/* notes only expose "mention" from this row (reply/hug/slap are chat-only), so
+   the grid collapses to one column and mention spans full width like the rest. */
+.actionGrid.solo {
+	grid-template-columns: 1fr;
+}
+
 .actionBtn {
 	width: 100%;
 	border: 1px solid var(--chrome-border);

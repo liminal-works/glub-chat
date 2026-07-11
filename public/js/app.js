@@ -121,6 +121,7 @@ const actionGate = document.getElementById("actionGate");
 const actionTitle = document.getElementById("actionTitle");
 const actionPreview = document.getElementById("actionPreview");
 const actionDm = document.getElementById("actionDm");
+const actionGrid = document.getElementById("actionGrid");
 const actionMention = document.getElementById("actionMention");
 const actionReply = document.getElementById("actionReply");
 const actionTranslate = document.getElementById("actionTranslate");
@@ -1649,6 +1650,7 @@ function openNoteActionPopup(note) {
 	actionReply.hidden = true;
 	actionHug.hidden = true;
 	actionSlap.hidden = true;
+	actionGrid.classList.add("solo"); // only mention remains - let it span full width
 	actionTranslate.hidden = liveSource !== "assist" || !note.content.trim();
 	const tr = noteTranslations.get(note.id);
 	actionTranslate.textContent = tr && tr.text ? t("actions.untranslate") : t("actions.translate");
@@ -1937,6 +1939,7 @@ function openActionPopup(pubkey, entry) {
 	actionHug.hidden = false;
 	actionSlap.hidden = false;
 	actionMention.hidden = false;
+	actionGrid.classList.remove("solo"); // full 2x2 quick-actions grid
 	// translation runs through the assist api; hide it when the api isn't live, or
 	// when there's no real message text / no stored entry to attach the result to.
 	actionTranslate.hidden = liveSource !== "assist" || !content.trim() || !actionContext.entryId;

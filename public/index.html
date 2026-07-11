@@ -57,16 +57,21 @@
 						still works fully on its own if it's off or unavailable.
 					</div>
 
-					<!-- data / feed: what powers the client and what reaches your view -->
 					<label class="settingRow" for="assistToggle">
 						<span data-i18n="settings.assist_label">server assist</span>
 						<input id="assistToggle" type="checkbox" class="assistCheck" />
 						<span class="toggleVisual" aria-hidden="true"></span>
 					</label>
 
-					<label id="profilesRow" class="settingRow" for="profilesToggle">
-						<span data-i18n="settings.profiles_label">nostr profiles</span>
-						<input id="profilesToggle" type="checkbox" class="assistCheck" />
+					<label class="settingRow" for="clientToggle">
+						<span data-i18n="settings.client_label">client tag</span>
+						<input id="clientToggle" type="checkbox" class="assistCheck" />
+						<span class="toggleVisual" aria-hidden="true"></span>
+					</label>
+
+					<label class="settingRow" for="retroToggle">
+						<span data-i18n="settings.retro_label">retro terminal</span>
+						<input id="retroToggle" type="checkbox" class="assistCheck" />
 						<span class="toggleVisual" aria-hidden="true"></span>
 					</label>
 
@@ -83,16 +88,9 @@
 						</span>
 					</label>
 
-					<!-- appearance -->
-					<label class="settingRow" for="retroToggle">
-						<span data-i18n="settings.retro_label">retro terminal</span>
-						<input id="retroToggle" type="checkbox" class="assistCheck" />
-						<span class="toggleVisual" aria-hidden="true"></span>
-					</label>
-
-					<label class="settingRow" for="clientToggle">
-						<span data-i18n="settings.client_label">client tag</span>
-						<input id="clientToggle" type="checkbox" class="assistCheck" />
+					<label id="profilesRow" class="settingRow" for="profilesToggle">
+						<span data-i18n="settings.profiles_label">nostr profiles</span>
+						<input id="profilesToggle" type="checkbox" class="assistCheck" />
 						<span class="toggleVisual" aria-hidden="true"></span>
 					</label>
 
@@ -184,7 +182,7 @@
 					<div id="actionPreview" class="actionPreview" hidden></div>
 					<div class="actionList">
 						<button id="actionDm" class="actionBtn" type="button" data-i18n="actions.dm">direct message</button>
-						<div class="actionGrid">
+						<div id="actionGrid" class="actionGrid">
 							<button id="actionMention" class="actionBtn" type="button" data-i18n="actions.mention">mention</button>
 							<button id="actionReply" class="actionBtn" type="button" data-i18n="actions.reply">reply</button>
 							<button id="actionHug" class="actionBtn" type="button" data-i18n="actions.hug">hug</button>

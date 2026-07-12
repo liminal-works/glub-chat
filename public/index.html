@@ -126,6 +126,29 @@
 							<span class="toggleVisual" aria-hidden="true"></span>
 						</label>
 
+						<div id="profileEditSection" class="profileEditSection" data-desc="settings.profile_edit_description" hidden>
+							<div class="idHeading" data-i18n="settings.profile_edit_label">nostr profile</div>
+							<div class="profileEditBanner">
+								<img id="profileEditBannerImg" class="profileEditBannerImg" alt="" hidden />
+								<button id="profileEditBannerBtn" class="profileEditUpload" type="button" data-i18n="settings.profile_banner">+ banner</button>
+							</div>
+							<div class="profileEditAvatarRow">
+								<img id="profileEditAvatarImg" class="profileEditAvatarImg" alt="" hidden />
+								<button id="profileEditAvatarBtn" class="profileEditUpload" type="button" data-i18n="settings.profile_avatar">+ avatar</button>
+								<span id="profileEditUploadStatus" class="profileEditUploadStatus" aria-live="polite"></span>
+							</div>
+							<input id="profileEditName" class="profileEditField" type="text" maxlength="64" autocapitalize="words" data-i18n-placeholder="settings.profile_name_ph" />
+							<textarea id="profileEditAbout" class="profileEditField profileEditAbout" rows="3" maxlength="500" data-i18n-placeholder="settings.profile_about_ph"></textarea>
+							<input id="profileEditLud16" class="profileEditField" type="text" maxlength="128" inputmode="email" autocapitalize="none" autocorrect="off" spellcheck="false" data-i18n-placeholder="settings.profile_zap_ph" />
+							<input id="profileEditNip05" class="profileEditField" type="text" maxlength="128" inputmode="email" autocapitalize="none" autocorrect="off" spellcheck="false" data-i18n-placeholder="settings.profile_nip05_ph" />
+							<input id="profileEditWebsite" class="profileEditField" type="url" maxlength="256" inputmode="url" autocapitalize="none" autocorrect="off" spellcheck="false" data-i18n-placeholder="settings.profile_website_ph" />
+							<div class="profileEditActions">
+								<button id="profileEditSave" class="idBtn profileEditSave" type="button" data-i18n="settings.profile_save">save profile</button>
+								<span id="profileEditStatus" class="profileEditSaveStatus" aria-live="polite"></span>
+							</div>
+							<input id="profileEditFile" type="file" accept="image/*" hidden />
+						</div>
+
 						<div class="idSection" data-desc="settings.identity_description">
 							<div class="idHeading" data-i18n="settings.identity_label">nostr identity</div>
 							<div class="idFieldWrap">

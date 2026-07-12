@@ -11,7 +11,7 @@ import {
 } from "./nostr/identity.js";
 import { fetchRelayList } from "./nostr/relayList.js";
 import { RelayPool } from "./nostr/relayPool.js";
-import { buildChatEvent, buildPresenceEvent, signEvent, getGeohash, getName, getClient, CHAT_KIND, PRESENCE_KIND, sortRelaysByGeohash, geohashCell, verifyEvent } from "./nostr/protocol.js";
+import { buildChatEvent, buildPresenceEvent, signEvent, makeProfileEvent, getGeohash, getName, getClient, CHAT_KIND, PRESENCE_KIND, sortRelaysByGeohash, geohashCell, verifyEvent } from "./nostr/protocol.js";
 import { mineNonceTag, POW_DIFFICULTY, idDifficulty, committedDifficulty } from "./nostr/pow.js";
 import { createMessageRateLimiter, createPresenceRateLimiter } from "./ratelimit.js";
 import { t, formatAgo, setLocale, detectLocale, onLocaleChange, preferredContentLanguage } from "./i18n/index.js";
@@ -20,6 +20,7 @@ import { createMap } from "./ui/map.js";
 import { createDmClient, DM_MAX_CONTENT_BYTES } from "./nostr/dm.js";
 import { createNotesClient } from "./nostr/notes.js";
 import { uploadImageToNostrBuild, NOSTR_BUILD_MAX_BYTES, NOSTR_BUILD_MAX_MB } from "./nostr/nip96.js";
+import { fetchProfileMetadata, publishProfileMetadata } from "./nostr/profileEdit.js";
 import { isProfane } from "./censor.js";
 import { THEMES, themeNames, activeTheme, applyTheme, persistTheme, initTheme, hexToRgb } from "./themes.js";
 
@@ -92,6 +93,20 @@ const blurToggle = document.getElementById("blurToggle");
 const censorToggle = document.getElementById("censorToggle");
 const powSelect = document.getElementById("powSelect");
 const profilesRow = document.getElementById("profilesRow");
+const profileEditSection = document.getElementById("profileEditSection");
+const profileEditBannerImg = document.getElementById("profileEditBannerImg");
+const profileEditBannerBtn = document.getElementById("profileEditBannerBtn");
+const profileEditAvatarImg = document.getElementById("profileEditAvatarImg");
+const profileEditAvatarBtn = document.getElementById("profileEditAvatarBtn");
+const profileEditUploadStatus = document.getElementById("profileEditUploadStatus");
+const profileEditName = document.getElementById("profileEditName");
+const profileEditAbout = document.getElementById("profileEditAbout");
+const profileEditLud16 = document.getElementById("profileEditLud16");
+const profileEditNip05 = document.getElementById("profileEditNip05");
+const profileEditWebsite = document.getElementById("profileEditWebsite");
+const profileEditSave = document.getElementById("profileEditSave");
+const profileEditStatus = document.getElementById("profileEditStatus");
+const profileEditFile = document.getElementById("profileEditFile");
 const nsecInput = document.getElementById("nsecInput");
 const revealNsecBtn = document.getElementById("revealNsecBtn");
 const copyNsecBtn = document.getElementById("copyNsecBtn");
@@ -1107,6 +1122,7 @@ function openSettings() {
 	censorToggle.checked = censorMessages;
 	powSelect.value = String(getPowFilter());
 	syncProfilesRow();
+	syncProfileEditVisibility();
 	nsecRevealed = false;
 	renderNsecField();
 	setNsecStatus("");
@@ -1853,6 +1869,178 @@ async function attachNoteImage(file) {
 	notesAttach.disabled = false;
 }
 
+// --- nostr profile editing (kind-0 metadata) --------------------------------
+// Edit your own public nostr profile from settings: display name / bio / zap
+// address (lud16) / nip05 / website, plus an avatar + banner uploaded to
+// nostr.build. A save MERGES onto your current kind-0 (so fields set in other
+// clients aren't clobbered) and republishes the whole directory to the profile
+// relays - see nostr/profileEdit.js. Gated on the "nostr profiles" setting;
+// publishing works relay-direct regardless of server assist.
+
+let profileEditLoaded = false; // has the form been prefilled this session?
+let profileEditLoadedPk = null; // the identity that prefill belongs to
+let loadedProfileContent = {}; // the full kind-0 json we merge onto at save
+let profilePicUrl = ""; // current avatar url (prefilled / freshly uploaded)
+let profileBannerUrl = ""; // current banner url
+let profileUploadTarget = null; // "picture" | "banner" while the file dialog is open
+let profileUploadBusy = false;
+let profileSaveBusy = false;
+
+// show/hide the editor with the profiles setting; kick a one-time prefill when
+// it first becomes visible.
+function syncProfileEditVisibility() {
+	const show = getProfilesEnabled();
+	profileEditSection.hidden = !show;
+	if (show) loadProfileEdit();
+}
+
+function renderProfileImages() {
+	profileEditAvatarImg.hidden = !profilePicUrl;
+	if (profilePicUrl) profileEditAvatarImg.src = profilePicUrl;
+	profileEditBannerImg.hidden = !profileBannerUrl;
+	if (profileBannerUrl) profileEditBannerImg.src = profileBannerUrl;
+}
+
+function setProfileEditStatus(text, kind) {
+	profileEditStatus.textContent = text || "";
+	profileEditStatus.className = `profileEditSaveStatus ${kind || ""}`;
+}
+
+function setProfileUploadStatus(text, isError) {
+	profileEditUploadStatus.textContent = text || "";
+	profileEditUploadStatus.classList.toggle("error", !!isError);
+}
+
+// fetch the current kind-0 and fill the form. Done once per identity per session
+// (re-reading on every settings-open would hammer relays); a rotate/import that
+// reloads the page resets it, and a changed identity re-fetches.
+async function loadProfileEdit() {
+	if (profileEditLoaded && profileEditLoadedPk === identity.pk) return;
+	profileEditLoaded = true;
+	profileEditLoadedPk = identity.pk;
+	setProfileEditStatus(t("settings.profile_loading"));
+	let content = {};
+	try {
+		const res = await fetchProfileMetadata(identity.pk);
+		content = res.content || {};
+	} catch {
+		content = {};
+	}
+	if (profileEditLoadedPk !== identity.pk) return; // identity changed mid-fetch
+	loadedProfileContent = content;
+	const str = (v) => (typeof v === "string" ? v : "");
+	profileEditName.value = str(content.name) || str(content.display_name);
+	profileEditAbout.value = str(content.about);
+	profileEditLud16.value = str(content.lud16);
+	profileEditNip05.value = str(content.nip05);
+	profileEditWebsite.value = str(content.website);
+	profilePicUrl = str(content.picture);
+	profileBannerUrl = str(content.banner);
+	renderProfileImages();
+	setProfileEditStatus("");
+}
+
+async function uploadProfileImage(file, target) {
+	if (!file || profileUploadBusy) return;
+	if (!file.type.startsWith("image/")) return;
+	if (file.size > NOSTR_BUILD_MAX_BYTES) {
+		setProfileUploadStatus(t("notes.too_large", { max: NOSTR_BUILD_MAX_MB }), true);
+		return;
+	}
+	profileUploadBusy = true;
+	profileEditAvatarBtn.disabled = true;
+	profileEditBannerBtn.disabled = true;
+	setProfileUploadStatus(t("notes.uploading"));
+	try {
+		const { url } = await uploadImageToNostrBuild(file, identity);
+		if (target === "banner") profileBannerUrl = url;
+		else profilePicUrl = url;
+		renderProfileImages();
+		setProfileUploadStatus("");
+	} catch {
+		setProfileUploadStatus(t("notes.upload_failed"), true);
+	}
+	profileUploadBusy = false;
+	profileEditAvatarBtn.disabled = false;
+	profileEditBannerBtn.disabled = false;
+}
+
+profileEditAvatarBtn.addEventListener("click", () => {
+	profileUploadTarget = "picture";
+	profileEditFile.click();
+});
+profileEditBannerBtn.addEventListener("click", () => {
+	profileUploadTarget = "banner";
+	profileEditFile.click();
+});
+profileEditFile.addEventListener("change", () => {
+	const file = profileEditFile.files && profileEditFile.files[0];
+	const target = profileUploadTarget;
+	profileEditFile.value = ""; // reset so the same file can be re-picked
+	if (file) uploadProfileImage(file, target);
+});
+
+async function saveProfile() {
+	if (profileSaveBusy) return;
+	profileSaveBusy = true;
+	profileEditSave.disabled = true;
+	setProfileEditStatus(t("settings.profile_saving"));
+
+	// merge onto whatever we loaded (preserving keys we don't surface); a cleared
+	// text field deletes its key rather than writing an empty string.
+	const merged = { ...loadedProfileContent };
+	const setOrDel = (key, val) => {
+		const v = (val || "").trim();
+		if (v) merged[key] = v;
+		else delete merged[key];
+	};
+	setOrDel("name", profileEditName.value);
+	setOrDel("about", profileEditAbout.value);
+	setOrDel("lud16", profileEditLud16.value);
+	setOrDel("nip05", profileEditNip05.value);
+	setOrDel("website", profileEditWebsite.value);
+	if (profilePicUrl) merged.picture = profilePicUrl;
+	else delete merged.picture;
+	if (profileBannerUrl) merged.banner = profileBannerUrl;
+	else delete merged.banner;
+
+	try {
+		const event = makeProfileEvent({
+			content: JSON.stringify(merged),
+			sk: identity.sk,
+			pk: identity.pk,
+			client: outgoingClient(),
+		});
+		const { accepted } = await publishProfileMetadata(event);
+		loadedProfileContent = merged; // a follow-up save merges onto the new state
+		if (accepted > 0) {
+			setProfileEditStatus(t("settings.profile_saved", { count: accepted }), "ok");
+			bustSelfProfile();
+		} else {
+			setProfileEditStatus(t("settings.profile_save_failed"), "error");
+		}
+	} catch {
+		setProfileEditStatus(t("settings.profile_save_failed"), "error");
+	}
+	profileSaveBusy = false;
+	profileEditSave.disabled = false;
+}
+
+profileEditSave.addEventListener("click", saveProfile);
+
+// after a successful publish, drop our cached self-profile so the app re-pulls
+// the fresh kind-0 (avatar/name reflect without a reload) - only meaningful when
+// profiles are active (the api supplies avatars).
+function bustSelfProfile() {
+	const pk = identity.pk;
+	profileCache.delete(pk);
+	profileFetchedAt.delete(pk);
+	if (profilesActive()) {
+		fetchProfile(pk);
+		repaintProfile(pk);
+	}
+}
+
 // ===========================================================================
 // Direct messages (bitchat NIP-17 gift wraps). E2E-encrypted with the local
 // key, so this rides its own always-on relay client independent of assist mode.
@@ -2500,6 +2688,7 @@ profilesToggle.addEventListener("change", () => {
 	if (profilesToggle.disabled) return;
 	setProfilesEnabled(profilesToggle.checked);
 	syncSelfView(); // "you" switches between orange+bold and your real per-key color
+	syncProfileEditVisibility(); // show/hide the profile editor with the setting
 	if (usersGate.classList.contains("show")) openUsers(); // reflect avatars on/off
 });
 

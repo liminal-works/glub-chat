@@ -101,6 +101,32 @@ export function noteExpiration(ev) {
 	return raw && Number.isFinite(n) ? n : null;
 }
 
+// NIP-01 profile metadata: a replaceable kind-0 whose content is a JSON
+// "directory" of your public profile fields (name/about/picture/banner/lud16/
+// nip05/…). Editing = publish a fresh kind-0 with the full merged JSON; relays
+// keep only the newest per pubkey. Doesn't ride the geohash chat relays - it
+// belongs on general/profile relays (see profile.js).
+export const METADATA_KIND = 0;
+
+// build an unsigned kind-0. `content` is the pre-stringified JSON directory; the
+// caller owns merging existing fields so nothing gets clobbered. `client`
+// optionally stamps the same ["client", name] tag as chat/notes.
+export function buildProfileEvent({ content, pk, client }) {
+	const tags = [];
+	if (client) tags.push(["client", client]);
+	return {
+		kind: METADATA_KIND,
+		created_at: Math.floor(Date.now() / 1000),
+		tags,
+		content,
+		pubkey: pk,
+	};
+}
+
+export function makeProfileEvent({ content, sk, pk, client }) {
+	return signEvent(buildProfileEvent({ content, pk, client }), sk);
+}
+
 export function signEvent(unsigned, sk) {
 	return finalizeEvent(unsigned, sk);
 }

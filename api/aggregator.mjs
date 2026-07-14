@@ -201,8 +201,12 @@ export function createAggregator(store, { onStored, onChat } = {}) {
 			if (!geo || geo.length > MAX_GEOHASH_LEN) return -1;
 			if (!verifyEvent(ev)) return -1;
 			if (ev.kind === CHAT_KIND) {
-				store.insert(ev, geo); // idempotent
-				if (onStored) onStored(ev, geo);
+				const inserted = store.insert(ev, geo); // idempotent
+				if (inserted && onStored) onStored(ev, geo);
+				// assist-mode clients send here instead of to relays, so this is the
+				// bot's only sight of their chat + commands. Gate on `inserted` so the
+				// relay echo of this same event (via handleFrame->ingest) can't re-fire.
+				if (inserted && onChat) onChat(ev, geo);
 			} else {
 				trackPresence(ev); // record our own presence like any relay-sourced one
 			}

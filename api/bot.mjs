@@ -16,7 +16,7 @@ import crypto from "node:crypto";
 import { finalizeEvent, getPublicKey } from "nostr-tools";
 import { franc } from "franc";
 import { CHAT_KIND, getName } from "./nostr.mjs";
-import { geohashToLatLon, countryCodeToFlag } from "./geo.mjs";
+import { geohashToLatLon, countryCodeToFlag, latLonToGeohash, formatRegionSizeMi, parseLatLonInput } from "./geo.mjs";
 
 const now = () => Math.floor(Date.now() / 1000);
 
@@ -222,29 +222,91 @@ export function createBot({ broadcast, botName = process.env.GLUB_BOT_NAME || "b
 		}
 
 		let countryCode = null;
+		let label = null;
 		try {
 			const url =
 				`https://nominatim.openstreetmap.org/reverse?format=json` +
 				`&lat=${coords.lat}&lon=${coords.lon}&zoom=10&addressdetails=1&accept-language=en`;
-			// hard timeout: the flag is an enrichment and must NEVER stall a reply. A
-			// host that can't reach nominatim (or a slow/rate-limited response) would
-			// otherwise leave the awaiting !top hanging forever.
+			// hard timeout: this enrichment (flag for !top, label for !goto) must NEVER
+			// stall a reply. A host that can't reach nominatim (or a slow/rate-limited
+			// response) would otherwise leave the awaiting command hanging forever.
 			const res = await fetch(url, {
 				headers: { "User-Agent": NOMINATIM_UA, "Accept-Language": "en" },
 				signal: AbortSignal.timeout(GEOCODE_TIMEOUT_MS),
 			});
 			if (res.ok) {
 				const json = await res.json().catch(() => null);
-				if (json?.address) countryCode = String(json.address.country_code || "").toLowerCase() || null;
+				if (json?.address) {
+					countryCode = String(json.address.country_code || "").toLowerCase() || null;
+					label = formatGeoLabel(g, json.address);
+				}
 			}
 		} catch {
 			// timeout / network hiccup: geocodable-but-unknown (🌐); don't cache a hard miss
-			return { country_code: null, geocodable: true };
+			return { country_code: null, label: null, lat: coords.lat, lon: coords.lon, geocodable: true };
 		}
 
-		const result = { country_code: countryCode, geocodable: true };
+		const result = { country_code: countryCode, label, lat: coords.lat, lon: coords.lon, geocodable: true };
 		cacheGeo(g, result);
 		return result;
+	}
+
+	// build a human place label from a Nominatim address, scaled to the geohash's
+	// precision (broad channels name a country, local ones a city). Ported verbatim.
+	function formatGeoLabel(g, addr) {
+		const len = g.length;
+		const country = addr.country || null;
+		const state = addr.state || addr.region || addr.state_district || addr.province || null;
+		const city = addr.city || addr.town || addr.village || addr.municipality || addr.county || null;
+
+		const withCountry = (place) => {
+			if (!place) return country || null;
+			if (!country) return place;
+			if (String(place).toLowerCase() === String(country).toLowerCase()) return country;
+			return `${place}, ${country}`;
+		};
+
+		if (len <= 2) return country;
+		if (len === 3) return withCountry(state);
+		if (len <= 5) {
+			if (city && state) return withCountry(`${city}, ${state}`);
+			if (city) return withCountry(city);
+			if (state) return withCountry(state);
+			return country;
+		}
+		if (city) return withCountry(city);
+		if (state) return withCountry(state);
+		return country;
+	}
+
+	// forward geocode a free-text place query to { lat, lon, label } (or null).
+	async function geocodePlaceQuery(query) {
+		const q = String(query || "").trim();
+		if (!q) return null;
+		const url =
+			`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}` +
+			`&format=jsonv2&limit=1&addressdetails=1&accept-language=en`;
+		const res = await fetch(url, {
+			headers: { "User-Agent": NOMINATIM_UA, "Accept-Language": "en" },
+			signal: AbortSignal.timeout(GEOCODE_TIMEOUT_MS),
+		});
+		if (!res.ok) throw new Error(`geocode failed (${res.status})`);
+		const json = await res.json().catch(() => null);
+		const hit = Array.isArray(json) ? json[0] : null;
+		if (!hit) return null;
+		const lat = Number(hit.lat);
+		const lon = Number(hit.lon);
+		if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+		return { lat, lon, label: String(hit.display_name || q).trim() };
+	}
+
+	// !goto's resolver: a "lat, lon" pair, else a place-name lookup.
+	async function resolveGotoTarget(input) {
+		const raw = String(input || "").trim();
+		if (!raw) return null;
+		const coords = parseLatLonInput(raw);
+		if (coords) return { lat: coords.lat, lon: coords.lon, label: `${coords.lat.toFixed(4)}, ${coords.lon.toFixed(4)}` };
+		return await geocodePlaceQuery(raw);
 	}
 
 	function cacheGeo(g, result) {
@@ -324,8 +386,66 @@ export function createBot({ broadcast, botName = process.env.GLUB_BOT_NAME || "b
 		reply(msg, geo);
 	}
 
+	// !goto: with an arg, resolve a place-name or "lat,lon" to a ladder of geohash
+	// channels at each precision. With NO arg, describe the CURRENT channel's real-
+	// world location instead. Faithful to the old ladder format.
+	async function cmdGoto(geo, args) {
+		const raw = String(args.join(" ") || "").trim();
+
+		// no arg: reverse-lookup where this channel actually is on the map.
+		if (!raw) {
+			const coords = geohashToLatLon(geo);
+			if (!coords) {
+				reply(`goto: #${geo} isn't a map location`, geo);
+				return;
+			}
+			const info = await geocodeGeohash(geo);
+			const label = info?.label || "unknown area";
+			const flag = countryCodeToFlag(info?.country_code);
+			const span = formatRegionSizeMi(geo);
+			reply(
+				`goto: #${geo}\n` +
+					`${label} ${flag}\n` +
+					`${coords.lat.toFixed(4)}, ${coords.lon.toFixed(4)}` +
+					(span ? `\nspan - ${span}` : ""),
+				geo,
+			);
+			return;
+		}
+
+		let target;
+		try {
+			target = await resolveGotoTarget(raw);
+		} catch (err) {
+			console.error("[bot] !goto failed:", err?.message || err);
+			reply("goto failed - try again", geo);
+			return;
+		}
+		if (!target) {
+			reply("goto:\nno results found.", geo);
+			return;
+		}
+
+		const ladder = [
+			["broad   ", 2],
+			["region  ", 3],
+			["city    ", 4],
+			["district", 5],
+			["local   ", 6],
+		]
+			.map(([label, p]) => {
+				const gh = latLonToGeohash(target.lat, target.lon, p);
+				const size = formatRegionSizeMi(gh);
+				return `${label} - #${gh}${size ? ` ${size}` : ""}`;
+			})
+			.join("\n");
+
+		reply(`goto:\n` + `target   - ${target.label}\n` + `${target.lat.toFixed(6)}, ${target.lon.toFixed(6)}\n\n` + ladder, geo);
+	}
+
 	// !help: generated from the registry, so a new command shows up here for free.
-	// !help <command> prints that command's usage (its own metadata, not a blob).
+	// Kept SHORT (terse one-liners) so it doesn't wrap on mobile; the per-command
+	// !help <command> page carries the usage + optional params.
 	function cmdHelp(geo, arg) {
 		const q = String(arg || "").trim().toLowerCase().replace(/^!/, "");
 		if (q) {
@@ -340,20 +460,26 @@ export function createBot({ broadcast, botName = process.env.GLUB_BOT_NAME || "b
 		const lines = [...COMMANDS]
 			.sort((a, b) => a.name.localeCompare(b.name))
 			.map((c) => `${("!" + c.name).padEnd(width)} - ${c.desc}`);
-		reply("available commands:\n" + lines.join("\n") + "\n\n(use '!help <command>' for usage)", geo);
+		reply("available commands:\n(use '!help <command>' for more info)\n\n" + lines.join("\n"), geo);
 	}
 
 	// the command registry: adding an entry here makes a command parse, dispatch,
 	// AND appear in !help automatically - there's no static list to keep in sync.
 	// aliases are the bang-stripped forms users learned (!t, !l, !list, !dump…).
 	const COMMANDS = [
-		{ name: "top", aliases: ["t"], desc: "list the most active chats", usage: "!top", run: (c) => cmdTop(c.geo) },
+		{ name: "top", aliases: ["t"], desc: "most active chats", usage: "!top", run: (c) => cmdTop(c.geo) },
 		{
 			name: "listen",
 			aliases: ["l", "list", "dump"],
-			desc: "recent messages (+ <lang> or <#geohash>)",
+			desc: "show recent messages",
 			usage: "!listen | !listen <lang> | !listen <#geohash>",
 			run: (c) => cmdListen(c.geo, c.args),
+		},
+		{
+			name: "goto",
+			desc: "locate a place or channel",
+			usage: "!goto <place|lat,lon>  ·  !goto (this channel's location)",
+			run: (c) => cmdGoto(c.geo, c.args),
 		},
 		{ name: "help", aliases: ["h", "commands"], desc: "list commands", usage: "!help | !help <command>", run: (c) => cmdHelp(c.geo, c.args[0]) },
 	];

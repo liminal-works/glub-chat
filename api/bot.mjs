@@ -20,12 +20,34 @@ import { geohashToLatLon, countryCodeToFlag } from "./geo.mjs";
 
 const now = () => Math.floor(Date.now() / 1000);
 
+// long messages are clipped with a char count, so a !listen line can't blow out
+// the reply (ported verbatim).
+function clipText(s, max = 200) {
+	const str = String(s ?? "");
+	if (str.length <= max) return str;
+	return str.slice(0, max) + `... (${str.length} chars)`;
+}
+
+// compact "23s / 4m / 2h / 3d" elapsed label (ported verbatim).
+function timeAgo(nowSec, thenSec) {
+	const d = Math.max(0, nowSec - thenSec);
+	if (d < 60) return `${d}s`;
+	const m = Math.floor(d / 60);
+	if (m < 60) return `${m}m`;
+	const h = Math.floor(m / 60);
+	if (h < 24) return `${h}h`;
+	return `${Math.floor(h / 24)}d`;
+}
+
 // ---- tunables (ported verbatim from the old bot) --------------------------
 const ACTIVE_WINDOW_SEC = 60; // a pubkey counts as "active" if seen within this
 const ACTIVITY_WINDOW_SEC = 60; // !top scores messages seen in the last minute (mpm)
 const LANG_MIN_CHARS = 160; // don't detect a channel's language below this much text
 const LANG_MAX_CHARS = 800; // keep only the most recent ~800 chars per channel
 const LANG_RECHECK_EVERY = 6; // re-run franc every N messages
+const LISTEN_BUFFER_SIZE = 800; // cross-channel recent-message ring for !listen
+const RECENT_BY_LANGUAGE_MAX = 10; // recent messages kept per detected language
+const LISTEN_SHOW = 10; // how many messages a !listen reply shows
 const COMMAND_COOLDOWN_WINDOW_MS = 60_000; // global command budget window
 const COMMAND_COOLDOWN_MAX = 12; // ...and how many commands fit in it
 const GEO_CACHE_MAX = 5000; // reverse-geocode cache bound
@@ -55,6 +77,8 @@ export function createBot({ broadcast, botName = process.env.GLUB_BOT_NAME || "b
 	const channelLanguage = new Map(); // geohash -> { lang, updated } (ISO 639-3, e.g. "eng")
 	const geoNameCache = new Map(); // geohash -> { country_code, geocodable } (reverse-geocode cache)
 	const commandHits = []; // ms timestamps of recently-served commands (global cooldown)
+	const recentOther = []; // cross-channel recent messages, newest last → !listen
+	const recentByLanguage = new Map(); // ISO-639-3 lang -> [{ g, user, msg, t }] → !listen <lang>
 
 	// --- activity + language bookkeeping ------------------------------------
 	function recordChannelActivity(geohash, tsSec) {
@@ -111,6 +135,79 @@ export function createBot({ broadcast, botName = process.env.GLUB_BOT_NAME || "b
 		}
 		out.sort((a, b) => b.mpm - a.mpm);
 		return out.slice(0, limit);
+	}
+
+	// --- !listen buffers + formatters (ported verbatim) ----------------------
+	// a readable display name for a message author: the `n` tag, else a short key.
+	function nameOf(ev) {
+		return String(getName(ev) || "").trim() || "anon" + String(ev.pubkey || "").slice(0, 4);
+	}
+
+	// cross-channel recent-message ring (newest last), bounded.
+	function pushRecent(ev, geohash, content) {
+		if (!geohash || !content) return;
+		recentOther.push({ g: geohash, t: typeof ev.created_at === "number" ? ev.created_at : now(), name: nameOf(ev), content });
+		if (recentOther.length > LISTEN_BUFFER_SIZE) recentOther.splice(0, recentOther.length - LISTEN_BUFFER_SIZE);
+	}
+
+	// per-language recent buffer, so !listen <lang> can show what a language sounds
+	// like right now. detection is per-message here (not the channel blob).
+	function rememberMessageLanguage(g, user, text, createdAt) {
+		const clean = String(text || "").trim();
+		if (clean.length < 10) return;
+		const lang = franc(clean, { minLength: 10 });
+		if (!lang || lang === "und") return;
+		let arr = recentByLanguage.get(lang);
+		if (!arr) recentByLanguage.set(lang, (arr = []));
+		arr.push({ g, user, msg: clean, t: createdAt || now() });
+		if (arr.length > RECENT_BY_LANGUAGE_MAX) arr.shift();
+	}
+
+	// !listen (no arg): recent messages from channels OTHER than the caller's.
+	function buildListenOutput(currentG, n) {
+		const nowSec = now();
+		const picked = [];
+		for (let i = recentOther.length - 1; i >= 0 && picked.length < n; i--) {
+			const m = recentOther[i];
+			if (!m || !m.g || !m.t) continue;
+			if (m.g === currentG) continue; // exclude the current channel
+			picked.push(m);
+		}
+		if (picked.length === 0) return "no recent messages from other channels yet";
+		picked.reverse(); // oldest -> newest for readability
+		return (
+			`${picked.length} recent messages:\n` +
+			picked.map((m) => `#${m.g} <${m.name}> ${clipText(m.content, 200)} (${timeAgo(nowSec, m.t)} ago)`).join("\n")
+		);
+	}
+
+	// !listen <#geohash>: recent messages from one specific channel.
+	function buildListenOutputForChannel(targetG, n) {
+		const picked = [];
+		for (let i = recentOther.length - 1; i >= 0 && picked.length < n; i--) {
+			const m = recentOther[i];
+			if (!m || !m.g || m.g !== targetG) continue;
+			picked.push(m);
+		}
+		if (picked.length === 0) return `no recent messages for #${targetG}`;
+		picked.reverse();
+		const nowSec = now();
+		return (
+			`${picked.length} recent in #${targetG}:\n` +
+			picked.map((m) => `#${m.g} <${m.name}> ${clipText(m.content, 200)} (${timeAgo(nowSec, m.t)} ago)`).join("\n")
+		);
+	}
+
+	// !listen <lang>: recent messages detected in an ISO-639-3 language (eng/rus/…).
+	function buildListenOutputForLanguage(code, n) {
+		const recent = recentByLanguage.get(String(code || "").trim().toLowerCase()) || [];
+		if (!recent.length) return `no recent messages detected for: ${code}`;
+		const picked = [...recent].slice(-n).reverse();
+		const nowSec = now();
+		return (
+			`${picked.length} recent ${code} messages:\n` +
+			picked.map((m) => `#${m.g} <${m.user}> ${clipText(m.msg, 200)} (${timeAgo(nowSec, m.t)} ago)`).join("\n")
+		);
 	}
 
 	// --- reverse-geocoded flags (Nominatim, cached) -------------------------
@@ -186,46 +283,8 @@ export function createBot({ broadcast, botName = process.env.GLUB_BOT_NAME || "b
 		console.log(`[bot] reply -> #${geohash} (${sent ?? 0} relays)`);
 	}
 
-	// --- command parsing -----------------------------------------------------
-	// canonical name resolution: users learned the aliases, so keep them exactly.
-	const ALIASES = {
-		t: "top",
-		"!t": "top",
-		"!top": "top",
-		l: "listen",
-		"!l": "listen",
-		list: "listen",
-		"!list": "listen",
-		"!listen": "listen",
-		dump: "listen",
-	};
-
-	// content -> { name, args } for a `!command`, else null.
-	function parseCommand(raw) {
-		const original = String(raw ?? "").trim();
-		if (!original) return null;
-		if (!original.toLowerCase().startsWith("!")) return null;
-
-		const parts = original.split(/\s+/);
-		let name = parts[0].slice(1).toLowerCase(); // "!ToP" -> "top"
-		const args = parts.slice(1);
-		// resolve aliases (both bare and bang forms were accepted historically)
-		if (ALIASES[name]) name = ALIASES[name];
-		else if (ALIASES["!" + name]) name = ALIASES["!" + name];
-		return { name, args, text: original };
-	}
-
-	// global rate budget shared across every command/channel (anti-abuse).
-	function commandCooldownOk() {
-		const nowMs = Date.now();
-		const cutoff = nowMs - COMMAND_COOLDOWN_WINDOW_MS;
-		while (commandHits.length && commandHits[0] < cutoff) commandHits.shift();
-		if (commandHits.length >= COMMAND_COOLDOWN_MAX) return false;
-		commandHits.push(nowMs);
-		return true;
-	}
-
 	// --- commands ------------------------------------------------------------
+	// !top: the most active channels, messages-per-minute over the last 60s.
 	async function cmdTop(geo) {
 		const top = topActiveChannels(5);
 
@@ -254,15 +313,84 @@ export function createBot({ broadcast, botName = process.env.GLUB_BOT_NAME || "b
 		reply(msg, geo);
 	}
 
-	function dispatch(cmd, geo) {
-		switch (cmd.name) {
-			case "top":
-				cmdTop(geo).catch((e) => console.error("[bot] !top failed:", e.message));
-				return true;
-			// !listen and friends slot in here next.
-			default:
-				return false; // unknown command: stay silent (don't spam channels)
+	// !listen: recent chat. bare = other channels; <lang> = a detected language;
+	// otherwise treat the arg as a #geohash. (a leading # is optional.)
+	function cmdListen(geo, args) {
+		const target = args.length >= 1 ? String(args[0] || "").trim().toLowerCase().replace(/^#/, "") : "";
+		let msg;
+		if (!target) msg = buildListenOutput(geo, LISTEN_SHOW);
+		else if (recentByLanguage.has(target)) msg = buildListenOutputForLanguage(target, LISTEN_SHOW);
+		else msg = buildListenOutputForChannel(target, LISTEN_SHOW);
+		reply(msg, geo);
+	}
+
+	// !help: generated from the registry, so a new command shows up here for free.
+	// !help <command> prints that command's usage (its own metadata, not a blob).
+	function cmdHelp(geo, arg) {
+		const q = String(arg || "").trim().toLowerCase().replace(/^!/, "");
+		if (q) {
+			const c = byToken.get(q);
+			if (c) {
+				const aliasStr = c.aliases?.length ? ` (alias: ${c.aliases.map((a) => "!" + a).join(", ")})` : "";
+				reply(`!${c.name} - ${c.usage || c.desc}${aliasStr}`, geo);
+				return;
+			}
 		}
+		const width = Math.max(...COMMANDS.map((c) => c.name.length + 1)); // +1 for the "!"
+		const lines = [...COMMANDS]
+			.sort((a, b) => a.name.localeCompare(b.name))
+			.map((c) => `${("!" + c.name).padEnd(width)} - ${c.desc}`);
+		reply("available commands:\n" + lines.join("\n") + "\n\n(use '!help <command>' for usage)", geo);
+	}
+
+	// the command registry: adding an entry here makes a command parse, dispatch,
+	// AND appear in !help automatically - there's no static list to keep in sync.
+	// aliases are the bang-stripped forms users learned (!t, !l, !list, !dump…).
+	const COMMANDS = [
+		{ name: "top", aliases: ["t"], desc: "list the most active chats", usage: "!top", run: (c) => cmdTop(c.geo) },
+		{
+			name: "listen",
+			aliases: ["l", "list", "dump"],
+			desc: "recent messages (+ <lang> or <#geohash>)",
+			usage: "!listen | !listen <lang> | !listen <#geohash>",
+			run: (c) => cmdListen(c.geo, c.args),
+		},
+		{ name: "help", aliases: ["h", "commands"], desc: "list commands", usage: "!help | !help <command>", run: (c) => cmdHelp(c.geo, c.args[0]) },
+	];
+
+	// name/alias -> command, built once from the registry above.
+	const byToken = new Map();
+	for (const c of COMMANDS) {
+		byToken.set(c.name, c);
+		for (const a of c.aliases || []) byToken.set(a, c);
+	}
+
+	// content -> { command, name, args } for a `!command` (command null if the token
+	// isn't one of ours), or null when it isn't a command at all.
+	function parseCommand(raw) {
+		const original = String(raw ?? "").trim();
+		if (!original.toLowerCase().startsWith("!")) return null;
+		const parts = original.split(/\s+/);
+		const token = parts[0].slice(1).toLowerCase(); // "!ToP" -> "top"
+		return { command: byToken.get(token) || null, name: token, args: parts.slice(1) };
+	}
+
+	// global rate budget shared across every command/channel (anti-abuse).
+	function commandCooldownOk() {
+		const nowMs = Date.now();
+		const cutoff = nowMs - COMMAND_COOLDOWN_WINDOW_MS;
+		while (commandHits.length && commandHits[0] < cutoff) commandHits.shift();
+		if (commandHits.length >= COMMAND_COOLDOWN_MAX) return false;
+		commandHits.push(nowMs);
+		return true;
+	}
+
+	// run a resolved command; tolerates sync + async handlers.
+	function dispatch(parsed, geo) {
+		const c = parsed.command;
+		if (!c) return false;
+		Promise.resolve(c.run({ geo, args: parsed.args })).catch((e) => console.error(`[bot] !${c.name} failed:`, e.message));
+		return true;
 	}
 
 	// --- ingest hook ---------------------------------------------------------
@@ -281,28 +409,39 @@ export function createBot({ broadcast, botName = process.env.GLUB_BOT_NAME || "b
 		updateChannelLanguage(geo, content);
 		noteActivePubkey(ev.pubkey, ev.created_at);
 
-		const cmd = parseCommand(content);
-		if (cmd) {
-			console.log(`[bot] saw !${cmd.name} in #${geo} from ${ev.pubkey.slice(0, 8)}`);
+		const parsed = parseCommand(content);
+		if (parsed) {
+			// any "!"-prefixed message is a command attempt - never counted as chat.
+			if (!parsed.command) {
+				console.log(`[bot] saw !${parsed.name} in #${geo} (unknown - no handler)`);
+				return;
+			}
+			console.log(`[bot] saw !${parsed.name} in #${geo} from ${ev.pubkey.slice(0, 8)}`);
 			if (!commandCooldownOk()) {
-				console.log(`[bot] !${cmd.name} dropped (global cooldown)`);
+				console.log(`[bot] !${parsed.name} dropped (global cooldown)`);
 				return; // global budget spent
 			}
-			if (!dispatch(cmd, geo)) console.log(`[bot] !${cmd.name} unknown - no handler`);
+			dispatch(parsed, geo);
 			return; // a command isn't itself "channel activity"
 		}
 
-		// real chat: feed the !top score (and, later, the !listen buffer)
-		if (content) recordChannelActivity(geo, ev.created_at);
+		// real chat: feed the !top score + the !listen buffers
+		if (content) {
+			recordChannelActivity(geo, ev.created_at);
+			pushRecent(ev, geo, content);
+			rememberMessageLanguage(geo, nameOf(ev), content, ev.created_at);
+		}
 	}
 
 	function stats() {
 		return {
 			pubkey: pk,
 			name: botName,
+			commands: COMMANDS.map((c) => c.name),
 			trackedChannels: channelActivity.size,
 			activeUsers: activePubkeys.size,
 			languages: channelLanguage.size,
+			recentBuffered: recentOther.length,
 		};
 	}
 

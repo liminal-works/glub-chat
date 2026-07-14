@@ -29,6 +29,7 @@ const LANG_RECHECK_EVERY = 6; // re-run franc every N messages
 const COMMAND_COOLDOWN_WINDOW_MS = 60_000; // global command budget window
 const COMMAND_COOLDOWN_MAX = 12; // ...and how many commands fit in it
 const GEO_CACHE_MAX = 5000; // reverse-geocode cache bound
+const GEOCODE_TIMEOUT_MS = 2500; // per reverse-geocode; a flag must never stall a reply
 const NOMINATIM_UA = "glub.chat-bot (https://glub.chat)";
 
 // createBot({ broadcast, botName })
@@ -128,13 +129,19 @@ export function createBot({ broadcast, botName = process.env.GLUB_BOT_NAME || "b
 			const url =
 				`https://nominatim.openstreetmap.org/reverse?format=json` +
 				`&lat=${coords.lat}&lon=${coords.lon}&zoom=10&addressdetails=1&accept-language=en`;
-			const res = await fetch(url, { headers: { "User-Agent": NOMINATIM_UA, "Accept-Language": "en" } });
+			// hard timeout: the flag is an enrichment and must NEVER stall a reply. A
+			// host that can't reach nominatim (or a slow/rate-limited response) would
+			// otherwise leave the awaiting !top hanging forever.
+			const res = await fetch(url, {
+				headers: { "User-Agent": NOMINATIM_UA, "Accept-Language": "en" },
+				signal: AbortSignal.timeout(GEOCODE_TIMEOUT_MS),
+			});
 			if (res.ok) {
 				const json = await res.json().catch(() => null);
 				if (json?.address) countryCode = String(json.address.country_code || "").toLowerCase() || null;
 			}
 		} catch {
-			// network hiccup: treat as geocodable-but-unknown (🌐), don't cache a hard miss
+			// timeout / network hiccup: geocodable-but-unknown (🌐); don't cache a hard miss
 			return { country_code: null, geocodable: true };
 		}
 
@@ -175,7 +182,8 @@ export function createBot({ broadcast, botName = process.env.GLUB_BOT_NAME || "b
 	function reply(content, geohash) {
 		if (!content || !geohash) return;
 		const ev = makeBotChatMessage(content, geohash);
-		broadcast?.(ev, geohash);
+		const sent = broadcast?.(ev, geohash);
+		console.log(`[bot] reply -> #${geohash} (${sent ?? 0} relays)`);
 	}
 
 	// --- command parsing -----------------------------------------------------
@@ -275,8 +283,12 @@ export function createBot({ broadcast, botName = process.env.GLUB_BOT_NAME || "b
 
 		const cmd = parseCommand(content);
 		if (cmd) {
-			if (!commandCooldownOk()) return; // global budget spent - drop quietly
-			dispatch(cmd, geo);
+			console.log(`[bot] saw !${cmd.name} in #${geo} from ${ev.pubkey.slice(0, 8)}`);
+			if (!commandCooldownOk()) {
+				console.log(`[bot] !${cmd.name} dropped (global cooldown)`);
+				return; // global budget spent
+			}
+			if (!dispatch(cmd, geo)) console.log(`[bot] !${cmd.name} unknown - no handler`);
 			return; // a command isn't itself "channel activity"
 		}
 

@@ -4,6 +4,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { openStore } from "./store.mjs";
 import { createAggregator } from "./aggregator.mjs";
+import { createBot } from "./bot.mjs";
 import { createProfiles } from "./profiles.mjs";
 import { proxyAvatar } from "./avatar.mjs";
 import { createMediaStore } from "./media.mjs";
@@ -52,7 +53,15 @@ function broadcast(ev, geo) {
 	}
 }
 
-const aggregator = createAggregator(store, { onStored: broadcast });
+// the global bot rides the aggregator: it observes every live chat event and
+// fans its command replies back out through the aggregator's relay connections.
+// declared before the aggregator so onChat can reach it, wired to broadcast after.
+let bot;
+const aggregator = createAggregator(store, {
+	onStored: broadcast,
+	onChat: (ev, geo) => bot?.observe(ev, geo),
+});
+bot = createBot({ broadcast: (ev, geo) => aggregator.broadcast(ev, geo) });
 const profiles = createProfiles();
 const media = createMediaStore({ dir: MEDIA_DIR, maxItems: MEDIA_MAX_ITEMS });
 
@@ -98,7 +107,7 @@ function ipBucket({ capacity, refillPerSec }) {
 // client pings this to decide whether to lean on the api or fall back to relays,
 // and to render the assist status indicator.
 app.get("/api/health", (req, res) => {
-	res.json({ ok: true, ...store.stats(), relays: aggregator.stats() });
+	res.json({ ok: true, ...store.stats(), relays: aggregator.stats(), bot: bot.stats() });
 });
 
 // publish a client-signed event: the api fans it out across the relays it

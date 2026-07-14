@@ -12,6 +12,7 @@ import {
 	deletionTargets,
 	verifyEvent,
 } from "./nostr.mjs";
+import { geohashToLatLon, haversineKm } from "./geo.mjs";
 
 // Use the `ws` library (not Node's built-in/undici WebSocket): it's the
 // battle-tested standard the nostr ecosystem relies on and holds far more
@@ -47,9 +48,14 @@ const NOTES_PRUNE_MS = 5 * 60_000; // sweep expired/overflow notes this often
 // and periodically re-fetching the list to add newly-listed relays.
 // `onStored(ev, geo)` fires once per newly-stored event so the http layer can fan
 // it out to live SSE subscribers.
-export function createAggregator(store, { onStored } = {}) {
+// `onChat(ev, geo)` (optional) fires for each accepted LIVE chat event - the global
+// bot subscribes to it to track activity/language and serve commands.
+const BOT_FANOUT = 16; // how many geo-nearest relays a bot reply is broadcast to
+
+export function createAggregator(store, { onStored, onChat } = {}) {
 	const sockets = new Map(); // url -> WebSocket (live attempts)
 	const managed = new Set(); // every url we're keeping connected (incl. mid-backoff)
+	const relayCoords = new Map(); // url -> { lat, lon } from the relay list (bot fan-out targeting)
 	const presence = new Map(); // geo -> Map<pubkey, { name, teleport, lastSeen }>
 	const seenIds = new Set(); // event ids already processed from relays - skip re-verifying duplicates
 	const SEEN_MAX = 50_000; // bound the dedup set; cleared wholesale when it grows past this
@@ -90,6 +96,10 @@ export function createAggregator(store, { onStored } = {}) {
 		}
 		const inserted = store.insert(ev, geo);
 		if (inserted && onStored) onStored(ev, geo);
+		// feed the global bot every fresh live chat event (activity/language/commands).
+		// only on first insert + live, so backlog replays and cross-relay duplicates
+		// don't double-count or trigger stale command replies.
+		if (inserted && live && onChat) onChat(ev, geo);
 		return inserted;
 	}
 
@@ -223,6 +233,47 @@ export function createAggregator(store, { onStored } = {}) {
 		return sent;
 	}
 
+	// the N connected relays nearest a geohash's center, for bounded bot fan-out.
+	// A non-geocodable channel (word-channel) or missing coords falls back to the
+	// first N connected relays in whatever order.
+	function nearestConnectedRelays(geo, count) {
+		const open = [];
+		for (const [url, ws] of sockets) if (ws.readyState === WebSocket.OPEN) open.push(url);
+
+		const center = geohashToLatLon(geo);
+		if (!center) return open.slice(0, count);
+
+		return open
+			.map((url) => {
+				const c = relayCoords.get(url);
+				const km = c ? haversineKm(center.lat, center.lon, c.lat, c.lon) : Infinity;
+				return { url, km };
+			})
+			.sort((a, b) => a.km - b.km)
+			.slice(0, count)
+			.map((x) => x.url);
+	}
+
+	// broadcast a server-originated (bot) chat event: store + stream it so it shows
+	// in glub's own feed like any message, then fan it out to the geo-nearest relays
+	// (bounded, so the bot isn't a network-wide amplifier). Returns the relay count.
+	function broadcast(ev, geo, count = BOT_FANOUT) {
+		if (!ev || typeof ev.id !== "string") return 0;
+		if (ev.kind === CHAT_KIND && geo) {
+			if (store.insert(ev, geo) && onStored) onStored(ev, geo); // idempotent; surface locally
+		}
+		const payload = JSON.stringify(["EVENT", ev]);
+		let sent = 0;
+		for (const url of nearestConnectedRelays(geo, count)) {
+			const ws = sockets.get(url);
+			if (ws && ws.readyState === WebSocket.OPEN) {
+				ws.send(payload);
+				sent++;
+			}
+		}
+		return sent;
+	}
+
 	// `conn` is the per-socket state ({ eosed }); direct callers (tests, one-off
 	// frames) default to live, the stricter path.
 	function handleFrame(raw, conn = { eosed: true }) {
@@ -316,7 +367,8 @@ export function createAggregator(store, { onStored } = {}) {
 			return;
 		}
 		let added = 0;
-		for (const { url } of relays) {
+		for (const { url, lat, lon } of relays) {
+			if (Number.isFinite(lat) && Number.isFinite(lon)) relayCoords.set(url, { lat, lon });
 			if (managed.has(url)) continue;
 			managed.add(url);
 			connectRelay(url);
@@ -352,5 +404,5 @@ export function createAggregator(store, { onStored } = {}) {
 		return { monitored: managed.size, connected, spamDrops: { ...spamDrops } };
 	}
 
-	return { start, stats, ingest, ingestNote, handleDeletion, publish, handleFrame, trackPresence, presenceFor };
+	return { start, stats, ingest, ingestNote, handleDeletion, publish, broadcast, handleFrame, trackPresence, presenceFor };
 }

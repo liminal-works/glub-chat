@@ -39,6 +39,14 @@ function timeAgo(nowSec, thenSec) {
 	return `${Math.floor(h / 24)}d`;
 }
 
+// !seen matches on the bare name: drop a leading "@" and a trailing "#abcd" key
+// suffix, lower-cased, so "@6ix#dead" and "6ix" resolve to the same person.
+function normalizeSeenName(name) {
+	const s = String(name || "").trim();
+	if (!s) return "";
+	return s.replace(/^@/, "").replace(/#([0-9a-f]{4})$/i, "").toLowerCase();
+}
+
 // ---- tunables (ported verbatim from the old bot) --------------------------
 const ACTIVE_WINDOW_SEC = 60; // a pubkey counts as "active" if seen within this
 const ACTIVITY_WINDOW_SEC = 60; // !top scores messages seen in the last minute (mpm)
@@ -48,6 +56,8 @@ const LANG_RECHECK_EVERY = 6; // re-run franc every N messages
 const LISTEN_BUFFER_SIZE = 800; // cross-channel recent-message ring for !listen
 const RECENT_BY_LANGUAGE_MAX = 10; // recent messages kept per detected language
 const LISTEN_SHOW = 10; // how many messages a !listen reply shows
+const SEEN_MAX_PER_NAME = 5; // channels remembered per name for !seen
+const SEEN_TTL_SEC = 24 * 60 * 60; // forget a name's sightings after ~24h
 const COMMAND_COOLDOWN_WINDOW_MS = 60_000; // global command budget window
 const COMMAND_COOLDOWN_MAX = 12; // ...and how many commands fit in it
 const GEO_CACHE_MAX = 5000; // reverse-geocode cache bound
@@ -79,6 +89,7 @@ export function createBot({ broadcast, botName = process.env.GLUB_BOT_NAME || "b
 	const commandHits = []; // ms timestamps of recently-served commands (global cooldown)
 	const recentOther = []; // cross-channel recent messages, newest last → !listen
 	const recentByLanguage = new Map(); // ISO-639-3 lang -> [{ g, user, msg, t }] → !listen <lang>
+	const seenByName = new Map(); // normalized name -> [{ g, t }] (oldest first) → !seen
 
 	// --- activity + language bookkeeping ------------------------------------
 	function recordChannelActivity(geohash, tsSec) {
@@ -100,6 +111,27 @@ export function createBot({ broadcast, botName = process.env.GLUB_BOT_NAME || "b
 		const cutoff = now() - ACTIVE_WINDOW_SEC;
 		for (const [pkey, t] of activePubkeys) if (t < cutoff) activePubkeys.delete(pkey);
 		return activePubkeys.size;
+	}
+
+	// remember a name's last channels for !seen: newest-last, consecutive repeats in
+	// the same channel just refresh the time, capped per name and aged out at TTL.
+	function noteSeen(name, g, tsSec) {
+		const n = normalizeSeenName(name);
+		if (!n || !g) return;
+		const t = typeof tsSec === "number" ? tsSec : now();
+		const cutoff = now() - SEEN_TTL_SEC;
+
+		let arr = seenByName.get(n);
+		if (!arr) seenByName.set(n, (arr = []));
+		while (arr.length && arr[0].t < cutoff) arr.shift();
+
+		const last = arr[arr.length - 1];
+		if (last && last.g === g) {
+			last.t = t; // still here - just bump the timestamp
+			return;
+		}
+		arr.push({ g, t });
+		while (arr.length > SEEN_MAX_PER_NAME) arr.shift();
 	}
 
 	// accumulate a channel's chat text and periodically re-detect its dominant
@@ -443,6 +475,27 @@ export function createBot({ broadcast, botName = process.env.GLUB_BOT_NAME || "b
 		reply(`goto:\n` + `target   - ${target.label}\n` + `${target.lat.toFixed(6)}, ${target.lon.toFixed(6)}\n\n` + ladder, geo);
 	}
 
+	// !seen <name>: the channels a name was last active in (newest first), matched
+	// on the bare name so "@6ix#dead" and "6ix" both work.
+	function cmdSeen(geo, args) {
+		const targetRaw = args.join(" ").trim();
+		if (!targetRaw) {
+			reply("usage: !seen <name>", geo);
+			return;
+		}
+		const hits = seenByName.get(normalizeSeenName(targetRaw)) || [];
+		if (!hits.length) {
+			reply(`${targetRaw} has not been seen recently`, geo);
+			return;
+		}
+		const nowSec = now();
+		const items = [...hits].reverse().slice(0, SEEN_MAX_PER_NAME); // newest first
+		reply(
+			`${targetRaw} recent activity:\n` + items.map((x, i) => `${i + 1}. #${x.g} (${timeAgo(nowSec, x.t)} ago)`).join("\n"),
+			geo,
+		);
+	}
+
 	// !help: generated from the registry, so a new command shows up here for free.
 	// Kept SHORT (terse one-liners) so it doesn't wrap on mobile; the per-command
 	// !help <command> page carries the usage + optional params.
@@ -481,6 +534,7 @@ export function createBot({ broadcast, botName = process.env.GLUB_BOT_NAME || "b
 			usage: "!goto <place|lat,lon>  ·  !goto (this channel's location)",
 			run: (c) => cmdGoto(c.geo, c.args),
 		},
+		{ name: "seen", desc: "a user's recent activity", usage: "!seen <name>", run: (c) => cmdSeen(c.geo, c.args) },
 		{ name: "help", aliases: ["h", "commands"], desc: "list commands", usage: "!help | !help <command>", run: (c) => cmdHelp(c.geo, c.args[0]) },
 	];
 
@@ -530,10 +584,11 @@ export function createBot({ broadcast, botName = process.env.GLUB_BOT_NAME || "b
 
 		const content = String(ev.content || "");
 
-		// language + presence tracking happen for every message (commands included,
-		// exactly as before - a "!top" is too short for franc to latch onto anyway).
+		// language + presence + last-seen tracking happen for every message (commands
+		// included, exactly as before - a "!top" is too short for franc to latch onto).
 		updateChannelLanguage(geo, content);
 		noteActivePubkey(ev.pubkey, ev.created_at);
+		noteSeen(nameOf(ev), geo, ev.created_at);
 
 		const parsed = parseCommand(content);
 		if (parsed) {

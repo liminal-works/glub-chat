@@ -61,7 +61,7 @@ const aggregator = createAggregator(store, {
 	onStored: broadcast,
 	onChat: (ev, geo) => bot?.observe(ev, geo),
 });
-bot = createBot({ broadcast: (ev, geo) => aggregator.broadcast(ev, geo) });
+bot = createBot({ store, broadcast: (ev, geo) => aggregator.broadcast(ev, geo) });
 const profiles = createProfiles();
 const media = createMediaStore({ dir: MEDIA_DIR, maxItems: MEDIA_MAX_ITEMS });
 

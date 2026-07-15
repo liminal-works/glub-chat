@@ -15,8 +15,9 @@
 import crypto from "node:crypto";
 import { finalizeEvent, getPublicKey } from "nostr-tools";
 import { franc } from "franc";
-import { CHAT_KIND, getName } from "./nostr.mjs";
+import { CHAT_KIND, getName, getGeohash } from "./nostr.mjs";
 import { geohashToLatLon, countryCodeToFlag, latLonToGeohash, formatRegionSizeMi, parseLatLonInput } from "./geo.mjs";
+import { queryNostr, extractImageUrlsFromEvent, normalizeNostrTag } from "./nostrQuery.mjs";
 
 const now = () => Math.floor(Date.now() / 1000);
 
@@ -58,6 +59,14 @@ const RECENT_BY_LANGUAGE_MAX = 10; // recent messages kept per detected language
 const LISTEN_SHOW = 10; // how many messages a !listen reply shows
 const SEEN_MAX_PER_NAME = 5; // channels remembered per name for !seen
 const SEEN_TTL_SEC = 24 * 60 * 60; // forget a name's sightings after ~24h
+const NOTES_PAGE_SIZE = 5; // notes shown per !notes page (keeps replies short)
+const NOTES_FETCH_CAP = 100; // most notes we page through for a channel
+const NOTES_SNAPSHOT_TTL_MS = 60_000; // reuse a channel's note snapshot while paging
+const NOTE_CLIP = 140; // per-note content clip in a !notes list
+const NOSTR_WANT = 12; // candidate image notes to gather before picking one
+const NOSTR_TIMEOUT_MS = 6000; // give up a !nostr relay query after this
+const NOSTR_SCAN_LIMIT = 300; // kind-1 events a !nostr filter samples per relay
+const NOSTR_SEEN_MAX = 5000; // event ids remembered so !nostr doesn't repeat
 const COMMAND_COOLDOWN_WINDOW_MS = 60_000; // global command budget window
 const COMMAND_COOLDOWN_MAX = 12; // ...and how many commands fit in it
 const GEO_CACHE_MAX = 5000; // reverse-geocode cache bound
@@ -67,7 +76,7 @@ const NOMINATIM_UA = "glub.chat-bot (https://glub.chat)";
 // createBot({ broadcast, botName })
 //   broadcast(signedEvent, geohash)  fan the reply out (the aggregator supplies it)
 //   botName                          the `n` tag / display handle (default "bot")
-export function createBot({ broadcast, botName = process.env.GLUB_BOT_NAME || "bot" } = {}) {
+export function createBot({ broadcast, store, botName = process.env.GLUB_BOT_NAME || "bot" } = {}) {
 	// --- identity ------------------------------------------------------------
 	// stable across restarts when GLUB_BOT_SK (64-hex) is set; otherwise a fresh
 	// ephemeral key each boot (fine for dev, logged loudly so prod sets one).
@@ -90,6 +99,8 @@ export function createBot({ broadcast, botName = process.env.GLUB_BOT_NAME || "b
 	const recentOther = []; // cross-channel recent messages, newest last → !listen
 	const recentByLanguage = new Map(); // ISO-639-3 lang -> [{ g, user, msg, t }] → !listen <lang>
 	const seenByName = new Map(); // normalized name -> [{ g, t }] (oldest first) → !seen
+	const notesSnapshots = new Map(); // channel -> { at, notes } cached page source for !notes
+	const nostrSeen = new Set(); // event ids already surfaced by !nostr (so it rotates)
 
 	// --- activity + language bookkeeping ------------------------------------
 	function recordChannelActivity(geohash, tsSec) {
@@ -496,6 +507,109 @@ export function createBot({ broadcast, botName = process.env.GLUB_BOT_NAME || "b
 		);
 	}
 
+	// !notes: the location notes on a channel, from our note cache (works for any
+	// channel string, geocodable or not, and includes notes nested beneath it).
+	// Paginated so a busy channel doesn't dump 100 notes at once.
+	// forms: !notes | !notes <page> | !notes <channel> | !notes <channel> <page>
+	function cmdNotes(geo, args) {
+		let channel = String(geo || "").trim().toLowerCase();
+		let page = 1;
+		const a0 = String(args[0] || "").trim().toLowerCase();
+		const a1 = String(args[1] || "").trim();
+		if (a0) {
+			if (/^\d+$/.test(a0)) {
+				page = Number(a0);
+			} else {
+				channel = a0.replace(/^#/, "");
+				if (a1) {
+					if (!/^\d+$/.test(a1)) {
+						reply("usage:\n!notes\n!notes <page>\n!notes <#channel>\n!notes <#channel> <page>", geo);
+						return;
+					}
+					page = Number(a1);
+				}
+			}
+		}
+		if (!channel) {
+			reply("notes: no channel", geo);
+			return;
+		}
+
+		const notes = notesSnapshot(channel);
+		if (!notes.length) {
+			reply(`notes #${channel}: none found`, geo);
+			return;
+		}
+
+		const totalPages = Math.max(1, Math.ceil(notes.length / NOTES_PAGE_SIZE));
+		const p = Math.min(Math.max(1, page), totalPages);
+		const start = (p - 1) * NOTES_PAGE_SIZE;
+		const slice = notes.slice(start, start + NOTES_PAGE_SIZE);
+		const nowSec = now();
+
+		const lines = slice.map((ev, i) => {
+			const noteG = getGeohash(ev) || channel;
+			const nm = String(getName(ev) || "").trim() || "anon";
+			const body = clipText(String(ev.content || "").replace(/\s+/g, " ").trim(), NOTE_CLIP);
+			return `${start + i + 1}. #${noteG} <${nm}> ${body} (${timeAgo(nowSec, ev.created_at)} ago)`;
+		});
+
+		const header = `notes #${channel} — ${notes.length} note${notes.length === 1 ? "" : "s"} (page ${p}/${totalPages}):`;
+		const chanArg = channel === String(geo || "").trim().toLowerCase() ? "" : `${channel} `;
+		const footer = p < totalPages ? `\n\n→ !notes ${chanArg}${p + 1} for more` : "";
+		reply(header + "\n" + lines.join("\n") + footer, geo);
+	}
+
+	// cached page source: query the note store once per channel and reuse it while
+	// paging (a fresh query per page could reorder under new arrivals).
+	function notesSnapshot(channel) {
+		const hit = notesSnapshots.get(channel);
+		if (hit && Date.now() - hit.at < NOTES_SNAPSHOT_TTL_MS) return hit.notes;
+		const notes = store?.notesByPrefix ? store.notesByPrefix(channel, NOTES_FETCH_CAP) : [];
+		notesSnapshots.set(channel, { at: Date.now(), notes });
+		return notes;
+	}
+
+	// !nostr: reach into the wider nostr firehose (not just geohash notes) for a
+	// note with an image. no arg = any; <text> = content contains text; #<tag> =
+	// tagged. Each surfaced note is remembered so re-running rotates to a new one.
+	async function cmdNostr(geo, args) {
+		const raw = args.join(" ").trim();
+		const filter = { kinds: [1], limit: NOSTR_SCAN_LIMIT };
+		let tag = "";
+		let contentMatch = "";
+		if (raw.startsWith("#")) {
+			tag = normalizeNostrTag(raw);
+			if (tag) filter["#t"] = [tag];
+		} else if (raw) {
+			contentMatch = raw.toLowerCase();
+		}
+
+		const events = await queryNostr(filter, {
+			timeoutMs: NOSTR_TIMEOUT_MS,
+			want: NOSTR_WANT,
+			accept: (ev) => {
+				if (nostrSeen.has(ev.id)) return false;
+				if (contentMatch && !String(ev.content || "").toLowerCase().includes(contentMatch)) return false;
+				return extractImageUrlsFromEvent(ev).length > 0;
+			},
+		});
+
+		const pick = events[0];
+		if (!pick) {
+			const f = tag ? ` #${tag}` : contentMatch ? ` "${raw}"` : "";
+			reply(`nostr: no new image notes found${f}`, geo);
+			return;
+		}
+		nostrSeen.add(pick.id);
+		if (nostrSeen.size > NOSTR_SEEN_MAX) nostrSeen.clear();
+
+		const url = extractImageUrlsFromEvent(pick)[0];
+		const filterLine = tag ? `filter: #${tag}\n` : contentMatch ? `filter: "${raw}"\n` : "";
+		const body = clipText(String(pick.content || "").replace(/\s+/g, " ").trim(), 200);
+		reply(`nostr catch:\n${filterLine}by ${pick.pubkey.slice(0, 8)} · ${timeAgo(now(), pick.created_at)} ago\n\n` + (body ? body + "\n\n" : "") + url, geo);
+	}
+
 	// !help: generated from the registry, so a new command shows up here for free.
 	// Kept SHORT (terse one-liners) so it doesn't wrap on mobile; the per-command
 	// !help <command> page carries the usage + optional params.
@@ -535,6 +649,18 @@ export function createBot({ broadcast, botName = process.env.GLUB_BOT_NAME || "b
 			run: (c) => cmdGoto(c.geo, c.args),
 		},
 		{ name: "seen", desc: "a user's recent activity", usage: "!seen <name>", run: (c) => cmdSeen(c.geo, c.args) },
+		{
+			name: "notes",
+			desc: "notes on this/any channel",
+			usage: "!notes | !notes <page> | !notes <#channel> [page]",
+			run: (c) => cmdNotes(c.geo, c.args),
+		},
+		{
+			name: "nostr",
+			desc: "pull an image note from nostr",
+			usage: "!nostr  ·  !nostr <text>  ·  !nostr #<tag>",
+			run: (c) => cmdNostr(c.geo, c.args),
+		},
 		{ name: "help", aliases: ["h", "commands"], desc: "list commands", usage: "!help | !help <command>", run: (c) => cmdHelp(c.geo, c.args[0]) },
 	];
 

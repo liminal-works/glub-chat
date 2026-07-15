@@ -22,6 +22,7 @@ import { createNotesClient } from "./nostr/notes.js";
 import { uploadImageToNostrBuild, NOSTR_BUILD_MAX_BYTES, NOSTR_BUILD_MAX_MB } from "./nostr/nip96.js";
 import { fetchProfileMetadata, publishProfileMetadata } from "./nostr/profileEdit.js";
 import { isProfane } from "./censor.js";
+import { fetchConditions, wmoDescribe } from "./weather.js";
 import { THEMES, themeNames, activeTheme, applyTheme, persistTheme, initTheme, hexToRgb } from "./themes.js";
 
 // re-apply the persisted theme before anything renders (module scripts run
@@ -3700,6 +3701,67 @@ const COMMANDS = [
 			const msg = arg.trim();
 			if (!msg) return;
 			transmit(msg, focusedGeo, botName());
+		},
+	},
+	{
+		name: "weather",
+		// a location-native self-bot command: posts the current weather for this
+		// channel's geohash as your ".bot" (open-meteo, no key). Word channels have
+		// no coordinates, so it only works in real geohash channels.
+		async run() {
+			if (!focusedGeo) {
+				appendSystem(t("system.needs_channel"));
+				return;
+			}
+			let lat, lon;
+			try {
+				({ lat, lon } = geohashCell(focusedGeo)); // throws on a non-geohash channel
+			} catch {
+				appendSystem(t("system.not_a_location", { geo: focusedGeo }));
+				return;
+			}
+			try {
+				const w = await fetchConditions(lat, lon);
+				if (typeof w.tempC !== "number") throw new Error("no data");
+				const { text, emoji } = wmoDescribe(w.code);
+				const tempF = Math.round((w.tempC * 9) / 5 + 32);
+				const wind = typeof w.windKmh === "number" ? ` · wind ${Math.round(w.windKmh)}km/h` : "";
+				const msg = `weather @ #${focusedGeo}: ${emoji} ${Math.round(w.tempC)}°C / ${tempF}°F · ${text}${wind}`;
+				transmit(msg, focusedGeo, botName());
+			} catch {
+				appendSystem(t("system.weather_failed"));
+			}
+		},
+	},
+	{
+		name: "time",
+		// posts this channel's local wall-clock time as your ".bot", resolved from
+		// the geohash's timezone (open-meteo's timezone=auto).
+		async run() {
+			if (!focusedGeo) {
+				appendSystem(t("system.needs_channel"));
+				return;
+			}
+			let lat, lon;
+			try {
+				({ lat, lon } = geohashCell(focusedGeo));
+			} catch {
+				appendSystem(t("system.not_a_location", { geo: focusedGeo }));
+				return;
+			}
+			try {
+				const { timezone } = await fetchConditions(lat, lon);
+				if (!timezone) throw new Error("no tz");
+				const timeStr = new Intl.DateTimeFormat(undefined, {
+					timeZone: timezone,
+					weekday: "short",
+					hour: "numeric",
+					minute: "2-digit",
+				}).format(new Date());
+				transmit(`time @ #${focusedGeo}: ${timeStr} (${timezone})`, focusedGeo, botName());
+			} catch {
+				appendSystem(t("system.time_failed"));
+			}
 		},
 	},
 	{

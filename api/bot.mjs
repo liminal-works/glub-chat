@@ -13,7 +13,7 @@
 // beside it.
 
 import crypto from "node:crypto";
-import { finalizeEvent, getPublicKey } from "nostr-tools";
+import { finalizeEvent, getPublicKey, nip19 } from "nostr-tools";
 import { franc } from "franc";
 import { CHAT_KIND, getName, getGeohash } from "./nostr.mjs";
 import { geohashToLatLon, countryCodeToFlag, latLonToGeohash, formatRegionSizeMi, parseLatLonInput } from "./geo.mjs";
@@ -46,6 +46,28 @@ function normalizeSeenName(name) {
 	const s = String(name || "").trim();
 	if (!s) return "";
 	return s.replace(/^@/, "").replace(/#([0-9a-f]{4})$/i, "").toLowerCase();
+}
+
+// accept an npub, a 64-hex pubkey, or a "pubkey:" prefix; return the hex key or "".
+function toHexPubkey(s) {
+	const raw = String(s || "").trim().replace(/^pubkey:/i, "");
+	if (/^[0-9a-f]{64}$/i.test(raw)) return raw.toLowerCase();
+	if (/^npub1[0-9a-z]+$/i.test(raw)) {
+		try {
+			const { type, data } = nip19.decode(raw);
+			if (type === "npub" && typeof data === "string") return data;
+		} catch {}
+	}
+	return "";
+}
+
+// hex pubkey -> shareable npub (falls back to the hex if encoding somehow fails).
+function toNpub(hex) {
+	try {
+		return nip19.npubEncode(hex);
+	} catch {
+		return hex;
+	}
 }
 
 // ---- tunables (ported verbatim from the old bot) --------------------------
@@ -570,20 +592,33 @@ export function createBot({ broadcast, store, botName = process.env.GLUB_BOT_NAM
 		return notes;
 	}
 
-	// !nostr: reach into the wider nostr firehose (not just geohash notes) for a
-	// note with an image. no arg = any; <text> = content contains text; #<tag> =
-	// tagged. Each surfaced note is remembered so re-running rotates to a new one.
+	// !nostr: reach into the wider nostr firehose (not just geohash notes). no arg =
+	// any note with an image; <text> = content contains text (+ image); #<tag> =
+	// tagged (+ image); <npub|hex> = that author's recent posts (image optional, so
+	// you can browse someone's feed). Each surfaced note is remembered so re-running
+	// rotates to a new one; the reply always shows the poster's full npub.
 	async function cmdNostr(geo, args) {
 		const raw = args.join(" ").trim();
 		const filter = { kinds: [1], limit: NOSTR_SCAN_LIMIT };
 		let tag = "";
 		let contentMatch = "";
+		let author = "";
+
 		if (raw.startsWith("#")) {
 			tag = normalizeNostrTag(raw);
 			if (tag) filter["#t"] = [tag];
 		} else if (raw) {
-			contentMatch = raw.toLowerCase();
+			const hex = toHexPubkey(raw);
+			if (hex) {
+				author = hex;
+				filter.authors = [hex];
+			} else {
+				contentMatch = raw.toLowerCase();
+			}
 		}
+
+		// browsing a person's feed shows any post; image hunts require an image.
+		const requireImage = !author;
 
 		const events = await queryNostr(filter, {
 			timeoutMs: NOSTR_TIMEOUT_MS,
@@ -591,23 +626,29 @@ export function createBot({ broadcast, store, botName = process.env.GLUB_BOT_NAM
 			accept: (ev) => {
 				if (nostrSeen.has(ev.id)) return false;
 				if (contentMatch && !String(ev.content || "").toLowerCase().includes(contentMatch)) return false;
-				return extractImageUrlsFromEvent(ev).length > 0;
+				if (requireImage && extractImageUrlsFromEvent(ev).length === 0) return false;
+				return true;
 			},
 		});
 
+		events.sort((a, b) => b.created_at - a.created_at); // newest first
 		const pick = events[0];
 		if (!pick) {
-			const f = tag ? ` #${tag}` : contentMatch ? ` "${raw}"` : "";
-			reply(`nostr: no new image notes found${f}`, geo);
+			const f = tag ? ` #${tag}` : author ? ` ${toNpub(author).slice(0, 12)}…` : contentMatch ? ` "${raw}"` : "";
+			reply(`nostr: no new notes found${f}`, geo);
 			return;
 		}
 		nostrSeen.add(pick.id);
 		if (nostrSeen.size > NOSTR_SEEN_MAX) nostrSeen.clear();
 
-		const url = extractImageUrlsFromEvent(pick)[0];
-		const filterLine = tag ? `filter: #${tag}\n` : contentMatch ? `filter: "${raw}"\n` : "";
+		const url = extractImageUrlsFromEvent(pick)[0] || "";
+		const meta = `${timeAgo(now(), pick.created_at)} ago` + (tag ? ` · #${tag}` : contentMatch ? ` · "${raw}"` : "");
 		const body = clipText(String(pick.content || "").replace(/\s+/g, " ").trim(), 200);
-		reply(`nostr catch:\n${filterLine}by ${pick.pubkey.slice(0, 8)} · ${timeAgo(now(), pick.created_at)} ago\n\n` + (body ? body + "\n\n" : "") + url, geo);
+
+		const lines = [`nostr catch:`, `by ${toNpub(pick.pubkey)}`, meta, ""];
+		if (body) lines.push(body);
+		if (url) lines.push(url);
+		reply(lines.join("\n"), geo);
 	}
 
 	// !help: generated from the registry, so a new command shows up here for free.
@@ -657,8 +698,8 @@ export function createBot({ broadcast, store, botName = process.env.GLUB_BOT_NAM
 		},
 		{
 			name: "nostr",
-			desc: "pull an image note from nostr",
-			usage: "!nostr  ·  !nostr <text>  ·  !nostr #<tag>",
+			desc: "pull a note from nostr",
+			usage: "!nostr · !nostr <text> · !nostr #<tag> · !nostr <npub>",
 			run: (c) => cmdNostr(c.geo, c.args),
 		},
 		{ name: "help", aliases: ["h", "commands"], desc: "list commands", usage: "!help | !help <command>", run: (c) => cmdHelp(c.geo, c.args[0]) },

@@ -3655,6 +3655,31 @@ async function rotateVanity(suffix) {
 	}
 }
 
+// the canonical 20 Magic 8-Ball answers (English-canonical, like the emotes -
+// this ships as public message content everyone sees the same way).
+const EIGHTBALL_ANSWERS = [
+	"It is certain.",
+	"It is decidedly so.",
+	"Without a doubt.",
+	"Yes definitely.",
+	"You may rely on it.",
+	"As I see it, yes.",
+	"Most likely.",
+	"Outlook good.",
+	"Yes.",
+	"Signs point to yes.",
+	"Reply hazy, try again.",
+	"Ask again later.",
+	"Better not tell you now.",
+	"Cannot predict now.",
+	"Concentrate and ask again.",
+	"Don't count on it.",
+	"My reply is no.",
+	"My sources say no.",
+	"Outlook not so good.",
+	"Very doubtful.",
+];
+
 const COMMANDS = [
 	{
 		name: "clear",
@@ -3762,6 +3787,48 @@ const COMMANDS = [
 			} catch {
 				appendSystem(t("system.time_failed"));
 			}
+		},
+	},
+	{
+		name: "roll",
+		// dice roll posted as your ".bot". forms: /roll, /roll d20, /roll 3d6, /roll 100
+		run(arg) {
+			if (!focusedGeo) {
+				appendSystem(t("system.needs_channel"));
+				return;
+			}
+			const spec = arg.trim().toLowerCase() || "1d6";
+			const m = spec.match(/^(?:(\d+)?d)?(\d+)$/); // "3d6" | "d20" | "100"
+			let n = m && m[1] ? parseInt(m[1], 10) : 1;
+			let sides = m ? parseInt(m[2], 10) : 0;
+			if (!m || !(n >= 1) || !(sides >= 2)) {
+				appendSystem(t("system.roll_usage"));
+				return;
+			}
+			n = Math.min(n, 20); // caps keep the output (and abuse surface) sane
+			sides = Math.min(sides, 1000);
+			const rolls = Array.from({ length: n }, () => 1 + Math.floor(Math.random() * sides));
+			const sum = rolls.reduce((a, b) => a + b, 0);
+			const detail = n > 1 ? `${rolls.join(", ")} = ${sum}` : `${rolls[0]}`;
+			transmit(`🎲 ${n}d${sides} → ${detail}`, focusedGeo, botName());
+		},
+	},
+	{
+		name: "8ball",
+		// magic 8-ball posted as your ".bot"; needs a question.
+		run(arg) {
+			if (!focusedGeo) {
+				appendSystem(t("system.needs_channel"));
+				return;
+			}
+			const q = arg.replace(/\s+/g, " ").trim();
+			if (!q) {
+				appendSystem(t("system.eightball_usage"));
+				return;
+			}
+			const question = q.length > 120 ? q.slice(0, 120) + "…" : q;
+			const answer = EIGHTBALL_ANSWERS[Math.floor(Math.random() * EIGHTBALL_ANSWERS.length)];
+			transmit(`🎱 ${question} — ${answer}`, focusedGeo, botName());
 		},
 	},
 	{

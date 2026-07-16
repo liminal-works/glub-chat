@@ -97,8 +97,8 @@ const NOMINATIM_UA = "glub.chat-bot (https://glub.chat)";
 
 // createBot({ broadcast, botName })
 //   broadcast(signedEvent, geohash)  fan the reply out (the aggregator supplies it)
-//   botName                          the `n` tag / display handle (default "bot")
-export function createBot({ broadcast, store, botName = process.env.GLUB_BOT_NAME || "bot" } = {}) {
+//   botName                          the `n` tag / display handle (default "glub.bot")
+export function createBot({ broadcast, store, botName = process.env.GLUB_BOT_NAME || "glub.bot" } = {}) {
 	// --- identity ------------------------------------------------------------
 	// bitchat-style disposable burner keys: the bot mints a fresh keypair on boot
 	// and rotates it every GLUB_BOT_ROTATE_MIN minutes (default 45; 0 disables).

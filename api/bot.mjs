@@ -100,16 +100,39 @@ const NOMINATIM_UA = "glub.chat-bot (https://glub.chat)";
 //   botName                          the `n` tag / display handle (default "bot")
 export function createBot({ broadcast, store, botName = process.env.GLUB_BOT_NAME || "bot" } = {}) {
 	// --- identity ------------------------------------------------------------
-	// stable across restarts when GLUB_BOT_SK (64-hex) is set; otherwise a fresh
-	// ephemeral key each boot (fine for dev, logged loudly so prod sets one).
-	let skHex = (process.env.GLUB_BOT_SK || "").trim().toLowerCase();
-	if (!/^[0-9a-f]{64}$/.test(skHex)) {
-		skHex = crypto.randomBytes(32).toString("hex");
-		console.warn("[bot] GLUB_BOT_SK not set - using an ephemeral identity (set GLUB_BOT_SK to keep a stable one)");
+	// bitchat-style disposable burner keys: the bot mints a fresh keypair on boot
+	// and rotates it every GLUB_BOT_ROTATE_MIN minutes (default 45; 0 disables).
+	// GLUB_BOT_SK (64-hex), if set, seeds the FIRST key - handy for a known
+	// starting npub or tests - but rotation still applies unless it's disabled.
+	// Because replies signed with a just-retired key can still echo back from
+	// relays, we skip ANY of our recent keys (botPubkeys), not just the current one.
+	const ROTATE_MIN = Number(process.env.GLUB_BOT_ROTATE_MIN ?? 45);
+	const BOT_PUBKEYS_MAX = 12; // recent keys remembered so our own echoes are ignored
+	const botPubkeys = new Set();
+	let sk;
+	let pk;
+
+	function adoptKey(skBytes) {
+		sk = skBytes;
+		pk = getPublicKey(sk);
+		botPubkeys.add(pk);
+		while (botPubkeys.size > BOT_PUBKEYS_MAX) botPubkeys.delete(botPubkeys.values().next().value);
 	}
-	const sk = Uint8Array.from(Buffer.from(skHex, "hex"));
-	const pk = getPublicKey(sk);
-	console.log(`[bot] identity ${pk.slice(0, 8)}…${pk.slice(-4)} name=${botName}`);
+	const randomKey = () => Uint8Array.from(crypto.randomBytes(32));
+
+	const seedHex = (process.env.GLUB_BOT_SK || "").trim().toLowerCase();
+	adoptKey(/^[0-9a-f]{64}$/.test(seedHex) ? Uint8Array.from(Buffer.from(seedHex, "hex")) : randomKey());
+	console.log(
+		`[bot] identity ${pk.slice(0, 8)}…${pk.slice(-4)} name=${botName}` +
+			(ROTATE_MIN > 0 ? ` (rotating every ${ROTATE_MIN}m)` : " (rotation off)"),
+	);
+
+	if (ROTATE_MIN > 0) {
+		setInterval(() => {
+			adoptKey(randomKey());
+			console.log(`[bot] rotated identity -> ${pk.slice(0, 8)}…${pk.slice(-4)}`);
+		}, ROTATE_MIN * 60_000).unref();
+	}
 
 	// --- rolling state -------------------------------------------------------
 	const channelActivity = new Map(); // geohash -> [created_at secs] (rolling 60s window) → !top score
@@ -747,7 +770,7 @@ export function createBot({ broadcast, store, botName = process.env.GLUB_BOT_NAM
 	// double-counts a relay's stored backlog.
 	function observe(ev, geo) {
 		if (!ev || ev.kind !== CHAT_KIND || !geo) return;
-		if (ev.pubkey === pk) return; // never react to / count our own replies
+		if (botPubkeys.has(ev.pubkey)) return; // never react to / count our own replies (incl. just-rotated keys)
 
 		const content = String(ev.content || "");
 
@@ -783,8 +806,9 @@ export function createBot({ broadcast, store, botName = process.env.GLUB_BOT_NAM
 
 	function stats() {
 		return {
-			pubkey: pk,
+			pubkey: pk, // current (rotating) key
 			name: botName,
+			rotateMin: ROTATE_MIN,
 			commands: COMMANDS.map((c) => c.name),
 			trackedChannels: channelActivity.size,
 			activeUsers: activePubkeys.size,
@@ -793,5 +817,5 @@ export function createBot({ broadcast, store, botName = process.env.GLUB_BOT_NAM
 		};
 	}
 
-	return { observe, stats, pubkey: pk };
+	return { observe, stats, get pubkey() { return pk; } };
 }

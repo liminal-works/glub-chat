@@ -4222,20 +4222,13 @@ function fitViewport() {
 	const ae = document.activeElement;
 	const typing = !!ae && (ae.tagName === "INPUT" || ae.tagName === "TEXTAREA" || ae.isContentEditable);
 	if (!typing) {
+		// the layout viewport is the truth when idle: ios keyboards never shrink it
+		// (the reason vv.height governs while typing), and - measured via /debug on
+		// a real device - it reports the standalone window honestly even when
+		// vv.height goes stale. do NOT floor to screen.height here: in portrait
+		// standalone ios gives the webview a window of screen minus the status bar,
+		// so a screen-sized floor overflows the window and buries the composer.
 		h = Math.max(h, Math.round(document.documentElement.clientHeight || 0), Math.round(window.innerHeight || 0));
-		// the ios standalone launch bug can misreport EVERY viewport measurement as
-		// the safari-chrome-sized height, consistently and with no corrective event.
-		// but a home-screen app on an iphone is always true-fullscreen, so the
-		// screen itself is the one number that can't lie: use it as the idle floor.
-		// navigator.standalone is ios-only (android pwas, where screen height
-		// includes system bars, never take this branch), and the width gate keeps
-		// ipad stage-manager windows out. ios's screen object doesn't rotate, so
-		// pick the axis by current orientation.
-		if (navigator.standalone === true && Math.min(screen.width, screen.height) <= 500) {
-			const portrait = matchMedia("(orientation: portrait)").matches;
-			const scrH = portrait ? Math.max(screen.width, screen.height) : Math.min(screen.width, screen.height);
-			h = Math.max(h, Math.round(scrH));
-		}
 	}
 	// ios can also report a ZERO bottom safe-area in that same lying state - the
 	// top inset stays honest - so with the app floored to the full screen the

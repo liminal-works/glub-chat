@@ -1,70 +1,49 @@
 # glub.chat
 
-geohash-linked user broadcast over nostr — drop into a location channel and talk
-to whoever's there, native [bitchat](https://github.com/permissionlesstech/bitchat)
-clients included, straight from a browser.
-
-no accounts. no email. no servers holding your keys. pick a name and go.
-
-> nostr = *notes and other stuff transmitted by relays*. glub = *geohash-linked
-> user broadcast*. it checks out.
+a location channel for whoever's nearby, or anywhere. glub talks over nostr,
+so there's no account to make and no server holding your keys · pick a name
+and you're in.
 
 ## what it is
 
-glub talks bitchat's location-channel protocol, which under the hood is just
-plain nostr. every place on earth is a [geohash](https://en.wikipedia.org/wiki/Geohash),
-and every geohash is a channel. tune into `#9q5` and you're in the same room as
-everyone else — phones running bitchat, other browsers running glub — pointed at
-that patch of the map.
+every place on earth maps to a [geohash](https://en.wikipedia.org/wiki/Geohash),
+and every geohash is a channel. tune into `#9q5` and you're in the same room
+as everyone else pointed at that patch of the map. drop the geohash entirely
+and you've got a plain named channel instead, same rules.
 
-## the protocol
+glub exists to make that kind of ambient, place rooted chat easy to reach.
+open a browser, pick a name, join a channel · nothing to install, nothing to
+configure.
 
-it's all ordinary nostr events with a couple of conventions:
+## what it does
 
-- each channel is a geohash, carried as a `g` tag — `["g", "9q5"]`
-- chat messages are ephemeral `kind 20000` events
-- presence ("i'm here") is `kind 20001` — how the user list knows who's lurking
-- your display name rides along as an `n` tag
-- glub always posts with a `t: teleport` tag — you're chatting *into* a geohash,
-  not physically standing in it like a phone on a mesh would be
-- clients connect to a shared pool of public relays and `REQ` for
-  `kinds: [20000, 20001]`
-
-the relay pool is fetched at runtime from bitchat's own repo
-([`online_relays_gps.csv`](https://github.com/permissionlesstech/bitchat/blob/main/relays/online_relays_gps.csv)),
-so glub and bitchat stay pointed at the same relays.
-
-## pure client
-
-your identity is a nostr keypair generated **in your browser**, stored in
-`localStorage`, and never sent anywhere. the browser opens its own relay sockets
-and signs its own events. the static server is a dumb file host — it doesn't know
-who you are and couldn't send a message as you if it tried.
-
-this is the whole point. an earlier prototype kept one server-held identity and
-had the browser hand over its raw private key on every send. never again — keys
-stay on your device, like a nostr client should.
+- generates your identity locally and keeps it there, nothing leaves the device
+- joins channels by geohash or by name, with a live picker for what's active right now
+- shows who's around, colors people consistently, and surfaces real conversation over lurkers
+- blurs incoming images until you choose to reveal them
+- supports optional nostr profiles · avatar, bio, zap address, nip05
+- sends encrypted direct messages between users
+- carries a small set of local commands (help, weather, time, dice, and a few more)
+- can hand off to a lightweight global bot for shared commands like `!top` and `!notes`
+- reads and writes in your browser's language where a translation exists
 
 ## server assist (optional)
 
-a separate, optional service that makes glub nicer to run without ever touching
-your keys. it never signs, never sends as you, and the client works completely
-fine without it.
+a separate, optional service that makes glub nicer to run without ever
+touching your keys. it never signs and never sends on your behalf, and the
+client works completely fine without it.
 
-it casts a much wider net than a browser can — subscribing to the whole relay
-pool, signature-verifying everything, and keeping a bounded rolling buffer of
-recent chat in sqlite. turn assist on and the client:
+turn it on and the client:
 
-- **backfills** deep history the relays no longer rebroadcast
-- **reads** live messages over one server-sent-events stream instead of holding
-  dozens of relay sockets open — much lighter on mobile bandwidth and battery
-- **sends** by handing the api its already-signed event to fan out across every
-  relay it's connected to (so an assisted client opens *zero* relay sockets)
-- **sees** who's around via a presence snapshot that feeds the channel user list
+- backfills deeper history than the open relay pool keeps around
+- reads live messages over a single stream instead of holding many relay
+  sockets open, lighter on mobile battery and data
+- sends by handing the api an already signed event to fan out across relays
+- sees who's around via a presence snapshot that feeds the channel list
 
-everything it serves is re-verified client-side, so a down, absent, or even
-compromised api can't forge a message or hold the app hostage — flip assist off
-and the client drops straight back to talking to relays directly.
+everything it serves gets re-verified client side, so a down or absent api
+never blocks the app · turn assist off and the client goes straight back to
+talking to relays directly.
 
 ## running locally
 
@@ -84,70 +63,35 @@ optional. the client runs without it.
 npm run api          # listens on :3001, writes api/glub-history.db
 ```
 
-when `API_PORT` (or `API_ORIGIN`) is set, the static server transparently proxies
-`/api` → the api, so the client reaches it same-origin with no extra config. or
-point `window.GLUB_API_BASE` at a separately-hosted instance. toggle it per-device
-from the settings popup (tap the topbar status). it starts empty and fills up as
-it runs. note: the sqlite store uses `node:sqlite`, so the api needs **node ≥ 22.5**.
+when `API_PORT` (or `API_ORIGIN`) is set, the static server transparently
+proxies `/api` to the api, so the client reaches it same origin with no
+extra config. or point `window.GLUB_API_BASE` at a separately hosted
+instance. toggle it per device from the settings popup. note: the sqlite
+store uses `node:sqlite`, so the api needs node ≥ 22.5.
 
 ## layout
 
 ```
-server/   tiny express app — serves public/ and (optionally) proxies /api
-public/   the client. identity, relay connections, signing — all in the browser
-  js/nostr/identity.js    session keypair (generate / load / store)
-  js/nostr/relayList.js   fetch + parse bitchat's relay csv
-  js/nostr/protocol.js    build / read bitchat-flavored nostr events
-  js/nostr/relayPool.js   manage relay sockets, subscriptions, reconnects
-  js/ui/suggest.js        reusable autocomplete popup (mentions, later commands)
-  js/i18n/index.js        tiny i18n engine (t(), plurals, relative time)
-  js/i18n/en.js           english base dictionary (the fallback)
-  js/app.js               wires it all into the ui
-api/      optional assist service — its own process, never holds keys
-  store.mjs       sqlite rolling buffer (insert + history queries)
-  aggregator.mjs  relay subscriber → verify → store + presence tracking
-  profiles.mjs    on-demand nostr profile (kind 0) fetch + cache
-  avatar.mjs      ssrf-guarded profile image proxy (keeps your ip off image hosts)
-  media.mjs       ephemeral upload hosting - rebuilds images so no metadata survives
-  index.mjs       read-only http endpoints + live stream + publish fanout
+server/   tiny express app, serves public/ and (optionally) proxies /api
+public/   the client · identity, relay connections, and signing all live here
+  js/nostr/       identity, relay list, protocol helpers, relay pool
+  js/ui/          shared ui pieces (autocomplete, suggest popups)
+  js/i18n/        tiny i18n engine and per language dictionaries
+  js/app.js       wires it all into the ui
+api/      optional assist service, its own process, never holds keys
+  store.mjs       sqlite rolling buffer
+  aggregator.mjs  relay subscriber, verification, presence tracking
+  bot.mjs         global bot commands
+  index.mjs       read only http endpoints, live stream, publish fanout
 ```
-
-## status
-
-what works today: keypair identity, relay discovery, joining a geohash channel,
-sending and receiving chat, per-user colors ported from bitchat's exact algorithm,
-a channel user list (who's talking, plus detected "ghosts") backed by presence
-heartbeats we both read and broadcast (a semi-random ~47–60s announce, only while
-viewing a channel), @-mention autocomplete, blurred tap-to-reveal image previews,
-send confirmation with automatic rebroadcast, local slash commands (/help, /clear,
-/unclear, /echo) — some of which broadcast as your ".bot" — optional nostr profiles
-(opt-in, assist-only: avatars + banners + bios, with images proxied through the api
-so your ip stays off the hosts), media uploads (assist-only "+" button: images are
-re-encoded to a clean slate so no EXIF/GPS survives, hosted ephemerally ~24h and
-shared as a native-friendly "[image] url" message), and the optional server assist
-above.
-
-it's intentionally focused. the kitchen sink from the old prototype (themes, the
-message board, the ai persona, cashu wallet/betting, and the rest) is left out,
-to come back — if at all — as deliberate pieces on top of this base.
 
 ## translations
 
-all user-facing copy lives behind intent-named keys in `public/js/i18n/`, the
-same shape native bitchat uses (a base dictionary + per-locale overrides, with
-plural rules handled separately). english (`en.js`) is the base and fallback;
-the locale is auto-detected from the browser. the browser does the hard parts —
-`Intl.PluralRules` for plurals, `Intl.RelativeTimeFormat` for "x ago".
+user facing copy lives behind intent named keys in `public/js/i18n/`, a base
+dictionary plus per locale overrides. english is the fallback and the
+locale is auto detected from the browser.
 
-right now english is the only bundled language — the scaffolding is in place and
-we'd rather ship one well-worded language than several machine-translated ones.
-to add a language:
-
-1. copy `public/js/i18n/en.js` to `<code>.js` (e.g. `es.js`)
-2. translate the values — **keep the keys and `{placeholders}` exactly**, and
-   keep the `{ one, other, … }` plural shape (your locale may need more forms;
-   see [Intl.PluralRules](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/Intl/PluralRules))
-3. register it in `public/js/i18n/index.js` under `LOADERS`
-
-prefer keys that already exist, and keep the casual lowercase voice — that tone
-is part of the app, so a faithful translation matters more than a literal one.
+to add a language, copy `en.js` to a new locale file, translate the values
+while keeping the keys and `{placeholders}` exactly, and register it in
+`js/i18n/index.js`. keep the plain lowercase voice · that tone is part of
+the app, so a faithful translation matters more than a literal one.

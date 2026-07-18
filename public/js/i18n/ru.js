@@ -191,11 +191,15 @@ export default {
 	},
 
 	composer: {
-		placeholder_global: "#канал сообщение...",
+		placeholder_global: "#канал для входа…",
 		placeholder_focused: "сообщение -> #{geo}",
 		placeholder_reply: "ответ @{name}…",
 		send: "отправить",
 		join: "войти",
+	},
+
+	suggest: {
+		here: "{count} здесь",
 	},
 
 	message: {

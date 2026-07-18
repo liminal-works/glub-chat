@@ -191,11 +191,16 @@ export default {
 	},
 
 	composer: {
-		placeholder_global: "#channel message...",
+		placeholder_global: "#channel to join…",
 		placeholder_focused: "message -> #{geo}",
 		placeholder_reply: "reply to @{name}…",
 		send: "send",
 		join: "join",
+	},
+
+	// the composer's channel-picker suggestions (global mode)
+	suggest: {
+		here: "{count} here",
 	},
 
 	message: {

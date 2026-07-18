@@ -181,11 +181,15 @@ export default {
 	},
 
 	composer: {
-		placeholder_global: "#चैनल संदेश...",
+		placeholder_global: "#चैनल जिसमें जाना है…",
 		placeholder_focused: "संदेश -> #{geo}",
 		placeholder_reply: "@{name} को जवाब…",
 		send: "भेजें",
 		join: "जाएँ",
+	},
+
+	suggest: {
+		here: "{count} यहाँ",
 	},
 
 	message: {

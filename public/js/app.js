@@ -1023,6 +1023,38 @@ function updateFocusedUserCount() {
 	focusedUserCount = talkers(focusedGeo, PRESENCE_FRESH_MS).size;
 }
 
+// live "where can i talk right now" list, for the global composer's channel
+// picker. a channel is active if someone is present (fresh heartbeat) or has
+// spoken recently; ranked by distinct people, then recency. muted channels and
+// ourselves are excluded. built from state we already hold, so it works whether
+// or not server assist is on.
+function activeChannels(limit = 12) {
+	const nowMs = Date.now();
+	const cutoffMs = nowMs - PRESENCE_FRESH_MS;
+	const cutoffSec = Math.floor((nowMs - PRESENCE_FRESH_MS) / 1000);
+	const byGeo = new Map(); // geo -> { people:Set<pubkey>, freshest:sec }
+
+	const bump = (geo, pubkey, tsSec) => {
+		if (!geo || mutedChannels.has(geo) || pubkey === identity.pk) return;
+		let e = byGeo.get(geo);
+		if (!e) byGeo.set(geo, (e = { people: new Set(), freshest: 0 }));
+		e.people.add(pubkey);
+		if (tsSec > e.freshest) e.freshest = tsSec;
+	};
+
+	for (const [geo, chan] of presence) {
+		for (const [pubkey, p] of chan) if (p.lastSeen >= cutoffMs) bump(geo, pubkey, p.createdAt);
+	}
+	for (const e of entries) {
+		if (!e.system && e.geo && e.ts >= cutoffSec) bump(e.geo, e.pubkey, e.ts);
+	}
+
+	return [...byGeo]
+		.map(([geo, e]) => ({ geo, count: e.people.size, freshest: e.freshest }))
+		.sort((a, b) => b.count - a.count || b.freshest - a.freshest)
+		.slice(0, limit);
+}
+
 function renderTopbar() {
 	syncMediaBtn(); // renderTopbar fires on every mode/status change, so piggyback
 	const cursor = `<span class="cursor" aria-hidden="true"></span>`;
@@ -3387,13 +3419,10 @@ function updatePlaceholder() {
 	updateSendLabel();
 }
 
-// in the global composer, typing just a channel (no space yet) will JOIN it -
-// mirror that on the button. once a space is typed you're composing a message
-// for that channel, so it flips back to SEND. focused mode is always "send".
+// the global composer only ever joins (it's a channel picker), so the button
+// reads "join" the whole time you're in global; focused mode always "send".
 function updateSendLabel() {
-	const typed = chatInput.value.trimStart();
-	const joining = !focusedGeo && typed && !/\s/.test(typed);
-	sendBtn.textContent = t(joining ? "composer.join" : "composer.send");
+	sendBtn.textContent = t(focusedGeo ? "composer.send" : "composer.join");
 }
 
 function focusChannel(geo) {
@@ -3430,18 +3459,12 @@ function parseDraft(raw) {
 		return { geo: focusedGeo, content: text };
 	}
 
-	const parts = text.split(/\s+/);
-	const first = parts[0].replace(/^#/, "");
-	if (!first) return null;
-
-	const rest = parts.slice(1).join(" ").trim();
-
-	if (!rest) {
-		focusChannel(first);
-		return null;
-	}
-
-	return { geo: first, content: rest };
+	// global mode is a channel picker, not a message box: whatever's typed is a
+	// channel to JOIN (leading "#" optional). no message is ever sent from global,
+	// so a new user can't accidentally fragment a sentence into "#firstword rest".
+	const channel = text.replace(/^#/, "").trim();
+	if (channel) focusChannel(channel);
+	return null;
 }
 
 // the display name for command/bot output: your name suffixed with ".bot", so
@@ -4068,7 +4091,37 @@ function mentionProvider(value, caret) {
 	return { start, end: caret, items };
 }
 
-const SUGGEST_PROVIDERS = [commandProvider, themeArgProvider, mentionProvider];
+// the global composer is a channel picker, not a message box: in global mode any
+// non-command input is a channel to JOIN, and this offers the active channels as
+// live suggestions (filtered by what's typed). purely a helper - you can still
+// type any channel, active or not, and join it. picking a row joins immediately,
+// so this provider carries its own onPick instead of the default text-insert.
+function channelProvider(value, caret) {
+	if (focusedGeo) return null; // only in global mode
+	const text = value.trimStart();
+	if (text.startsWith("/")) return null; // commands win
+	const query = text.trim().replace(/^#/, "").toLowerCase();
+	const items = activeChannels(8)
+		.filter((c) => !query || c.geo.toLowerCase().startsWith(query))
+		.map((c) => ({
+			insert: c.geo, // unused (onPick joins), but kept for shape consistency
+			geo: c.geo,
+			html: `#${escapeHtml(c.geo)}`,
+			meta: t("suggest.here", { count: c.count }),
+		}));
+	return { items, onPick: (item) => joinFromSuggest(item.geo) };
+}
+
+// join a channel chosen from the picker, clearing the composer + popup.
+function joinFromSuggest(geo) {
+	chatInput.value = "";
+	suggest.hide();
+	focusChannel(geo);
+	updateSendLabel();
+	setTimeout(() => chatInput.focus(), 0);
+}
+
+const SUGGEST_PROVIDERS = [commandProvider, themeArgProvider, mentionProvider, channelProvider];
 
 function refreshSuggest() {
 	const value = chatInput.value;
@@ -4076,7 +4129,8 @@ function refreshSuggest() {
 	for (const provider of SUGGEST_PROVIDERS) {
 		const ctx = provider(value, caret);
 		if (ctx && ctx.items.length) {
-			suggest.show(ctx.items, (item) => applySuggest(ctx.start, ctx.end, item.insert));
+			const pick = ctx.onPick || ((item) => applySuggest(ctx.start, ctx.end, item.insert));
+			suggest.show(ctx.items, pick);
 			return;
 		}
 	}
@@ -4097,6 +4151,11 @@ function applySuggest(start, end, insert) {
 sendBtn.addEventListener("click", send);
 chatInput.addEventListener("input", refreshSuggest);
 chatInput.addEventListener("input", updateSendLabel);
+// focusing the empty global composer surfaces the active-channels picker straight
+// away (discovery before you even type); in a channel there's no channel picker.
+chatInput.addEventListener("focus", () => {
+	if (!focusedGeo) refreshSuggest();
+});
 chatInput.addEventListener("blur", () => suggest.hide());
 chatInput.addEventListener("keydown", (e) => {
 	if (suggest.handleKey(e)) return; // popup consumes nav/select/escape

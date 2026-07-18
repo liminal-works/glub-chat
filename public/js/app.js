@@ -1024,14 +1024,14 @@ function updateFocusedUserCount() {
 }
 
 // live "where can i talk right now" list, for the global composer's channel
-// picker. a channel is active if someone is present (fresh heartbeat) or has
-// spoken recently; ranked by distinct people, then recency. muted channels and
+// picker. a channel is active if someone has *spoken* within the last 5
+// minutes; ranked by distinct talkers, then recency. presence heartbeats
+// (kind-20001 ghosts) deliberately do not count - the picker should point new
+// users at rooms with real conversation, not lurkers. muted channels and
 // ourselves are excluded. built from state we already hold, so it works whether
 // or not server assist is on.
 function activeChannels(limit = 12) {
-	const nowMs = Date.now();
-	const cutoffMs = nowMs - PRESENCE_FRESH_MS;
-	const cutoffSec = Math.floor((nowMs - PRESENCE_FRESH_MS) / 1000);
+	const cutoffSec = Math.floor((Date.now() - PRESENCE_FRESH_MS) / 1000);
 	const byGeo = new Map(); // geo -> { people:Set<pubkey>, freshest:sec }
 
 	const bump = (geo, pubkey, tsSec) => {
@@ -1042,9 +1042,6 @@ function activeChannels(limit = 12) {
 		if (tsSec > e.freshest) e.freshest = tsSec;
 	};
 
-	for (const [geo, chan] of presence) {
-		for (const [pubkey, p] of chan) if (p.lastSeen >= cutoffMs) bump(geo, pubkey, p.createdAt);
-	}
 	for (const e of entries) {
 		if (!e.system && e.geo && e.ts >= cutoffSec) bump(e.geo, e.pubkey, e.ts);
 	}

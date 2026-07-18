@@ -22,7 +22,7 @@ import { createNotesClient } from "./nostr/notes.js";
 import { uploadImageToNostrBuild, NOSTR_BUILD_MAX_BYTES, NOSTR_BUILD_MAX_MB } from "./nostr/nip96.js";
 import { fetchProfileMetadata, publishProfileMetadata } from "./nostr/profileEdit.js";
 import { isProfane } from "./censor.js";
-import { fetchConditions, wmoDescribe } from "./weather.js";
+import { fetchConditions, wmoDescribe, geocodePlace, parseLatLon } from "./weather.js";
 import { THEMES, themeNames, activeTheme, applyTheme, persistTheme, initTheme, hexToRgb } from "./themes.js";
 
 // re-apply the persisted theme before anything renders (module scripts run
@@ -3655,30 +3655,60 @@ async function rotateVanity(suffix) {
 	}
 }
 
-// the canonical 20 Magic 8-Ball answers (English-canonical, like the emotes -
-// this ships as public message content everyone sees the same way).
+// the canonical 20 Magic 8-Ball answers, lowercased with no trailing period to
+// match the bot house style (public content everyone sees the same way).
 const EIGHTBALL_ANSWERS = [
-	"It is certain.",
-	"It is decidedly so.",
-	"Without a doubt.",
-	"Yes definitely.",
-	"You may rely on it.",
-	"As I see it, yes.",
-	"Most likely.",
-	"Outlook good.",
-	"Yes.",
-	"Signs point to yes.",
-	"Reply hazy, try again.",
-	"Ask again later.",
-	"Better not tell you now.",
-	"Cannot predict now.",
-	"Concentrate and ask again.",
-	"Don't count on it.",
-	"My reply is no.",
-	"My sources say no.",
-	"Outlook not so good.",
-	"Very doubtful.",
+	"it is certain",
+	"it is decidedly so",
+	"without a doubt",
+	"yes definitely",
+	"you may rely on it",
+	"as i see it, yes",
+	"most likely",
+	"outlook good",
+	"yes",
+	"signs point to yes",
+	"reply hazy, try again",
+	"ask again later",
+	"better not tell you now",
+	"cannot predict now",
+	"concentrate and ask again",
+	"don't count on it",
+	"my reply is no",
+	"my sources say no",
+	"outlook not so good",
+	"very doubtful",
 ];
+
+// resolve a location for /weather + /time: an explicit place/"lat,lon" arg, else
+// the current channel's geohash. Returns { lat, lon, label } or null (after
+// surfacing the reason locally). Label is lowercased to match the house style.
+async function resolveBotLocation(arg) {
+	const q = arg.trim();
+	if (q) {
+		const coords = parseLatLon(q);
+		if (coords) return { lat: coords.lat, lon: coords.lon, label: `${coords.lat.toFixed(3)}, ${coords.lon.toFixed(3)}` };
+		try {
+			const place = await geocodePlace(q);
+			if (!place) {
+				appendSystem(t("system.place_notfound", { q }));
+				return null;
+			}
+			return { lat: place.lat, lon: place.lon, label: place.label.toLowerCase() };
+		} catch {
+			appendSystem(t("system.place_notfound", { q }));
+			return null;
+		}
+	}
+	// no arg: the current channel's coordinates (word channels have none)
+	try {
+		const { lat, lon } = geohashCell(focusedGeo);
+		return { lat, lon, label: `#${focusedGeo}` };
+	} catch {
+		appendSystem(t("system.not_a_location", { geo: focusedGeo }));
+		return null;
+	}
+}
 
 const COMMANDS = [
 	{
@@ -3730,29 +3760,23 @@ const COMMANDS = [
 	},
 	{
 		name: "weather",
-		// a location-native self-bot command: posts the current weather for this
-		// channel's geohash as your ".bot" (open-meteo, no key). Word channels have
-		// no coordinates, so it only works in real geohash channels.
-		async run() {
+		// posts weather as your ".bot" for the current channel's geohash, or for a
+		// place / "lat,lon" given as an argument (open-meteo, no key). Posting needs
+		// a channel to send into; the location can be the arg or this channel.
+		async run(arg) {
 			if (!focusedGeo) {
 				appendSystem(t("system.needs_channel"));
 				return;
 			}
-			let lat, lon;
+			const loc = await resolveBotLocation(arg);
+			if (!loc) return;
 			try {
-				({ lat, lon } = geohashCell(focusedGeo)); // throws on a non-geohash channel
-			} catch {
-				appendSystem(t("system.not_a_location", { geo: focusedGeo }));
-				return;
-			}
-			try {
-				const w = await fetchConditions(lat, lon);
+				const w = await fetchConditions(loc.lat, loc.lon);
 				if (typeof w.tempC !== "number") throw new Error("no data");
 				const { text, emoji } = wmoDescribe(w.code);
 				const tempF = Math.round((w.tempC * 9) / 5 + 32);
-				const wind = typeof w.windKmh === "number" ? ` · wind ${Math.round(w.windKmh)}km/h` : "";
-				const msg = `weather @ #${focusedGeo}: ${emoji} ${Math.round(w.tempC)}°C / ${tempF}°F · ${text}${wind}`;
-				transmit(msg, focusedGeo, botName());
+				const wind = typeof w.windKmh === "number" ? `\nwind ${Math.round(w.windKmh)}km/h` : "";
+				transmit(`${loc.label}\n\n${emoji} ${text}\n${Math.round(w.tempC)}°c · ${tempF}°f${wind}`, focusedGeo, botName());
 			} catch {
 				appendSystem(t("system.weather_failed"));
 			}
@@ -3760,30 +3784,26 @@ const COMMANDS = [
 	},
 	{
 		name: "time",
-		// posts this channel's local wall-clock time as your ".bot", resolved from
-		// the geohash's timezone (open-meteo's timezone=auto).
-		async run() {
+		// posts local time (12h + 24h + utc offset) as your ".bot" for the current
+		// channel, or a place / "lat,lon" argument, resolved from its timezone.
+		async run(arg) {
 			if (!focusedGeo) {
 				appendSystem(t("system.needs_channel"));
 				return;
 			}
-			let lat, lon;
+			const loc = await resolveBotLocation(arg);
+			if (!loc) return;
 			try {
-				({ lat, lon } = geohashCell(focusedGeo));
-			} catch {
-				appendSystem(t("system.not_a_location", { geo: focusedGeo }));
-				return;
-			}
-			try {
-				const { timezone } = await fetchConditions(lat, lon);
+				const { timezone } = await fetchConditions(loc.lat, loc.lon);
 				if (!timezone) throw new Error("no tz");
-				const timeStr = new Intl.DateTimeFormat(undefined, {
-					timeZone: timezone,
-					weekday: "short",
-					hour: "numeric",
-					minute: "2-digit",
-				}).format(new Date());
-				transmit(`time @ #${focusedGeo}: ${timeStr} (${timezone})`, focusedGeo, botName());
+				const d = new Date();
+				const t12 = new Intl.DateTimeFormat("en-US", { timeZone: timezone, hour: "numeric", minute: "2-digit", hour12: true })
+					.format(d)
+					.toLowerCase();
+				const t24 = new Intl.DateTimeFormat("en-GB", { timeZone: timezone, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(d);
+				const offParts = new Intl.DateTimeFormat("en-US", { timeZone: timezone, timeZoneName: "shortOffset" }).formatToParts(d);
+				const off = (offParts.find((p) => p.type === "timeZoneName")?.value || "utc").replace("GMT", "utc");
+				transmit(`${loc.label}\n\n${t12} · ${t24}\n${off} · ${timezone.toLowerCase()}`, focusedGeo, botName());
 			} catch {
 				appendSystem(t("system.time_failed"));
 			}
@@ -3809,8 +3829,8 @@ const COMMANDS = [
 			sides = Math.min(sides, 1000);
 			const rolls = Array.from({ length: n }, () => 1 + Math.floor(Math.random() * sides));
 			const sum = rolls.reduce((a, b) => a + b, 0);
-			const detail = n > 1 ? `${rolls.join(", ")} = ${sum}` : `${rolls[0]}`;
-			transmit(`🎲 ${n}d${sides} → ${detail}`, focusedGeo, botName());
+			const detail = n > 1 ? `${rolls.join(", ")} · ${sum}` : `${rolls[0]}`;
+			transmit(`🎲 ${n}d${sides}\n${detail}`, focusedGeo, botName());
 		},
 	},
 	{
@@ -3828,7 +3848,7 @@ const COMMANDS = [
 			}
 			const question = q.length > 120 ? q.slice(0, 120) + "…" : q;
 			const answer = EIGHTBALL_ANSWERS[Math.floor(Math.random() * EIGHTBALL_ANSWERS.length)];
-			transmit(`🎱 ${question} — ${answer}`, focusedGeo, botName());
+			transmit(`🎱 ${question}\n${answer}`, focusedGeo, botName());
 		},
 	},
 	{

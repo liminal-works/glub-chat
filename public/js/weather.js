@@ -42,6 +42,34 @@ export function wmoDescribe(code) {
 	return WMO[code] || { text: "unknown", emoji: "🌡️" };
 }
 
+// parse "lat, lon" into { lat, lon } (validated ranges), else null.
+export function parseLatLon(text) {
+	const m = String(text || "")
+		.trim()
+		.match(/^\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*$/);
+	if (!m) return null;
+	const lat = Number(m[1]);
+	const lon = Number(m[2]);
+	if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+	if (lat < -90 || lat > 90 || lon < -180 || lon > 180) return null;
+	return { lat, lon };
+}
+
+// forward-geocode a free-text place to { lat, lon, label }, or null if no match.
+// Uses Open-Meteo's own geocoding API (free, no key, open CORS).
+export async function geocodePlace(query) {
+	const q = String(query || "").trim();
+	if (!q) return null;
+	const url = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(q)}&count=1&language=en&format=json`;
+	const res = await fetch(url, { cache: "no-store" });
+	if (!res.ok) throw new Error(`geocode http ${res.status}`);
+	const data = await res.json();
+	const hit = Array.isArray(data.results) ? data.results[0] : null;
+	if (!hit || !Number.isFinite(hit.latitude) || !Number.isFinite(hit.longitude)) return null;
+	const label = [hit.name, hit.country].filter(Boolean).join(", ");
+	return { lat: hit.latitude, lon: hit.longitude, label };
+}
+
 // { tempC, code, windKmh, timezone } for a location, or throws. tempC/windKmh may
 // be undefined if the API omits them; callers guard.
 export async function fetchConditions(lat, lon) {

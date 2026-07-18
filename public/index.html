@@ -14,10 +14,18 @@
 		<meta name="theme-color" content="#000000" />
 		<meta name="mobile-web-app-capable" content="yes" />
 		<meta name="apple-mobile-web-app-capable" content="yes" />
-		<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+		<!-- NOT black-translucent: on modern ios that mode shrinks the standalone
+		     window by the status-bar height but leaves it anchored at the top of the
+		     screen, stranding a dead strip at the bottom that the page can never
+		     paint (measured via /debug: 793pt window on an 852pt screen, top inset
+		     59 reported anyway). "black" gets the classic layout - window from
+		     below the status bar to the very bottom - and looks identical over our
+		     black chrome. baked at add-to-home-screen time: changing it requires
+		     re-adding the icon. -->
+		<meta name="apple-mobile-web-app-status-bar-style" content="black" />
 
 		<!-- ?v= busts caches that predate the no-cache headers (bump on breaking deploys) -->
-		<link rel="stylesheet" href="/css/style.css?v=4" />
+		<link rel="stylesheet" href="/css/style.css?v=5" />
 	</head>
 
 	<body>
@@ -309,6 +317,6 @@
 			</div>
 		</div>
 
-		<script type="module" src="/js/app.js?v=4"></script>
+		<script type="module" src="/js/app.js?v=5"></script>
 	</body>
 </html>

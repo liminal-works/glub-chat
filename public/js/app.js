@@ -4177,7 +4177,16 @@ const appEl = document.getElementById("app");
 function fitViewport() {
 	const vv = window.visualViewport;
 	if (!vv) return;
-	const h = Math.round(vv.height);
+	let h = Math.round(vv.height);
+	// with no input focused there is no on-screen keyboard, so the app must fill
+	// the whole layout viewport. standalone (home-screen) iOS can report a stale,
+	// browser-chrome-sized vv.height at cold launch and never fire the corrective
+	// resize, stranding the composer above a dead band where the url bar used to
+	// be; the layout viewport is authoritative in that idle state. while typing,
+	// vv.height is the one that knows about the keyboard, so it stays in charge.
+	const ae = document.activeElement;
+	const typing = !!ae && (ae.tagName === "INPUT" || ae.tagName === "TEXTAREA" || ae.isContentEditable);
+	if (!typing) h = Math.max(h, Math.round(document.documentElement.clientHeight || 0), Math.round(window.innerHeight || 0));
 	appEl.style.height = `${h}px`;
 	// expose the same measured height to the fixed DM panels so their bottom-
 	// anchored composer rides above the keyboard too (see --vvh in the css).
@@ -4195,8 +4204,16 @@ function fitViewport() {
 if (window.visualViewport) {
 	window.visualViewport.addEventListener("resize", fitViewport);
 	window.visualViewport.addEventListener("scroll", fitViewport);
+	// standalone iOS corrects its viewport without always telling visualViewport,
+	// so listen wider: window resize, returning from background, bfcache restores.
+	window.addEventListener("resize", fitViewport);
+	window.addEventListener("pageshow", fitViewport);
+	document.addEventListener("visibilitychange", fitViewport);
 	// orientation changes settle a beat after the event on iOS
 	window.addEventListener("orientationchange", () => setTimeout(fitViewport, 250));
+	// ...and a cold standalone launch can settle a beat after first paint with no
+	// event at all - re-measure a few times so boot can't bake in a stale height.
+	for (const ms of [150, 500, 1200]) setTimeout(fitViewport, ms);
 	fitViewport();
 }
 

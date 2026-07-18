@@ -28,6 +28,14 @@
 	--overlay-shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
 	--bubble-theirs: rgba(255, 255, 255, 0.03); /* their DM bubble fill */
 
+	/* bottom safe-area with a js-supplied floor: standalone ios can report a
+	   zero bottom inset while the window really does reach the home indicator
+	   (same launch-bug family as the misreported viewport height), which sank
+	   the composer into the indicator. fitViewport sets --standalone-inset-b
+	   when it detects that state; max() means an honest env() always wins, so
+	   browser/android layouts are untouched. */
+	--inset-b: max(env(safe-area-inset-bottom, 0px), var(--standalone-inset-b, 0px));
+
 	/* --- derived: never set by themes, always follow --accent --- */
 	--chrome-border: color-mix(in srgb, var(--accent) 14%, transparent);
 	--chrome-border-strong: color-mix(in srgb, var(--accent) 38%, transparent); /* hover/focus edge for bordered controls */
@@ -640,7 +648,7 @@ textarea {
 	display: flex;
 	align-items: center;
 	gap: 12px;
-	padding: 6px 14px calc(6px + env(safe-area-inset-bottom));
+	padding: 6px 14px calc(6px + var(--inset-b));
 	background: var(--chrome-bg);
 	border-top: 1px solid var(--chrome-border);
 }
@@ -831,7 +839,7 @@ textarea {
    pinned to the top, the list filling the rest. */
 #usersGate {
 	align-items: stretch;
-	padding: calc(16px + env(safe-area-inset-top)) 16px calc(16px + env(safe-area-inset-bottom));
+	padding: calc(16px + env(safe-area-inset-top)) 16px calc(16px + var(--inset-b));
 }
 
 .usersPanel {
@@ -909,7 +917,7 @@ textarea {
 	inset: 0;
 	align-items: stretch;
 	justify-content: center;
-	padding: calc(16px + env(safe-area-inset-top)) 16px calc(12px + env(safe-area-inset-bottom));
+	padding: calc(16px + env(safe-area-inset-top)) 16px calc(12px + var(--inset-b));
 }
 
 .notesPanel {
@@ -1874,7 +1882,7 @@ textarea {
    pinned top, a fixed description blurb, then a scrolling categorized list. */
 #settingsGate {
 	align-items: stretch;
-	padding: calc(16px + env(safe-area-inset-top)) 16px calc(16px + env(safe-area-inset-bottom));
+	padding: calc(16px + env(safe-area-inset-top)) 16px calc(16px + var(--inset-b));
 }
 
 .settingsPanel {
@@ -2193,7 +2201,7 @@ textarea {
 
 /* the inbox has no composer, so it keeps a bottom safe-area inset like other gates */
 #dmListGate {
-	padding: calc(16px + env(safe-area-inset-top)) 16px calc(16px + env(safe-area-inset-bottom));
+	padding: calc(16px + env(safe-area-inset-top)) 16px calc(16px + var(--inset-b));
 }
 
 /* the thread's bottom padding is 0 - its composer owns the safe-area inset,
@@ -2294,7 +2302,7 @@ textarea {
 	gap: 12px;
 	/* matches #inputbar: 6px top, safe-area-aware bottom so text clears the home
 	   indicator instead of clipping into the floor */
-	padding: 6px 0 calc(6px + env(safe-area-inset-bottom));
+	padding: 6px 0 calc(6px + var(--inset-b));
 	border-top: 1px solid var(--chrome-border);
 	margin-top: 8px;
 }

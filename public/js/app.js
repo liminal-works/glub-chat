@@ -3875,6 +3875,27 @@ const COMMANDS = [
 		},
 	},
 	{
+		name: "debug",
+		// local-only viewport diagnostics for chasing device geometry quirks (ios
+		// standalone lies about heights/insets); prints to your terminal, sends nothing.
+		run() {
+			const vv = window.visualViewport;
+			const ins = measuredInsets();
+			const standalone = navigator.standalone === true || matchMedia("(display-mode: standalone)").matches;
+			const lines = [
+				"viewport",
+				"",
+				`- mode · ${standalone ? "standalone" : "browser"}`,
+				`- screen · ${screen.width} x ${screen.height}`,
+				`- window · inner ${Math.round(window.innerHeight)} · client ${Math.round(document.documentElement.clientHeight)}`,
+				`- visual · ${vv ? Math.round(vv.height) : "none"}${vv && vv.offsetTop ? ` · offset ${Math.round(vv.offsetTop)}` : ""}`,
+				`- inset · top ${Math.round(ins.top)} · bottom ${Math.round(ins.bottom)}`,
+				`- app · ${appEl.style.height || "css"} · floor-b ${getComputedStyle(document.documentElement).getPropertyValue("--standalone-inset-b").trim() || "0px"}`,
+			];
+			pushSystem(`<span class="ts">${escapeHtml(lines.join("\n"))}</span>`, SYSTEM_TTL_LONG_MS);
+		},
+	},
+	{
 		name: "mute",
 		run(arg) {
 			// hide a channel from the global (unfocused) feed. session-only; you can
@@ -4174,6 +4195,20 @@ chatInput.addEventListener("keydown", (e) => {
 // The css 100dvh remains as the no-visualViewport fallback.
 const appEl = document.getElementById("app");
 
+// resolves env(safe-area-inset-*) to real pixels (getComputedStyle resolves env
+// in computed padding) - the viewport probes below use it to catch ios lying
+// about the bottom inset.
+const insetProbe = document.createElement("div");
+insetProbe.style.cssText =
+	"position:fixed;top:0;left:0;width:0;height:0;visibility:hidden;pointer-events:none;" +
+	"padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);";
+document.body.appendChild(insetProbe);
+
+function measuredInsets() {
+	const ps = getComputedStyle(insetProbe);
+	return { top: parseFloat(ps.paddingTop) || 0, bottom: parseFloat(ps.paddingBottom) || 0 };
+}
+
 function fitViewport() {
 	const vv = window.visualViewport;
 	if (!vv) return;
@@ -4202,6 +4237,21 @@ function fitViewport() {
 			h = Math.max(h, Math.round(scrH));
 		}
 	}
+	// ios can also report a ZERO bottom safe-area in that same lying state - the
+	// top inset stays honest - so with the app floored to the full screen the
+	// composer sank into the home indicator. a notched phone (top inset > 0)
+	// reporting no bottom inset in a home-screen app is that lie: supply the
+	// indicator inset ourselves (34pt portrait / 21pt landscape). css takes it
+	// via max(env(), var(--standalone-inset-b)), so an honest env() always wins
+	// and browser/android layouts never see it.
+	let standaloneInsetB = 0;
+	if (navigator.standalone === true && Math.min(screen.width, screen.height) <= 500) {
+		const ins = measuredInsets();
+		if (ins.top > 20 && ins.bottom < 10) {
+			standaloneInsetB = matchMedia("(orientation: portrait)").matches ? 34 : 21;
+		}
+	}
+	document.documentElement.style.setProperty("--standalone-inset-b", `${standaloneInsetB}px`);
 	appEl.style.height = `${h}px`;
 	// expose the same measured height to the fixed DM panels so their bottom-
 	// anchored composer rides above the keyboard too (see --vvh in the css).

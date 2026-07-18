@@ -234,6 +234,7 @@ export default {
 		time: "post local time (here or a place) via your bot",
 		roll: "roll dice via your bot (e.g. /roll 2d6)",
 		"8ball": "ask the magic 8-ball via your bot",
+		debug: "viewport diagnostics (local only)",
 		mute: "hide a channel from the global feed",
 		unmute: "unhide a channel (blank = list muted)",
 		unblock: "unblock a user (#tag, blank = list, all = clear)",

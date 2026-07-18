@@ -4186,7 +4186,22 @@ function fitViewport() {
 	// vv.height is the one that knows about the keyboard, so it stays in charge.
 	const ae = document.activeElement;
 	const typing = !!ae && (ae.tagName === "INPUT" || ae.tagName === "TEXTAREA" || ae.isContentEditable);
-	if (!typing) h = Math.max(h, Math.round(document.documentElement.clientHeight || 0), Math.round(window.innerHeight || 0));
+	if (!typing) {
+		h = Math.max(h, Math.round(document.documentElement.clientHeight || 0), Math.round(window.innerHeight || 0));
+		// the ios standalone launch bug can misreport EVERY viewport measurement as
+		// the safari-chrome-sized height, consistently and with no corrective event.
+		// but a home-screen app on an iphone is always true-fullscreen, so the
+		// screen itself is the one number that can't lie: use it as the idle floor.
+		// navigator.standalone is ios-only (android pwas, where screen height
+		// includes system bars, never take this branch), and the width gate keeps
+		// ipad stage-manager windows out. ios's screen object doesn't rotate, so
+		// pick the axis by current orientation.
+		if (navigator.standalone === true && Math.min(screen.width, screen.height) <= 500) {
+			const portrait = matchMedia("(orientation: portrait)").matches;
+			const scrH = portrait ? Math.max(screen.width, screen.height) : Math.min(screen.width, screen.height);
+			h = Math.max(h, Math.round(scrH));
+		}
+	}
 	appEl.style.height = `${h}px`;
 	// expose the same measured height to the fixed DM panels so their bottom-
 	// anchored composer rides above the keyboard too (see --vvh in the css).

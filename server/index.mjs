@@ -46,7 +46,17 @@ if (API_ORIGIN) {
 	console.log(`proxying /api -> ${API_ORIGIN}`);
 }
 
-app.use(express.static(path.join(__dirname, "..", "public")));
+// html/js/css: no-cache means "revalidate every load" (cheap 304s via etag),
+// never heuristic freshness - without this, browsers may serve a stale app.js
+// for days after a deploy (ios standalone is especially sticky about it).
+// images and other heavy assets can stay heuristically cached.
+app.use(
+	express.static(path.join(__dirname, "..", "public"), {
+		setHeaders(res, filePath) {
+			if (/\.(html|js|mjs|css)$/.test(filePath)) res.set("Cache-Control", "no-cache");
+		},
+	})
+);
 
 app.listen(PORT, () => {
 	console.log(`glub-chat running on http://localhost:${PORT}`);

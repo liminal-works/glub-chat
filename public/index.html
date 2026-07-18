@@ -16,7 +16,8 @@
 		<meta name="apple-mobile-web-app-capable" content="yes" />
 		<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
 
-		<link rel="stylesheet" href="/css/style.css" />
+		<!-- ?v= busts caches that predate the no-cache headers (bump on breaking deploys) -->
+		<link rel="stylesheet" href="/css/style.css?v=2" />
 	</head>
 
 	<body>
@@ -308,6 +309,6 @@
 			</div>
 		</div>
 
-		<script type="module" src="/js/app.js"></script>
+		<script type="module" src="/js/app.js?v=2"></script>
 	</body>
 </html>

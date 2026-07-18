@@ -93,5 +93,4 @@ locale is auto detected from the browser.
 
 to add a language, copy `en.js` to a new locale file, translate the values
 while keeping the keys and `{placeholders}` exactly, and register it in
-`js/i18n/index.js`. keep the plain lowercase voice · that tone is part of
-the app, so a faithful translation matters more than a literal one.
+`js/i18n/index.js`.

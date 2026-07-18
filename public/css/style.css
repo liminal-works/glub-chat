@@ -735,7 +735,16 @@ textarea {
 
 .gate {
 	position: fixed;
-	inset: 0;
+	top: 0;
+	left: 0;
+	width: 100%;
+	/* size to the MEASURED visual viewport (--vvh, set by fitViewport) instead of
+	   the layout viewport: ios keyboards cover the window without shrinking it, so
+	   an inset-0 gate kept centering its card against the full height and the card
+	   sat low, half-hidden behind the keyboard. with --vvh the centering happens
+	   within the actually-visible strip, so the card rides up with the keyboard. */
+	height: var(--vvh, 100dvh);
+	box-sizing: border-box;
 	z-index: 1000;
 	display: none;
 	align-items: center;

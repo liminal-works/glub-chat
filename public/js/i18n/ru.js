@@ -218,7 +218,7 @@ export default {
 	ack: {
 		sending: "отправка…",
 		resending: "переотправка…",
-		failed: "[!] ошибка",
+		unverified: "не подтверждено",
 		latency_lt1s: "<1с",
 		latency_secs: "{count}с",
 	},

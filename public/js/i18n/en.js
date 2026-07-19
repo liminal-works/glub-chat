@@ -214,7 +214,7 @@ export default {
 	ack: {
 		sending: "sending…",
 		resending: "resending…",
-		failed: "[!] failed",
+		unverified: "unverified",
 		latency_lt1s: "<1s",
 		latency_secs: "{count}s",
 	},

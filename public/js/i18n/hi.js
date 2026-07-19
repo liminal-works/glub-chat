@@ -203,7 +203,7 @@ export default {
 	ack: {
 		sending: "भेज रहे हैं…",
 		resending: "फिर भेज रहे हैं…",
-		failed: "[!] विफल",
+		unverified: "अपुष्ट",
 		latency_lt1s: "<1s",
 		latency_secs: "{count}s",
 	},

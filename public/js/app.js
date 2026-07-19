@@ -377,8 +377,10 @@ const API_BASE = (typeof window !== "undefined" && window.GLUB_API_BASE ? String
 const BUFFER_FETCH = 600; // how much of the api buffer the client mirrors on connect
 const ASSIST_FALLBACK_MS = 12_000; // grace period before a dead stream falls back to relays
 const ASSIST_MAINTAIN_MS = 30_000; // health re-check cadence (status freshness + recovery)
-const ACK_TIMEOUT_MS = 15_000; // wait this long for an echo before rebroadcasting / giving up
-const MAX_SEND_ATTEMPTS = 3; // initial broadcast + up to 2 automatic rebroadcasts
+const ACK_TIMEOUT_MS = 15_000; // wait this long for an echo before rebroadcasting
+const MAX_SEND_ATTEMPTS = 3; // initial broadcast + up to 2 quick automatic rebroadcasts
+const UNVERIFIED_RETRY_MIN_MS = 10_000; // once the quick attempts are spent, keep rechecking on a slower cadence
+const UNVERIFIED_RETRY_MAX_MS = 30_000;
 const ACK_LATENCY_TTL_MS = 4_000; // show the confirmed round-trip briefly, then let it fade away
 const PRESENCE_FRESH_MS = 5 * 60_000; // a user counts as "present" within this window (fresh message or presence)
 const PRESENCE_TICK_MS = 30_000; // re-evaluate presence/count on this cadence so stale users drop off without new activity
@@ -669,14 +671,16 @@ function renderTranslation(entry) {
 // never reads as done), "resending…" once we start rebroadcasting (the first
 // attempt timed out without an echo), the round-trip latency once a source
 // replays it ("<1s" / "4s") - which lingers a few seconds then clears itself
-// (see confirmSent) - or "failed" if every attempt was exhausted.
+// (see confirmSent) - or "unverified" once the quick rebroadcasts are spent and
+// we've dropped to the slow background recheck (still no confirmed echo, but
+// never gives up outright - see scheduleUnverifiedRetry).
 function ackTag(entry) {
 	if (!entry.mine) return "";
 	if (entry.ackSecs != null) {
 		const latency = entry.ackSecs === 0 ? t("ack.latency_lt1s") : t("ack.latency_secs", { count: entry.ackSecs });
 		return ` <span class="ts ack">${escapeHtml(latency)}</span>`;
 	}
-	if (entry.ackFailed) return ` <span class="ts ack ackFail">${escapeHtml(t("ack.failed"))}</span>`;
+	if (entry.ackUnverified) return ` <span class="ts ack ackFail">${escapeHtml(t("ack.unverified"))}</span>`;
 	if (entry.resending) return ` <span class="ts ack">${escapeHtml(t("ack.resending"))}</span>`;
 	// still awaiting the echo-back that confirms this send propagated
 	if (pending.has(entry.id)) return ` <span class="ts ack">${escapeHtml(t("ack.sending"))}</span>`;
@@ -3031,9 +3035,11 @@ function attemptBroadcast(id) {
 }
 
 // no echo in time: rebroadcast the identical signed event (relays have warmed /
-// the broadcast set has healed since) until attempts run out, then flag it. The
-// entry shows "resending…" for the duration of the retries and "failed" if they
-// all come up empty.
+// the broadcast set has healed since) on a quick cadence for the first few
+// attempts, then drop to a slow background recheck rather than giving up - a
+// send that truly landed just hasn't echoed back to us yet. the entry shows
+// "resending…" during the quick attempts and "unverified" once it's moved to
+// the slow recheck; either clears the moment confirmSent sees the echo.
 function onSendTimeout(id) {
 	const rec = pending.get(id);
 	if (!rec) return;
@@ -3046,13 +3052,30 @@ function onSendTimeout(id) {
 		attemptBroadcast(id);
 		return;
 	}
-	pending.delete(id);
 	const entry = entries.find((e) => e.id === id);
-	if (entry) {
+	if (entry && !entry.ackUnverified) {
 		entry.resending = false;
-		entry.ackFailed = true;
+		entry.ackUnverified = true;
 		rerenderEntryEl(entry);
 	}
+	scheduleUnverifiedRetry(id);
+}
+
+// slow background recheck loop: rebroadcast on a randomized 10-30s cadence,
+// indefinitely, until confirmSent clears `id` from `pending`. jittered so a
+// batch of unverified sends doesn't all retry in lockstep.
+function scheduleUnverifiedRetry(id) {
+	const rec = pending.get(id);
+	if (!rec) return;
+	const delay = UNVERIFIED_RETRY_MIN_MS + Math.random() * (UNVERIFIED_RETRY_MAX_MS - UNVERIFIED_RETRY_MIN_MS);
+	clearTimeout(rec.timer);
+	rec.timer = setTimeout(() => {
+		const r = pending.get(id);
+		if (!r) return;
+		r.attempts += 1;
+		deliver(r.event);
+		scheduleUnverifiedRetry(id);
+	}, delay);
 }
 
 // a live source replayed one of our sent messages - it propagated. Record the

@@ -433,11 +433,11 @@ textarea {
 	margin-left: 2px;
 }
 
-/* a send that exhausted all rebroadcasts: a soft red "[!] failed" that's visible
-   without shouting, so it reads as a real problem rather than a muted aside. */
+/* a send past its quick rebroadcasts, still without a confirmed echo: a soft
+   red "unverified" that's visible without shouting - it's still quietly
+   retrying in the background, not a dead end, so it stays unbolded. */
 .ackFail {
 	color: var(--danger);
-	font-weight: 700;
 }
 
 .toggleMore {

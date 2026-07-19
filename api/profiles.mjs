@@ -116,17 +116,19 @@ export function createProfiles() {
 	// answers instantly, and if it's aged past its freshness window we kick a
 	// background refresh so the *next* caller sees any edits. concurrent lookups
 	// for the same key share one relay request.
-	function get(pubkey) {
+	function get(pubkey, { force = false } = {}) {
 		if (!/^[0-9a-f]{64}$/.test(pubkey)) return Promise.resolve(null);
 
-		const hit = cache.get(pubkey);
-		if (hit) {
-			const fresh = hit.profile ? FRESH_MS : NEG_TTL_MS;
-			if (Date.now() - hit.at >= fresh && !inflight.has(pubkey)) lookup(pubkey); // revalidate in background
-			return Promise.resolve(hit.profile);
+		if (!force) {
+			const hit = cache.get(pubkey);
+			if (hit) {
+				const fresh = hit.profile ? FRESH_MS : NEG_TTL_MS;
+				if (Date.now() - hit.at >= fresh && !inflight.has(pubkey)) lookup(pubkey); // revalidate in background
+				return Promise.resolve(hit.profile);
+			}
 		}
 		if (inflight.has(pubkey)) return inflight.get(pubkey);
-		return lookup(pubkey);
+		return lookup(pubkey); // force=true skips the cache hit and awaits a fresh relay lookup
 	}
 
 	return { start, get };

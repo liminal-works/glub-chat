@@ -306,23 +306,26 @@ const CLIENT_FRESH_MS = 5 * 60_000; // re-check a cached profile at most this of
 // entry is handed back instantly, but once it ages past CLIENT_FRESH_MS the next
 // call kicks a background refresh so profile edits surface without a session
 // reload. concurrent calls share one request.
-function fetchProfile(pubkey) {
+function fetchProfile(pubkey, { force = false } = {}) {
 	if (!profilesActive()) return Promise.resolve(null);
-	if (profileCache.has(pubkey)) {
+	if (!force && profileCache.has(pubkey)) {
 		const age = Date.now() - (profileFetchedAt.get(pubkey) || 0);
 		if (age >= CLIENT_FRESH_MS && !profileInflight.has(pubkey)) revalidateProfile(pubkey);
 		return Promise.resolve(profileCache.get(pubkey));
 	}
 	if (profileInflight.has(pubkey)) return profileInflight.get(pubkey);
-	return revalidateProfile(pubkey);
+	return revalidateProfile(pubkey, { force });
 }
 
 // (re)fetch a profile from the api and update the cache; if it changed under us,
-// repaint every surface showing it. shared across concurrent callers.
-function revalidateProfile(pubkey) {
+// repaint every surface showing it. shared across concurrent callers. force skips
+// the api's own 20-minute cache too - used when you open your own profile card,
+// since that's the moment you're most likely checking a fresh edit landed.
+function revalidateProfile(pubkey, { force = false } = {}) {
 	const promise = (async () => {
 		try {
-			const res = await fetch(`${API_BASE}/api/profile?pubkey=${pubkey}`, { cache: "no-store" });
+			const url = `${API_BASE}/api/profile?pubkey=${pubkey}${force ? "&force=1" : ""}`;
+			const res = await fetch(url, { cache: "no-store" });
 			// on a transient failure keep whatever we already had (don't wipe it) and
 			// leave it "stale" so a later call retries.
 			if (!res.ok) return profileCache.has(pubkey) ? profileCache.get(pubkey) : null;
@@ -1477,7 +1480,7 @@ async function openProfileCard(pubkey) {
 	profileCard.scrollTop = 0;
 	profileGate.classList.add("show");
 
-	const profile = await fetchProfile(pubkey);
+	const profile = await fetchProfile(pubkey, { force: pubkey === identity.pk });
 	if (!profileGate.classList.contains("show")) return; // dismissed while loading
 
 	const rev = profile ? profile.updated || 0 : 0; // busts the browser image cache when the profile is edited

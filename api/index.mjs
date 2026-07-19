@@ -181,8 +181,9 @@ app.get("/api/profile", async (req, res) => {
 		res.status(400).json({ error: "bad pubkey" });
 		return;
 	}
-	const profile = await profiles.get(pubkey);
-	res.set("Cache-Control", "public, max-age=60");
+	const force = req.query.force === "1";
+	const profile = await profiles.get(pubkey, { force });
+	res.set("Cache-Control", force ? "no-store" : "public, max-age=60");
 	res.json({
 		profile: profile
 			? {

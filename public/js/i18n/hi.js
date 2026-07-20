@@ -208,6 +208,14 @@ export default {
 		latency_secs: "{count}s",
 	},
 
+	payment: {
+		lightning: "lightning इनवॉइस",
+		lnurl: "lnurl",
+		cashu: "ecash",
+		copied: "कॉपी हुआ",
+		copy_failed: "कॉपी नहीं हुआ",
+	},
+
 	time: {
 		now: "अभी",
 	},

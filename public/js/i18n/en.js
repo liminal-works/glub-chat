@@ -219,6 +219,16 @@ export default {
 		latency_secs: "{count}s",
 	},
 
+	// payment chips: a detected lightning invoice / lnurl / cashu token renders as
+	// a tap-to-copy chip instead of a raw blob
+	payment: {
+		lightning: "lightning invoice",
+		lnurl: "lnurl",
+		cashu: "ecash",
+		copied: "copied",
+		copy_failed: "copy failed",
+	},
+
 	time: {
 		now: "now",
 	},

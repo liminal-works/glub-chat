@@ -455,6 +455,44 @@ textarea {
 	color: var(--fg);
 }
 
+/* payment chip: a detected lightning invoice / lnurl / cashu token, rendered as
+   a compact tap-to-copy pill instead of a raw blob. sits inline in the message
+   body, styled like the app's other bordered chrome so it reads as a control. */
+.payChip {
+	display: inline-flex;
+	align-items: baseline;
+	gap: 5px;
+	margin: 0 1px;
+	padding: 1px 8px;
+	font: inherit;
+	font-size: 0.86em;
+	line-height: 1.5;
+	color: var(--accent);
+	background: color-mix(in srgb, var(--accent) 8%, transparent);
+	border: 1px solid var(--chrome-border-strong);
+	border-radius: 5px;
+	cursor: pointer;
+	vertical-align: baseline;
+	user-select: none;
+	-webkit-tap-highlight-color: transparent;
+	transition: background 0.12s ease, border-color 0.12s ease;
+}
+
+.payChip:hover {
+	background: color-mix(in srgb, var(--accent) 16%, transparent);
+	border-color: var(--accent);
+}
+
+.payChipIcon {
+	font-size: 0.95em;
+}
+
+.payChip.copied {
+	color: var(--fg);
+	border-color: var(--accent);
+	background: color-mix(in srgb, var(--accent) 20%, transparent);
+}
+
 /* "beginning of chat" divider shown when the client has mirrored the api's
    entire buffer */
 .barrier {

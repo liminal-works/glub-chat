@@ -540,6 +540,72 @@ function linkify(safe) {
 	return html;
 }
 
+// payment instruments bitchat surfaces in chat: cashu ecash tokens and
+// bolt11 / lnurl / lightning: invoices. the raw strings are long unreadable
+// blobs, so we swap each for a compact tap-to-copy chip (see richBody). Patterns
+// mirror bitchat's own detector so the two clients agree on what counts.
+const PAYMENT_SPECS = [
+	{ kind: "cashu", re: /\bcashu[AB][A-Za-z0-9._-]{40,}/g },
+	{ kind: "lightning", re: /\blightning:[^\s]+/gi }, // scheme-prefixed (matched first so it wins over the bare bolt11 inside it)
+	{ kind: "lightning", re: /\bln(?:bc|tb|bcrt)[0-9][a-z0-9]{50,}/gi }, // bare bolt11
+	{ kind: "lnurl", re: /\blnurl1[a-z0-9]{20,}/gi },
+];
+
+// find payment tokens in raw (un-escaped) text, as [{ start, end, raw, kind }]
+// sorted by position with overlaps dropped (the earliest, longest match wins),
+// capped so a paste-bomb of tokens can't spray hundreds of chips.
+function paymentTokens(text) {
+	const hits = [];
+	for (const { kind, re } of PAYMENT_SPECS) {
+		re.lastIndex = 0;
+		let m;
+		while ((m = re.exec(text))) {
+			let raw = m[0];
+			// a trailing sentence mark shouldn't ride along in a copied invoice
+			if (kind === "lightning" && /^lightning:/i.test(raw)) raw = raw.replace(/[.,;:!?)\]}>]+$/, "");
+			hits.push({ start: m.index, end: m.index + raw.length, raw, kind });
+			if (hits.length > 200) break;
+		}
+	}
+	hits.sort((a, b) => a.start - b.start || b.end - a.end);
+	const out = [];
+	let lastEnd = 0;
+	for (const h of hits) {
+		if (h.start < lastEnd) continue; // overlaps an earlier chip
+		out.push(h);
+		lastEnd = h.end;
+		if (out.length >= 6) break;
+	}
+	return out;
+}
+
+// message body html: like linkify(escapeHtml(text)), but any payment token is
+// spliced out and rendered as a chip. plain runs still get the usual url/geo
+// linkification; the raw token is preserved verbatim in data-invoice for copy.
+function richBody(text) {
+	const toks = paymentTokens(text);
+	if (!toks.length) return linkify(escapeHtml(text));
+	let html = "";
+	let i = 0;
+	for (const tk of toks) {
+		if (tk.start > i) html += linkify(escapeHtml(text.slice(i, tk.start)));
+		html += payChipHtml(tk);
+		i = tk.end;
+	}
+	if (i < text.length) html += linkify(escapeHtml(text.slice(i)));
+	return html;
+}
+
+function payChipHtml(tk) {
+	const icon = tk.kind === "cashu" ? "" : "⚡"; // ⚡ already reads as lightning in-app (profile zap line)
+	return (
+		`<button type="button" class="payChip" data-kind="${tk.kind}" data-invoice="${escapeHtml(tk.raw)}">` +
+		(icon ? `<span class="payChipIcon" aria-hidden="true">${icon}</span>` : "") +
+		`<span class="payChipLabel">${escapeHtml(t("payment." + tk.kind))}</span>` +
+		`</button>`
+	);
+}
+
 // true if entry clears the active proof-of-work bar (android's semantics: a
 // nonce must be present AND its committed difficulty AND the delivered id must
 // both reach the bar). your own messages always pass.
@@ -563,16 +629,20 @@ function entryVisible(entry) {
 // "more"/"less" toggle so a single huge message can't blow out the view.
 function messageInnerHtml(entry) {
 	const expanded = entry.expanded;
+	// a payment token is a long blob whose whole point is to become a compact chip.
+	// clipping it would just show a truncated blob + a "more" toggle, defeating that,
+	// so a message carrying one renders in full (the chip does the shortening).
+	const hasPayment = !entry.action && paymentTokens(entry.text).length > 0;
 	// walls (ascii art / link dumps / tall multiline blocks) collapse much harder
 	// than the plain over-length case - a taste of the content, then the toggle.
 	const clipLen = entry.wall ? WALL_CLIP_LEN : MAX_MSG_LEN;
-	const text = expanded ? entry.text : clipWithEllipsis(entry.text, clipLen);
+	const text = expanded || hasPayment ? entry.text : clipWithEllipsis(entry.text, clipLen);
 	// your own color depends on the live profiles state (orange vs. real per-key
 	// color), so recompute it each render; peers' colors never change (baked).
 	const color = entry.mine ? pubkeyColor(entry.pubkey) : entry.color;
 
 	let body;
-	let needsToggle = entry.text.length > clipLen;
+	let needsToggle = !hasPayment && entry.text.length > clipLen;
 
 	if (entry.action) {
 		// emote: the whole "* ... *" rendered muted like a timestamp, no username
@@ -582,8 +652,8 @@ function messageInnerHtml(entry) {
 		// block, then the reply body. the whole thing is one tap target.
 		const reply = entry.reply;
 		const who = expanded ? entry.who : clipWithEllipsis(entry.who, MAX_NAME_LEN);
-		const bodyText = expanded ? reply.body : clipWithEllipsis(reply.body, MAX_MSG_LEN);
-		needsToggle = entry.who.length > MAX_NAME_LEN || reply.body.length > MAX_MSG_LEN;
+		const bodyText = expanded || hasPayment ? reply.body : clipWithEllipsis(reply.body, MAX_MSG_LEN);
+		needsToggle = entry.who.length > MAX_NAME_LEN || (!hasPayment && reply.body.length > MAX_MSG_LEN);
 		const quoted = clipWithEllipsis(`@${reply.targetUser}: ${reply.quotedText}`, 140);
 		body =
 			`<span class="msgTap" data-user="${escapeHtml(entry.pubkey)}">` +
@@ -594,7 +664,7 @@ function messageInnerHtml(entry) {
 			`<span class="bracket" style="color:${color}">&gt;</span>` +
 			`<span class="replyBlock">` +
 			`<span class="replyQuote">${linkify(escapeHtml(quoted))}</span>` +
-			`<span class="replyBody" style="color:${color}">${linkify(escapeHtml(bodyText))}</span>` +
+			`<span class="replyBody" style="color:${color}">${richBody(bodyText)}</span>` +
 			`</span>` +
 			`</span>`;
 	} else {
@@ -611,7 +681,7 @@ function messageInnerHtml(entry) {
 			`<span class="user" style="color:${color}">@${escapeHtml(who)}</span>` +
 			`<span class="tag" style="color:${color}">#${escapeHtml(entry.tag)}</span>` +
 			`<span class="bracket" style="color:${color}">&gt;</span> ` +
-			`<span class="msg" style="color:${color}">${linkify(escapeHtml(text))}</span>` +
+			`<span class="msg" style="color:${color}">${richBody(text)}</span>` +
 			`</span>`;
 	}
 
@@ -2666,6 +2736,11 @@ dmPill.addEventListener("click", openDmList);
 // link, url, more/less, image) so those keep their own behavior, and bail when
 // the user is selecting text rather than tapping.
 terminal.addEventListener("click", (e) => {
+	const chip = e.target.closest(".payChip");
+	if (chip) {
+		copyPayChip(chip);
+		return;
+	}
 	if (e.target.closest(".inlineLink, .inlineGeo, .geo, .toggleMore, [data-img-toggle]")) return;
 	if (window.getSelection && String(window.getSelection())) return; // don't hijack a text selection
 	const tap = e.target.closest("[data-user]");
@@ -2673,6 +2748,28 @@ terminal.addEventListener("click", (e) => {
 	const entry = entries.find((en) => en.el && en.el.contains(tap));
 	openActionPopup(tap.dataset.user, entry || null);
 });
+
+// tap a payment chip -> copy the raw invoice/token, and flash the chip label so
+// it's clear it landed on the clipboard. no wallet redirect: copy is universal
+// (desktop has no lightning: handler) and keeps glub hands-off - you paste into
+// whatever wallet you already trust.
+let payFlashTimer = null;
+function copyPayChip(chip) {
+	const raw = chip.dataset.invoice || "";
+	const kind = chip.dataset.kind || "";
+	const label = chip.querySelector(".payChipLabel");
+	const flash = (key) => {
+		if (!label) return;
+		label.textContent = t(key);
+		chip.classList.add("copied");
+		clearTimeout(payFlashTimer);
+		payFlashTimer = setTimeout(() => {
+			label.textContent = t("payment." + kind);
+			chip.classList.remove("copied");
+		}, 1500);
+	};
+	navigator.clipboard.writeText(raw).then(() => flash("payment.copied"), () => flash("payment.copy_failed"));
+}
 
 actionClose.addEventListener("click", closeActionPopup);
 actionGate.addEventListener("click", (e) => {

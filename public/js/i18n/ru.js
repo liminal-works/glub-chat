@@ -223,6 +223,14 @@ export default {
 		latency_secs: "{count}с",
 	},
 
+	payment: {
+		lightning: "lightning-счёт",
+		lnurl: "lnurl",
+		cashu: "ecash",
+		copied: "скопировано",
+		copy_failed: "ошибка копирования",
+	},
+
 	time: {
 		now: "сейчас",
 	},

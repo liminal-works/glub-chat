@@ -1,9 +1,11 @@
 // A hand-rolled wireframe globe for browsing geohash channels. Pure canvas 2D +
 // an orthographic projection - no three.js, no webgl. Draws the sphere limb,
-// vendored coastlines, and the geohash grid at a zoom-derived depth; glows cells
-// with live activity; drag to spin, wheel/pinch to zoom, tap a cell to join it.
+// vendored coastlines, a day/night terminator, and the geohash grid at a
+// zoom-derived depth; glows cells with live activity, ripples a ping wherever a
+// message just landed, labels cells with a live "here" count; drag to spin,
+// wheel/pinch to zoom, tap a cell to join it.
 //
-// createMap({ canvas, onPick, colors }) -> { open, close, setActivity, destroy }
+// createMap({ canvas, onPick, colors }) -> { open, close, setActivity, ping, ... }
 // colors: () => ({ accent, fg, muted, bg }) so the globe follows the theme.
 
 import { COASTLINES } from "./coastlines.js";
@@ -11,6 +13,7 @@ import { COASTLINES } from "./coastlines.js";
 const GEOHASH_BASE32 = "0123456789bcdefghjkmnpqrstuvwxyz";
 const DEG = Math.PI / 180;
 const TWO_PI = Math.PI * 2;
+const NIGHT_ALPHA = 0.42; // how dark the night hemisphere shade sits over the land
 
 // --- geohash math (self-contained; map owns its own encode/decode) -----------
 
@@ -61,6 +64,9 @@ export function createMap({ canvas, onPick, colors }) {
 	let yaw = -20, pitch = 18, zoom = 1;
 	const ZOOM_MIN = 1, ZOOM_MAX = 90;
 	let activity = new Map(); // full-geohash -> intensity 0..1
+	let counts = new Map(); // full-geohash -> distinct talkers "here" (last few min)
+	let pings = []; // { lon, lat, born } expanding ripples where a message just landed
+	const PING_MS = 1700; // a ping's ripple lives this long, then it's pruned
 	let raf = null, running = false;
 	let lastInteract = 0;
 	let hoverGeo = null; // cell under the pointer (for the label/pick affordance)
@@ -156,10 +162,120 @@ export function createMap({ canvas, onPick, colors }) {
 		drawGraticule(R, sp, cp, withAlpha(c.accent, 0.1));
 		drawCoastlines(R, sp, cp, withAlpha(c.fg, 0.32));
 
+		// twilight: shade the night hemisphere before the grid so the land dims but
+		// the interactive cells + their activity glow stay full-strength on top.
+		drawNight(R, sp, cp);
+
 		const depth = depthFor(R);
 		drawGeohashGrid(R, sp, cp, depth, c);
 
+		// live message ripples ride above everything, so a ping reads even over a
+		// bright, active cell.
+		drawPings(R, sp, cp, c);
+
 		ctx.restore();
+	}
+
+	// --- day/night terminator ----------------------------------------------------
+
+	// subsolar point (lat/lon in degrees) for a given time: where the sun is
+	// directly overhead. declination from a standard day-of-year approximation;
+	// longitude straight from UTC (noon over Greenwich, drifting west with the
+	// clock). the small equation-of-time wobble (<=~4deg) is left out - this is
+	// ambient shading, not an almanac.
+	function subsolarPoint(now = new Date()) {
+		const start = Date.UTC(now.getUTCFullYear(), 0, 0);
+		const dayMs = 86400000;
+		const dayOfYear = (Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()) - start) / dayMs;
+		const decl = 23.44 * Math.sin(((360 / 365) * (dayOfYear - 81)) * DEG);
+		const utcHours = now.getUTCHours() + now.getUTCMinutes() / 60 + now.getUTCSeconds() / 3600;
+		const lon = wrapLon(180 - 15 * utcHours);
+		return { lat: decl, lon };
+	}
+
+	// rotate a lon/lat (deg) into view space (same frame project() works in): the
+	// unit vector whose z>0 means front-facing. returns { x, y, z }.
+	function viewVec(lon, lat, sp, cp) {
+		const l = (lon - yaw) * DEG;
+		const p = lat * DEG;
+		const cl = Math.cos(p);
+		const x = cl * Math.sin(l);
+		const y0 = Math.sin(p);
+		const z0 = cl * Math.cos(l);
+		return { x, y: y0 * cp - z0 * sp, z: y0 * sp + z0 * cp };
+	}
+
+	// fill the visible night lune with a translucent shade. the terminator is the
+	// great circle 90deg from the subsolar point; in orthographic projection its
+	// front-facing arc is one contiguous curve that meets the disc limb at two
+	// points. we stitch that arc to the night stretch of the limb and fill the
+	// enclosed region. degenerate cases (sun dead-center / behind) fall back to no
+	// shade / full shade.
+	function drawNight(R, sp, cp) {
+		const sun = subsolarPoint();
+		const s = viewVec(sun.lon, sun.lat, sp, cp); // subsolar unit vector in view space
+		if (s.z >= 0.999) return; // sun straight at us -> no visible night
+		if (s.z <= -0.999) {
+			// sun behind the globe -> the whole visible face is night
+			ctx.beginPath();
+			ctx.arc(cx, cy, R, 0, TWO_PI);
+			ctx.fillStyle = withAlpha("#04070d", NIGHT_ALPHA);
+			ctx.fill();
+			return;
+		}
+
+		// orthonormal basis (u, v) spanning the terminator plane (both perpendicular
+		// to s), so p(t) = cos t * u + sin t * v traces the terminator great circle.
+		const ref = Math.abs(s.y) < 0.9 ? { x: 0, y: 1, z: 0 } : { x: 1, y: 0, z: 0 };
+		let u = cross(s, ref);
+		u = norm(u);
+		const v = cross(s, u); // already unit (s, u orthonormal)
+
+		// sample the terminator; keep the contiguous front-facing arc, in order.
+		const N = 240;
+		const pts = [];
+		for (let i = 0; i < N; i++) {
+			const t = (i / N) * TWO_PI;
+			const ct = Math.cos(t), st = Math.sin(t);
+			const P = { x: ct * u.x + st * v.x, y: ct * u.y + st * v.y, z: ct * u.z + st * v.z };
+			pts.push({ x: cx + R * P.x, y: cy - R * P.y, front: P.z > 0 });
+		}
+		// rotate the ring so index 0 is the first back->front transition, making the
+		// front run contiguous (no wraparound to special-case).
+		let startIdx = -1;
+		for (let i = 0; i < N; i++) {
+			if (pts[i].front && !pts[(i - 1 + N) % N].front) { startIdx = i; break; }
+		}
+		if (startIdx < 0) return; // no clean transition (grazing); skip shading this frame
+		const arc = [];
+		for (let k = 0; k < N; k++) {
+			const p = pts[(startIdx + k) % N];
+			if (!p.front) break;
+			arc.push(p);
+		}
+		if (arc.length < 2) return;
+
+		// the arc's endpoints sit on the limb; close the region across the night
+		// stretch of the limb between them. pick the limb direction whose midpoint
+		// is on the night side (view-space dot with s < 0).
+		const a0 = Math.atan2(arc[arc.length - 1].y - cy, arc[arc.length - 1].x - cx);
+		const a1 = Math.atan2(arc[0].y - cy, arc[0].x - cx);
+		const nightAt = (ang) => Math.cos(ang) * s.x - Math.sin(ang) * s.y < 0; // limb point . s
+		let mid = a0 + angDelta(a0, a1) / 2;
+		let delta = angDelta(a0, a1);
+		if (!nightAt(mid)) { delta = delta - Math.sign(delta || 1) * TWO_PI; mid = a0 + delta / 2; }
+
+		ctx.beginPath();
+		ctx.moveTo(arc[0].x, arc[0].y);
+		for (let i = 1; i < arc.length; i++) ctx.lineTo(arc[i].x, arc[i].y);
+		const steps = 48;
+		for (let i = 1; i <= steps; i++) {
+			const ang = a0 + (delta * i) / steps;
+			ctx.lineTo(cx + R * Math.cos(ang), cy + R * Math.sin(ang));
+		}
+		ctx.closePath();
+		ctx.fillStyle = withAlpha("#04070d", NIGHT_ALPHA);
+		ctx.fill();
 	}
 
 	function drawGraticule(R, sp, cp, style) {
@@ -210,6 +326,14 @@ export function createMap({ canvas, onPick, colors }) {
 			const key = gh.slice(0, depth);
 			act.set(key, Math.max(act.get(key) || 0, inten));
 		}
+		// prefix -> summed talkers for the current depth (a region shows the people
+		// across all its child cells)
+		const cnt = new Map();
+		for (const [gh, n] of counts) {
+			if (gh.length < depth) continue;
+			const key = gh.slice(0, depth);
+			cnt.set(key, (cnt.get(key) || 0) + n);
+		}
 
 		const px = cellPx(depth, R);
 		const label = px >= 58;
@@ -231,12 +355,12 @@ export function createMap({ canvas, onPick, colors }) {
 				if (seen.has(gh)) continue;
 				seen.add(gh);
 				drawn++;
-				drawCell(gh, R, sp, cp, c, act.get(gh) || 0, label, cprj);
+				drawCell(gh, R, sp, cp, c, act.get(gh) || 0, label, cprj, cnt.get(gh) || 0);
 			}
 		}
 	}
 
-	function drawCell(gh, R, sp, cp, c, intensity, label, center) {
+	function drawCell(gh, R, sp, cp, c, intensity, label, center, count) {
 		const b = geohashBounds(gh);
 		// subdivide each edge so cells curve with the sphere
 		const path = [];
@@ -280,7 +404,47 @@ export function createMap({ canvas, onPick, colors }) {
 			ctx.textAlign = "center";
 			ctx.textBaseline = "middle";
 			ctx.fillStyle = withAlpha(c.fg, hovered ? 1 : 0.8);
-			ctx.fillText("#" + gh, center.x, center.y);
+			// append a live "here" count when this region has recent talkers, in the
+			// accent so it reads as a separate signal from the geohash label itself.
+			if (count > 0) {
+				const name = "#" + gh;
+				const suffix = "  " + count;
+				const nameW = ctx.measureText(name).width;
+				const sufW = ctx.measureText(suffix).width;
+				const left = center.x - (nameW + sufW) / 2;
+				ctx.textAlign = "left";
+				ctx.fillText(name, left, center.y);
+				ctx.fillStyle = withAlpha(c.accent, hovered ? 1 : 0.9);
+				ctx.fillText(suffix, left + nameW, center.y);
+			} else {
+				ctx.fillText("#" + gh, center.x, center.y);
+			}
+		}
+	}
+
+	// expanding ripple(s) at each recent ping's cell center, fading over PING_MS.
+	function drawPings(R, sp, cp, c) {
+		if (!pings.length) return;
+		const now = performance.now();
+		for (const p of pings) {
+			const age = (now - p.born) / PING_MS;
+			if (age >= 1) continue;
+			const prj = project(p.lon, p.lat, R, sp, cp);
+			if (!prj.front) continue;
+			const ease = 1 - (1 - age) * (1 - age); // ease-out
+			const rad = 3 + ease * 24;
+			ctx.beginPath();
+			ctx.arc(prj.x, prj.y, rad, 0, TWO_PI);
+			ctx.lineWidth = 1.6 * (1 - age);
+			ctx.strokeStyle = withAlpha(c.accent, 0.75 * (1 - age));
+			ctx.stroke();
+			// a bright core that fades faster, so the origin cell flashes
+			if (age < 0.5) {
+				ctx.beginPath();
+				ctx.arc(prj.x, prj.y, 2.5, 0, TWO_PI);
+				ctx.fillStyle = withAlpha(c.accent, 0.9 * (1 - age * 2));
+				ctx.fill();
+			}
 		}
 	}
 
@@ -398,6 +562,11 @@ export function createMap({ canvas, onPick, colors }) {
 		if (performance.now() - lastInteract > 2500 && !drag && pointers.size === 0 && zoom < 4) {
 			yaw = wrapLon(yaw + 0.08);
 		}
+		// drop expired ripples so the array stays bounded
+		if (pings.length) {
+			const cutoff = performance.now() - PING_MS;
+			if (pings.some((p) => p.born <= cutoff)) pings = pings.filter((p) => p.born > cutoff);
+		}
 		draw();
 		raf = requestAnimationFrame(frame);
 	}
@@ -415,8 +584,18 @@ export function createMap({ canvas, onPick, colors }) {
 		if (raf) cancelAnimationFrame(raf);
 		raf = null;
 	}
-	function setActivity(map) {
+	function setActivity(map, countMap) {
 		activity = map instanceof Map ? map : new Map(Object.entries(map || {}));
+		if (countMap !== undefined) counts = countMap instanceof Map ? countMap : new Map(Object.entries(countMap || {}));
+	}
+
+	// ripple a ping at a geohash's cell center - called when a message lands there
+	// while the map is open. capped so a burst can't pile up unbounded.
+	function ping(gh) {
+		if (!gh || !/^[0-9a-z]{1,12}$/.test(gh)) return;
+		const b = geohashBounds(gh);
+		pings.push({ lon: wrapLon((b.lonLo + b.lonHi) / 2), lat: (b.latLo + b.latHi) / 2, born: performance.now() });
+		if (pings.length > 60) pings = pings.slice(-60);
 	}
 	// rotate the globe so `gh`'s cell sits under the center, and zoom in enough to
 	// frame it - used to drop you onto your current channel when the map opens.
@@ -452,7 +631,7 @@ export function createMap({ canvas, onPick, colors }) {
 	canvas.addEventListener("wheel", onWheel, { passive: false });
 	window.addEventListener("resize", resize);
 
-	return { open, close, setActivity, focusGeohash, destroy, resize };
+	return { open, close, setActivity, ping, focusGeohash, destroy, resize };
 }
 
 // --- helpers -----------------------------------------------------------------
@@ -462,6 +641,23 @@ function wrapLon(lon) {
 	while (x > 180) x -= 360;
 	while (x < -180) x += 360;
 	return x;
+}
+
+// 3-vector cross product and normalize, for the terminator basis.
+function cross(a, b) {
+	return { x: a.y * b.z - a.z * b.y, y: a.z * b.x - a.x * b.z, z: a.x * b.y - a.y * b.x };
+}
+function norm(a) {
+	const m = Math.hypot(a.x, a.y, a.z) || 1;
+	return { x: a.x / m, y: a.y / m, z: a.z / m };
+}
+
+// signed smallest angular delta from a0 to a1, in (-pi, pi].
+function angDelta(a0, a1) {
+	let d = a1 - a0;
+	while (d > Math.PI) d -= TWO_PI;
+	while (d <= -Math.PI) d += TWO_PI;
+	return d;
 }
 
 // apply an alpha to a CSS color that may be #rgb/#rrggbb or rgb()/rgba(). falls

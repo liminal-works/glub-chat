@@ -1573,6 +1573,28 @@ function buildActivityMap() {
 	return out;
 }
 
+// distinct talkers per geohash within the "here" window (last 5 min), for the
+// map's cell labels - same visibility rules as the activity glow and the same
+// spoken-within-5-min rule the in-channel count uses. keyed by full geohash; the
+// map sums these up to whatever depth it's showing.
+function buildCountMap() {
+	const cutoffSec = Math.floor((Date.now() - PRESENCE_FRESH_MS) / 1000);
+	const byGeo = new Map(); // geo -> Set<pubkey>
+	for (const e of entries) {
+		if (e.system || !e.geo || e.geo === "?") continue;
+		if (!/^[0-9a-z]{1,12}$/.test(e.geo)) continue;
+		if (e.ts < clearedBefore || e.ts < cutoffSec) continue;
+		if (isBlocked(e.pubkey)) continue;
+		if (!entryPassesPow(e)) continue;
+		let s = byGeo.get(e.geo);
+		if (!s) byGeo.set(e.geo, (s = new Set()));
+		s.add(e.pubkey);
+	}
+	const out = new Map();
+	for (const [geo, s] of byGeo) out.set(geo, s.size);
+	return out;
+}
+
 let mapInstance = null;
 let mapActivityTimer = null;
 
@@ -1600,7 +1622,7 @@ function openMap() {
 	}
 	closeUsers();
 	mapGate.classList.add("show");
-	mapInstance.setActivity(buildActivityMap());
+	mapInstance.setActivity(buildActivityMap(), buildCountMap());
 	// the canvas has no size until the gate is visible - size it next frame
 	requestAnimationFrame(() => {
 		mapInstance.resize();
@@ -1610,7 +1632,7 @@ function openMap() {
 	});
 	// refresh the activity glow while the map is up (new messages keep arriving)
 	clearInterval(mapActivityTimer);
-	mapActivityTimer = setInterval(() => mapInstance.setActivity(buildActivityMap()), 4000);
+	mapActivityTimer = setInterval(() => mapInstance.setActivity(buildActivityMap(), buildCountMap()), 4000);
 }
 
 function closeMap() {
@@ -3191,6 +3213,13 @@ function ingestEvent(ev, live = true) {
 	if (live && !isOwnEvent(ev) && !chatLimiter.allow("nostr:" + ev.pubkey.toLowerCase(), ev.content)) return;
 
 	renderEvent(ev);
+
+	// ripple the globe wherever a live message just landed (map open only). backlog
+	// replays (live=false) don't ping - they're history, not a heartbeat.
+	if (live && mapInstance && mapActivityTimer) {
+		const geo = getGeohash(ev);
+		if (geo && /^[0-9a-z]{1,12}$/.test(geo)) mapInstance.ping(geo);
+	}
 }
 
 const pool = new RelayPool({

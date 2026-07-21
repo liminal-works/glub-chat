@@ -78,7 +78,8 @@ const LANG_MAX_CHARS = 800; // keep only the most recent ~800 chars per channel
 const LANG_RECHECK_EVERY = 6; // re-run franc every N messages
 const LISTEN_BUFFER_SIZE = 800; // cross-channel recent-message ring for !listen
 const RECENT_BY_LANGUAGE_MAX = 10; // recent messages kept per detected language
-const LISTEN_SHOW = 6; // how many messages a !listen reply shows (breathing 2-line items)
+const LISTEN_SHOW = 10; // how many messages a !listen reply dumps (tight one-line items)
+const LISTEN_FRESH_SEC = 60 * 60; // bare !listen only shows chatter this fresh - it's a "who's talking now" firehose, not a backlog
 const SEEN_MAX_PER_NAME = 5; // channels remembered per name for !seen
 const SEEN_TTL_SEC = 24 * 60 * 60; // forget a name's sightings after ~24h
 const NOTES_PAGE_SIZE = 4; // notes shown per !notes page (breathing 2-line items)
@@ -251,27 +252,32 @@ export function createBot({ broadcast, store, botName = process.env.GLUB_BOT_NAM
 		if (arr.length > RECENT_BY_LANGUAGE_MAX) arr.shift();
 	}
 
-	// shared !listen renderer: a header, then breathing two-line items (channel +
-	// author + age on one line, the message on the next), or a quiet empty note.
+	// shared !listen renderer: a header, then one tight line per message (channel +
+	// author + age + the message itself), or a quiet empty note. it's a raw dump,
+	// so the lines stay dense rather than breathing.
 	function listenBlock(header, items, empty) {
 		if (!items.length) return `${header}\n\n${empty}`;
 		const nowSec = now();
 		const body = items
-			.map((m) => `- #${m.g} ${m.name} · ${timeAgo(nowSec, m.t)}\n  ${clipText(String(m.content || "").replace(/\s+/g, " ").trim(), 160)}`)
-			.join("\n\n");
+			.map((m) => `- #${m.g} ${m.name} · ${timeAgo(nowSec, m.t)} · ${clipText(String(m.content || "").replace(/\s+/g, " ").trim(), 100)}`)
+			.join("\n");
 		return `${header}\n\n${body}`;
 	}
 
-	// !listen (no arg): recent messages from channels OTHER than the caller's.
+	// !listen (no arg): recent messages from channels OTHER than the caller's. the
+	// point is to catch a live convo you might chime in on, so anything older than
+	// LISTEN_FRESH_SEC is dropped rather than backfilling the list with stale chatter
+	// when the network is quiet.
 	function buildListenOutput(currentG, n) {
+		const cutoff = now() - LISTEN_FRESH_SEC;
 		const picked = [];
 		for (let i = recentOther.length - 1; i >= 0 && picked.length < n; i--) {
 			const m = recentOther[i];
-			if (!m || !m.g || !m.t || m.g === currentG) continue;
+			if (!m || !m.g || !m.t || m.t < cutoff || m.g === currentG) continue;
 			picked.push(m);
 		}
 		picked.reverse(); // oldest -> newest for readability
-		return listenBlock("recent messages", picked, "nothing from other channels yet");
+		return listenBlock("recent messages", picked, "nothing else active right now");
 	}
 
 	// !listen <#geohash>: recent messages from one specific channel.

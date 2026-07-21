@@ -82,10 +82,10 @@ const LISTEN_SHOW = 10; // how many messages a !listen reply dumps (tight one-li
 const LISTEN_FRESH_SEC = 60 * 60; // bare !listen only shows chatter this fresh - it's a "who's talking now" firehose, not a backlog
 const SEEN_MAX_PER_NAME = 5; // channels remembered per name for !seen
 const SEEN_TTL_SEC = 24 * 60 * 60; // forget a name's sightings after ~24h
-const NOTES_PAGE_SIZE = 4; // notes shown per !notes page (breathing 2-line items)
+const NOTES_PAGE_SIZE = 10; // notes shown per !notes page (tight one-line items)
 const NOTES_FETCH_CAP = 100; // most notes we page through for a channel
 const NOTES_SNAPSHOT_TTL_MS = 60_000; // reuse a channel's note snapshot while paging
-const NOTE_CLIP = 140; // per-note content clip in a !notes list
+const NOTE_CLIP = 100; // per-note content clip in a !notes list (inline, so kept short)
 const NOSTR_WANT = 12; // candidate image notes to gather before picking one
 const NOSTR_TIMEOUT_MS = 6000; // give up a !nostr relay query after this
 const NOSTR_SCAN_LIMIT = 300; // kind-1 events a !nostr filter samples per relay
@@ -587,9 +587,9 @@ export function createBot({ broadcast, store, botName = process.env.GLUB_BOT_NAM
 				const noteG = getGeohash(ev) || channel;
 				const nm = String(getName(ev) || "").trim() || "anon";
 				const body = clipText(String(ev.content || "").replace(/\s+/g, " ").trim(), NOTE_CLIP);
-				return `- #${noteG} ${nm} · ${timeAgo(nowSec, ev.created_at)}\n  ${body}`;
+				return `- #${noteG} ${nm} · ${timeAgo(nowSec, ev.created_at)} · ${body}`;
 			})
-			.join("\n\n");
+			.join("\n");
 
 		const header = `notes in #${channel} · ${notes.length} total`;
 		const chanArg = channel === String(geo || "").trim().toLowerCase() ? "" : `${channel} `;

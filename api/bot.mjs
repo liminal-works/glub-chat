@@ -252,14 +252,13 @@ export function createBot({ broadcast, store, botName = process.env.GLUB_BOT_NAM
 		if (arr.length > RECENT_BY_LANGUAGE_MAX) arr.shift();
 	}
 
-	// shared !listen renderer: a header, then one tight line per message (channel +
-	// author + age + the message itself), or a quiet empty note. it's a raw dump,
-	// so the lines stay dense rather than breathing.
+	// shared !listen renderer: a header, then one tight line per message in the raw
+	// firehose shape `#geo <name> message  Nm ago`, or a quiet empty note.
 	function listenBlock(header, items, empty) {
 		if (!items.length) return `${header}\n\n${empty}`;
 		const nowSec = now();
 		const body = items
-			.map((m) => `- #${m.g} ${m.name} · ${timeAgo(nowSec, m.t)} · ${clipText(String(m.content || "").replace(/\s+/g, " ").trim(), 100)}`)
+			.map((m) => `#${m.g} <${m.name}> ${clipText(String(m.content || "").replace(/\s+/g, " ").trim(), 100)} ${timeAgo(nowSec, m.t)} ago`)
 			.join("\n");
 		return `${header}\n\n${body}`;
 	}
@@ -437,23 +436,31 @@ export function createBot({ broadcast, store, botName = process.env.GLUB_BOT_NAM
 	}
 
 	// --- commands ------------------------------------------------------------
-	// !top: the most active channels, messages-per-minute over the last 60s.
+	// !top: the most active channels, messages-per-minute over the last 60s. The
+	// layout is the original bot's: a numbered list, geohashes padded into a
+	// column, each with its mpm + the derived "one message every Ns" and a
+	// detected-language flag, then a unique-active-users tally.
 	async function cmdTop(geo) {
 		const top = topActiveChannels(5);
 
 		if (top.length === 0) {
-			reply("top channels\n\nnothing active right now", geo);
+			reply("top channels: (no activity yet)", geo);
 			return;
 		}
 
+		const maxG = Math.max(...top.map((x) => x.g.length)); // pad geohashes so the columns line up
 		const flags = await Promise.all(top.map((x) => getGeohashFlag(x.g)));
+
 		const lines = top.map((x, i) => {
+			const gPadded = x.g.padEnd(maxG, " ");
+			const mpm = x.count.toFixed(1);
+			const secs = (60 / x.count).toFixed(2); // avg gap: one message every N seconds
 			const langCode = channelLanguage.get(x.g)?.lang;
-			const lang = langCode ? ` · ${langCode} ${flags[i] || "🌐"}` : "";
-			return `- #${x.g} · ${x.count}/min${lang}`;
+			const langPart = langCode ? ` ${langCode} ${flags[i] || "🌐"}` : "";
+			return `${i + 1}. #${gPadded} — ${mpm}/mpm (${secs}s)${langPart}`;
 		});
 
-		reply(`top channels\n\n${lines.join("\n")}\n\n${activeUserCount()} active`, geo);
+		reply(`top channels:\n${lines.join("\n")}\n\nactive users: ${activeUserCount()}`, geo);
 	}
 
 	// !listen: recent chat. bare = other channels; <lang> = a detected language;

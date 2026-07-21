@@ -3882,6 +3882,73 @@ async function resolveBotLocation(arg) {
 	}
 }
 
+// --- wordle: a private, solo word game in your own terminal -----------------
+// nothing is broadcast - it's just you against a random 5-letter word. the word
+// list lives in /data/wordle-words.json (a plain array of lowercase 5-letter
+// words, or { "words": [...] }) so it can be swapped or grown without touching
+// code. state is per-session and in-memory: a reload starts fresh.
+const WORDLE_LEN = 5;
+const WORDLE_TRIES = 6;
+let wordleGame = null; // { secret, guesses: [] } while a game is in progress
+let wordleWordsPromise = null; // cache the fetched + cleaned word list
+
+function loadWordleWords() {
+	if (!wordleWordsPromise) {
+		wordleWordsPromise = fetch("/data/wordle-words.json", { cache: "no-store" })
+			.then((r) => (r.ok ? r.json() : []))
+			.then((data) => (Array.isArray(data) ? data : Array.isArray(data?.words) ? data.words : []))
+			.then((arr) => arr.map((w) => String(w).toLowerCase()).filter((w) => new RegExp(`^[a-z]{${WORDLE_LEN}}$`).test(w)))
+			.catch(() => []);
+	}
+	return wordleWordsPromise;
+}
+
+// begin a new game from a random word; false (with a notice) if the list is
+// missing or empty, so callers can bail cleanly.
+async function startWordle() {
+	const words = await loadWordleWords();
+	if (!words.length) {
+		appendSystem(t("system.wordle_nolist"));
+		return false;
+	}
+	wordleGame = { secret: words[Math.floor(Math.random() * words.length)], guesses: [] };
+	return true;
+}
+
+// per-letter feedback for a guess against the secret, duplicate-safe: greens
+// first, then yellows only while an unmatched copy of the letter remains.
+function wordleScore(guess, secret) {
+	const res = Array(WORDLE_LEN).fill("⬛");
+	const counts = {};
+	for (const ch of secret) counts[ch] = (counts[ch] || 0) + 1;
+	for (let i = 0; i < WORDLE_LEN; i++) {
+		if (guess[i] === secret[i]) {
+			res[i] = "🟩";
+			counts[guess[i]]--;
+		}
+	}
+	for (let i = 0; i < WORDLE_LEN; i++) {
+		if (res[i] === "🟩") continue;
+		if (counts[guess[i]] > 0) {
+			res[i] = "🟨";
+			counts[guess[i]]--;
+		}
+	}
+	return res.join("");
+}
+
+// the board so far: a header, then one line per guess (emoji row + the word).
+function wordleBoard(game, header) {
+	const rows = game.guesses.map((g) => `${wordleScore(g, game.secret)}  ${g}`);
+	return `${header}\n\n${rows.join("\n")}`;
+}
+
+// wordle output is a private terminal notice (never broadcast), lingering long
+// enough to read the board unrushed - same treatment as /help.
+function wordlePrint(text) {
+	pushSystem(`<span class="ts">${escapeHtml(text)}</span>`, SYSTEM_TTL_LONG_MS);
+}
+
 const COMMANDS = [
 	{
 		name: "clear",
@@ -4024,24 +4091,50 @@ const COMMANDS = [
 		},
 	},
 	{
-		name: "debug",
-		// local-only viewport diagnostics for chasing device geometry quirks (ios
-		// standalone lies about heights/insets); prints to your terminal, sends nothing.
-		run() {
-			const vv = window.visualViewport;
-			const ins = measuredInsets();
-			const standalone = navigator.standalone === true || matchMedia("(display-mode: standalone)").matches;
-			const lines = [
-				"viewport",
-				"",
-				`- mode · ${standalone ? "standalone" : "browser"}`,
-				`- screen · ${screen.width} x ${screen.height}`,
-				`- window · inner ${Math.round(window.innerHeight)} · client ${Math.round(document.documentElement.clientHeight)}`,
-				`- visual · ${vv ? Math.round(vv.height) : "none"}${vv && vv.offsetTop ? ` · offset ${Math.round(vv.offsetTop)}` : ""}`,
-				`- inset · top ${Math.round(ins.top)} · bottom ${Math.round(ins.bottom)}`,
-				`- app · ${appEl.style.height || "css"} · floor-b ${getComputedStyle(document.documentElement).getPropertyValue("--standalone-inset-b").trim() || "0px"}`,
-			];
-			pushSystem(`<span class="ts">${escapeHtml(lines.join("\n"))}</span>`, SYSTEM_TTL_LONG_MS);
+		name: "wordle",
+		// a private solo wordle, played in your own terminal - nothing is broadcast
+		// and no channel is needed. no arg starts a game (or reshows the board); an
+		// arg is a 5-letter guess. see wordleScore/wordleBoard above.
+		async run(arg) {
+			const guess = arg.trim().toLowerCase();
+
+			// no arg: show the running board, or start a fresh game.
+			if (!guess) {
+				if (wordleGame) {
+					wordlePrint(`${wordleBoard(wordleGame, `wordle · ${wordleGame.guesses.length}/${WORDLE_TRIES}`)}\n\n/wordle <word> to guess`);
+					return;
+				}
+				if (!(await startWordle())) return;
+				wordlePrint("wordle\n\nguess a 5 letter word\n/wordle <word>");
+				return;
+			}
+
+			// a guess with no game running just begins one, so "/wordle crane" works cold.
+			if (!wordleGame && !(await startWordle())) return;
+
+			if (!/^[a-z]{5}$/.test(guess)) {
+				appendSystem(t("system.wordle_badguess"));
+				return;
+			}
+
+			wordleGame.guesses.push(guess);
+			const solved = guess === wordleGame.secret;
+			const over = solved || wordleGame.guesses.length >= WORDLE_TRIES;
+
+			let header, footer;
+			if (solved) {
+				header = t("system.wordle_solved", { n: wordleGame.guesses.length });
+				footer = `\n\n${wordleGame.guesses.length === 1 ? t("system.wordle_first_try") : t("system.wordle_win")}`;
+			} else if (over) {
+				header = t("system.wordle_over");
+				footer = `\n\n${t("system.wordle_reveal", { word: wordleGame.secret })}`;
+			} else {
+				header = `wordle · ${wordleGame.guesses.length}/${WORDLE_TRIES}`;
+				footer = "";
+			}
+			const board = wordleBoard(wordleGame, header);
+			if (over) wordleGame = null;
+			wordlePrint(board + footer);
 		},
 	},
 	{
@@ -4372,8 +4465,8 @@ function fitViewport() {
 	const typing = !!ae && (ae.tagName === "INPUT" || ae.tagName === "TEXTAREA" || ae.isContentEditable);
 	if (!typing) {
 		// the layout viewport is the truth when idle: ios keyboards never shrink it
-		// (the reason vv.height governs while typing), and - measured via /debug on
-		// a real device - it reports the standalone window honestly even when
+		// (the reason vv.height governs while typing), and - measured on a real
+		// device - it reports the standalone window honestly even when
 		// vv.height goes stale. do NOT floor to screen.height here: in portrait
 		// standalone ios gives the webview a window of screen minus the status bar,
 		// so a screen-sized floor overflows the window and buries the composer.

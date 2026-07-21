@@ -13,7 +13,10 @@ import { COASTLINES } from "./coastlines.js";
 const GEOHASH_BASE32 = "0123456789bcdefghjkmnpqrstuvwxyz";
 const DEG = Math.PI / 180;
 const TWO_PI = Math.PI * 2;
-const NIGHT_ALPHA = 0.42; // how dark the night hemisphere shade sits over the land
+const NIGHT_ALPHA = 0.58; // how dark the night hemisphere shade sits over the land
+const NIGHT_SHADE = "#03060c"; // near-black blue the night side dims toward
+const TWILIGHT_BAND = 0.16; // half-width (in surface-normal dot units) of the soft dawn/dusk falloff
+const NIGHT_GRID_DIM = 0.78; // how much a deep-night cell's outline/label fades (0 = none, 1 = gone)
 
 // --- geohash math (self-contained; map owns its own encode/decode) -----------
 
@@ -159,15 +162,20 @@ export function createMap({ canvas, onPick, colors }) {
 		ctx.arc(cx, cy, R, 0, TWO_PI);
 		ctx.clip();
 
+		// subsolar direction in view space, computed once and shared: it darkens the
+		// night hemisphere AND fades each night-side geohash cell (see drawCell).
+		const sun = subsolarPoint();
+		const sunVec = viewVec(sun.lon, sun.lat, sp, cp);
+
 		drawGraticule(R, sp, cp, withAlpha(c.accent, 0.1));
 		drawCoastlines(R, sp, cp, withAlpha(c.fg, 0.32));
 
-		// twilight: shade the night hemisphere before the grid so the land dims but
-		// the interactive cells + their activity glow stay full-strength on top.
-		drawNight(R, sp, cp);
+		// twilight: shade the night hemisphere, with a soft glowing rim along the
+		// terminator. drawn before the grid so the land/ocean dim underneath.
+		drawNight(R, sp, cp, sunVec, c);
 
 		const depth = depthFor(R);
-		drawGeohashGrid(R, sp, cp, depth, c);
+		drawGeohashGrid(R, sp, cp, depth, c, sunVec);
 
 		// live message ripples ride above everything, so a ping reads even over a
 		// bright, active cell.
@@ -211,15 +219,13 @@ export function createMap({ canvas, onPick, colors }) {
 	// points. we stitch that arc to the night stretch of the limb and fill the
 	// enclosed region. degenerate cases (sun dead-center / behind) fall back to no
 	// shade / full shade.
-	function drawNight(R, sp, cp) {
-		const sun = subsolarPoint();
-		const s = viewVec(sun.lon, sun.lat, sp, cp); // subsolar unit vector in view space
+	function drawNight(R, sp, cp, s, c) {
 		if (s.z >= 0.999) return; // sun straight at us -> no visible night
 		if (s.z <= -0.999) {
 			// sun behind the globe -> the whole visible face is night
 			ctx.beginPath();
 			ctx.arc(cx, cy, R, 0, TWO_PI);
-			ctx.fillStyle = withAlpha("#04070d", NIGHT_ALPHA);
+			ctx.fillStyle = withAlpha(NIGHT_SHADE, NIGHT_ALPHA);
 			ctx.fill();
 			return;
 		}
@@ -274,8 +280,25 @@ export function createMap({ canvas, onPick, colors }) {
 			ctx.lineTo(cx + R * Math.cos(ang), cy + R * Math.sin(ang));
 		}
 		ctx.closePath();
-		ctx.fillStyle = withAlpha("#04070d", NIGHT_ALPHA);
+		ctx.fillStyle = withAlpha(NIGHT_SHADE, NIGHT_ALPHA);
 		ctx.fill();
+
+		// twilight rim: trace just the terminator arc with a soft accent glow so the
+		// day/night boundary reads as a lit edge, not just a shadow.
+		ctx.beginPath();
+		ctx.moveTo(arc[0].x, arc[0].y);
+		for (let i = 1; i < arc.length; i++) ctx.lineTo(arc[i].x, arc[i].y);
+		ctx.strokeStyle = withAlpha(c.accent, 0.5);
+		ctx.lineWidth = 1.4;
+		ctx.stroke();
+	}
+
+	// how deep in night a surface point is: 0 in full daylight, 1 in deep night,
+	// with a soft TWILIGHT_BAND-wide ramp across the terminator. `vv` is the point's
+	// view-space unit vector; `s` the subsolar one (their dot is the sun elevation).
+	function nightFactor(vv, s) {
+		const d = vv.x * s.x + vv.y * s.y + vv.z * s.z;
+		return Math.max(0, Math.min(1, 0.5 - d / (2 * TWILIGHT_BAND)));
 	}
 
 	function drawGraticule(R, sp, cp, style) {
@@ -313,7 +336,7 @@ export function createMap({ canvas, onPick, colors }) {
 	}
 
 	// enumerate + draw the visible geohash cells at `depth`; glow active ones.
-	function drawGeohashGrid(R, sp, cp, depth, c) {
+	function drawGeohashGrid(R, sp, cp, depth, c, sunVec) {
 		const { lat: latBits, lon: lonBits } = bitsFor(depth);
 		const latStep = 180 / 2 ** latBits;
 		const lonStep = 360 / 2 ** lonBits;
@@ -355,12 +378,14 @@ export function createMap({ canvas, onPick, colors }) {
 				if (seen.has(gh)) continue;
 				seen.add(gh);
 				drawn++;
-				drawCell(gh, R, sp, cp, c, act.get(gh) || 0, label, cprj, cnt.get(gh) || 0);
+				// fade the cell toward night by where its center sits vs the sun
+				const nf = sunVec ? nightFactor(viewVec(clon, clat, sp, cp), sunVec) : 0;
+				drawCell(gh, R, sp, cp, c, act.get(gh) || 0, label, cprj, cnt.get(gh) || 0, nf);
 			}
 		}
 	}
 
-	function drawCell(gh, R, sp, cp, c, intensity, label, center, count) {
+	function drawCell(gh, R, sp, cp, c, intensity, label, center, count, night = 0) {
 		const b = geohashBounds(gh);
 		// subdivide each edge so cells curve with the sphere
 		const path = [];
@@ -388,6 +413,9 @@ export function createMap({ canvas, onPick, colors }) {
 		if (allFront) ctx.closePath();
 
 		const hovered = gh === hoverGeo;
+		// night fades only the "structural" cells - an active, counted, or hovered
+		// cell keeps full strength so talkers and the pointer always read, day or night.
+		const dim = hovered || intensity > 0 || count > 0 ? 1 : 1 - NIGHT_GRID_DIM * night;
 		if (intensity > 0) {
 			ctx.fillStyle = withAlpha(c.accent, 0.1 + 0.32 * intensity);
 			ctx.fill();
@@ -396,14 +424,14 @@ export function createMap({ canvas, onPick, colors }) {
 			ctx.fill();
 		}
 		ctx.lineWidth = hovered ? 1.6 : intensity > 0 ? 1.2 : 0.8;
-		ctx.strokeStyle = withAlpha(c.accent, hovered ? 0.95 : 0.28 + 0.5 * intensity);
+		ctx.strokeStyle = withAlpha(c.accent, (hovered ? 0.95 : 0.28 + 0.5 * intensity) * dim);
 		ctx.stroke();
 
 		if ((label || hovered) && center.front) {
 			ctx.font = `${hovered ? 13 : 11}px ui-monospace, monospace`;
 			ctx.textAlign = "center";
 			ctx.textBaseline = "middle";
-			ctx.fillStyle = withAlpha(c.fg, hovered ? 1 : 0.8);
+			ctx.fillStyle = withAlpha(c.fg, (hovered ? 1 : 0.8) * dim);
 			// append a live "here" count when this region has recent talkers, in the
 			// accent so it reads as a separate signal from the geohash label itself.
 			if (count > 0) {

@@ -4077,7 +4077,9 @@ const COMMANDS = [
 	},
 	{
 		name: "8ball",
-		// magic 8-ball posted as your ".bot"; needs a question.
+		// magic 8-ball posted as your ".bot"; needs a question. framed as a little
+		// dialogue - you ask, the 8-ball answers - so it reads naturally (and a touch
+		// comedically): "<you> question" then "🎱: answer".
 		run(arg) {
 			if (!focusedGeo) {
 				appendSystem(t("system.needs_channel"));
@@ -4090,7 +4092,7 @@ const COMMANDS = [
 			}
 			const question = q.length > 120 ? q.slice(0, 120) + "…" : q;
 			const answer = EIGHTBALL_ANSWERS[Math.floor(Math.random() * EIGHTBALL_ANSWERS.length)];
-			transmit(`🎱 ${question}\n${answer}`, focusedGeo, botName());
+			transmit(`<${name}> ${question}\n\n🎱: ${answer}`, focusedGeo, botName());
 		},
 	},
 	{

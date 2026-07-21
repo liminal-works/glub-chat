@@ -3882,11 +3882,13 @@ async function resolveBotLocation(arg) {
 	}
 }
 
-// --- wordle: a private, solo word game in your own terminal -----------------
-// nothing is broadcast - it's just you against a random 5-letter word. the word
-// list lives in /data/wordle-words.json (a plain array of lowercase 5-letter
-// words, or { "words": [...] }) so it can be swapped or grown without touching
-// code. state is per-session and in-memory: a reload starts fresh.
+// --- wordle: a solo word game you play out loud via your ".bot" --------------
+// you guess a random 5-letter word over 6 tries; each board posts to the channel
+// as your ".bot" (like /echo), so the room can watch you play. only you guess -
+// your guesses are typed as /wordle commands. the word list lives in
+// /data/wordle-words.json (a plain array of lowercase 5-letter words, or
+// { "words": [...] }) so it can be swapped or grown without touching code. state
+// is per-session and in-memory: a reload starts fresh.
 const WORDLE_LEN = 5;
 const WORDLE_TRIES = 6;
 let wordleGame = null; // { secret, guesses: [] } while a game is in progress
@@ -3943,10 +3945,11 @@ function wordleBoard(game, header) {
 	return `${header}\n\n${rows.join("\n")}`;
 }
 
-// wordle output is a private terminal notice (never broadcast), lingering long
-// enough to read the board unrushed - same treatment as /help.
+// a wordle board goes out to the channel as your ".bot", the same broadcast path
+// /echo uses - so a game is visible to the room. needs a focused channel (the
+// command guards for it before calling this).
 function wordlePrint(text) {
-	pushSystem(`<span class="ts">${escapeHtml(text)}</span>`, SYSTEM_TTL_LONG_MS);
+	transmit(text, focusedGeo, botName());
 }
 
 const COMMANDS = [
@@ -4092,10 +4095,14 @@ const COMMANDS = [
 	},
 	{
 		name: "wordle",
-		// a private solo wordle, played in your own terminal - nothing is broadcast
-		// and no channel is needed. no arg starts a game (or reshows the board); an
-		// arg is a 5-letter guess. see wordleScore/wordleBoard above.
+		// a solo wordle whose board posts to the channel as your ".bot". no arg
+		// starts a game (or reshows the board); an arg is a 5-letter guess. needs a
+		// channel to post into, like /echo. see wordleScore/wordleBoard above.
 		async run(arg) {
+			if (!focusedGeo) {
+				appendSystem(t("system.needs_channel")); // no channel = nowhere to post the board
+				return;
+			}
 			const guess = arg.trim().toLowerCase();
 
 			// no arg: show the running board, or start a fresh game.

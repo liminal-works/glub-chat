@@ -4015,7 +4015,7 @@ const COMMANDS = [
 				const { text, emoji } = wmoDescribe(w.code);
 				const tempF = Math.round((w.tempC * 9) / 5 + 32);
 				const wind = typeof w.windKmh === "number" ? `\nwind ${Math.round(w.windKmh)}km/h` : "";
-				transmit(`${loc.label}\n\n${emoji} ${text}\n${Math.round(w.tempC)}°c · ${tempF}°f${wind}`, focusedGeo, botName());
+				transmit(`${loc.label}:\n\n${emoji} ${text}\n${Math.round(w.tempC)}°c · ${tempF}°f${wind}`, focusedGeo, botName());
 			} catch {
 				appendSystem(t("system.weather_failed"));
 			}
@@ -4042,7 +4042,7 @@ const COMMANDS = [
 				const t24 = new Intl.DateTimeFormat("en-GB", { timeZone: timezone, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(d);
 				const offParts = new Intl.DateTimeFormat("en-US", { timeZone: timezone, timeZoneName: "shortOffset" }).formatToParts(d);
 				const off = (offParts.find((p) => p.type === "timeZoneName")?.value || "utc").replace("GMT", "utc");
-				transmit(`${loc.label}\n\n${t12} · ${t24}\n${off} · ${timezone.toLowerCase()}`, focusedGeo, botName());
+				transmit(`${loc.label}:\n\n${t12} · ${t24}\n${off} · ${timezone.toLowerCase()}`, focusedGeo, botName());
 			} catch {
 				appendSystem(t("system.time_failed"));
 			}
@@ -4101,11 +4101,11 @@ const COMMANDS = [
 			// no arg: show the running board, or start a fresh game.
 			if (!guess) {
 				if (wordleGame) {
-					wordlePrint(`${wordleBoard(wordleGame, `wordle · ${wordleGame.guesses.length}/${WORDLE_TRIES}`)}\n\n/wordle <word> to guess`);
+					wordlePrint(`${wordleBoard(wordleGame, `wordle · ${wordleGame.guesses.length}/${WORDLE_TRIES}:`)}\n\n/wordle <word> to guess`);
 					return;
 				}
 				if (!(await startWordle())) return;
-				wordlePrint("wordle\n\nguess a 5 letter word\n/wordle <word>");
+				wordlePrint("wordle:\n\nguess a 5 letter word\n/wordle <word>");
 				return;
 			}
 
@@ -4129,7 +4129,7 @@ const COMMANDS = [
 				header = t("system.wordle_over");
 				footer = `\n\n${t("system.wordle_reveal", { word: wordleGame.secret })}`;
 			} else {
-				header = `wordle · ${wordleGame.guesses.length}/${WORDLE_TRIES}`;
+				header = `wordle · ${wordleGame.guesses.length}/${WORDLE_TRIES}:`;
 				footer = "";
 			}
 			const board = wordleBoard(wordleGame, header);
@@ -4162,7 +4162,7 @@ const COMMANDS = [
 					appendSystem(t("system.mute_none"));
 					return;
 				}
-				const header = `* ${t("system.muted_header")} *`;
+				const header = `${t("system.muted_header")}:`;
 				const lines = [...mutedChannels].sort().map((g) => `#${g}`);
 				pushSystem(`<span class="ts">${escapeHtml([header, ...lines].join("\n"))}</span>`, SYSTEM_TTL_LONG_MS);
 				return;
@@ -4188,7 +4188,7 @@ const COMMANDS = [
 			if (!raw) {
 				// no arg -> list who's blocked, by #suffix + last-known name, so you
 				// know what to pass back in.
-				const header = `* ${t("system.blocked_header")} *`;
+				const header = `${t("system.blocked_header")}:`;
 				const lines = [...blockedPubkeys].map((pk) => `#${pk.slice(-4)} @${displayNameForPubkey(pk)}`);
 				pushSystem(`<span class="ts">${escapeHtml([header, ...lines].join("\n"))}</span>`, SYSTEM_TTL_LONG_MS);
 				return;
@@ -4240,7 +4240,7 @@ const COMMANDS = [
 				const lines = themeNames().map(
 					(n) => `${n.padEnd(width)}${n === activeTheme().name ? ` <- ${t("system.theme_current")}` : ""}`
 				);
-				const header = `* ${t("system.themes_header")} *`;
+				const header = `${t("system.themes_header")}:`;
 				pushSystem(`<span class="ts">${escapeHtml([header, ...lines].join("\n"))}</span>`, SYSTEM_TTL_LONG_MS);
 				return;
 			}
@@ -4266,7 +4266,7 @@ const COMMANDS = [
 				.sort((a, b) => a.name.localeCompare(b.name))
 				.map((c) => `${`/${c.name}`.padEnd(width)} - ${commandDesc(c.name)}`);
 			// header in the * emote * style, then the aligned list beneath it.
-			const header = `* ${t("system.commands_header")} *`;
+			const header = `${t("system.commands_header")}:`;
 			// persist longer than a status blip - give the reader time to scan it.
 			pushSystem(`<span class="ts">${escapeHtml([header, ...lines].join("\n"))}</span>`, SYSTEM_TTL_LONG_MS);
 		},

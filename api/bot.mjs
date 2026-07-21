@@ -276,7 +276,7 @@ export function createBot({ broadcast, store, botName = process.env.GLUB_BOT_NAM
 			picked.push(m);
 		}
 		picked.reverse(); // oldest -> newest for readability
-		return listenBlock("recent messages", picked, "nothing else active right now");
+		return listenBlock("recent messages:", picked, "nothing else active right now");
 	}
 
 	// !listen <#geohash>: recent messages from one specific channel.
@@ -288,7 +288,7 @@ export function createBot({ broadcast, store, botName = process.env.GLUB_BOT_NAM
 			picked.push(m);
 		}
 		picked.reverse();
-		return listenBlock(`recent in #${targetG}`, picked, "nothing here yet");
+		return listenBlock(`recent in #${targetG}:`, picked, "nothing here yet");
 	}
 
 	// !listen <lang>: recent messages detected in an ISO-639-3 language (eng/rus/…).
@@ -297,7 +297,7 @@ export function createBot({ broadcast, store, botName = process.env.GLUB_BOT_NAM
 		const picked = [...recent].slice(-n).reverse();
 		// this buffer stores {user,msg}; normalize to the {name,content} listenBlock wants
 		const items = picked.map((m) => ({ g: m.g, name: m.user, content: m.msg, t: m.t }));
-		return listenBlock(`recent in ${code}`, items, "nothing detected yet");
+		return listenBlock(`recent in ${code}:`, items, "nothing detected yet");
 	}
 
 	// --- reverse-geocoded flags (Nominatim, cached) -------------------------
@@ -460,7 +460,7 @@ export function createBot({ broadcast, store, botName = process.env.GLUB_BOT_NAM
 			return `${i + 1}. #${gPadded} — ${mpm}/mpm (${secs}s)${langPart}`;
 		});
 
-		reply(`top channels:\n${lines.join("\n")}\n\nactive users: ${activeUserCount()}`, geo);
+		reply(`top channels:\n\n${lines.join("\n")}\n\nactive users: ${activeUserCount()}`, geo);
 	}
 
 	// !listen: recent chat. bare = other channels; <lang> = a detected language;
@@ -492,7 +492,7 @@ export function createBot({ broadcast, store, botName = process.env.GLUB_BOT_NAM
 			const flag = countryCodeToFlag(info?.country_code);
 			const span = formatRegionSizeMi(geo);
 			reply(
-				`#${geo}\n\n` +
+				`#${geo}:\n\n` +
 					`${label} ${flag}\n` +
 					`${coords.lat.toFixed(4)}, ${coords.lon.toFixed(4)}` +
 					(span ? ` · ${span}` : ""),
@@ -528,7 +528,7 @@ export function createBot({ broadcast, store, botName = process.env.GLUB_BOT_NAM
 			})
 			.join("\n");
 
-		reply(`${target.label.toLowerCase()}\n${target.lat.toFixed(4)}, ${target.lon.toFixed(4)}\n\n${ladder}`, geo);
+		reply(`${target.label.toLowerCase()}:\n${target.lat.toFixed(4)}, ${target.lon.toFixed(4)}\n\n${ladder}`, geo);
 	}
 
 	// !seen <name>: the channels a name was last active in (newest first), matched
@@ -536,17 +536,17 @@ export function createBot({ broadcast, store, botName = process.env.GLUB_BOT_NAM
 	function cmdSeen(geo, args) {
 		const targetRaw = args.join(" ").trim();
 		if (!targetRaw) {
-			reply("usage\n\n!seen <name>", geo);
+			reply("usage:\n\n!seen <name>", geo);
 			return;
 		}
 		const hits = seenByName.get(normalizeSeenName(targetRaw)) || [];
 		if (!hits.length) {
-			reply(`${targetRaw}\n\nnot seen recently`, geo);
+			reply(`${targetRaw}:\n\nnot seen recently`, geo);
 			return;
 		}
 		const nowSec = now();
 		const items = [...hits].reverse().slice(0, SEEN_MAX_PER_NAME); // newest first
-		reply(`${targetRaw}\n\n` + items.map((x) => `- #${x.g} · ${timeAgo(nowSec, x.t)}`).join("\n"), geo);
+		reply(`${targetRaw}:\n\n` + items.map((x) => `#${x.g} ${timeAgo(nowSec, x.t)} ago`).join("\n"), geo);
 	}
 
 	// !notes: the location notes on a channel, from our note cache (works for any
@@ -565,7 +565,7 @@ export function createBot({ broadcast, store, botName = process.env.GLUB_BOT_NAM
 				channel = a0.replace(/^#/, "");
 				if (a1) {
 					if (!/^\d+$/.test(a1)) {
-						reply("usage\n\n!notes\n!notes <page>\n!notes <#channel> [page]", geo);
+						reply("usage:\n\n!notes\n!notes <page>\n!notes <#channel> [page]", geo);
 						return;
 					}
 					page = Number(a1);
@@ -579,7 +579,7 @@ export function createBot({ broadcast, store, botName = process.env.GLUB_BOT_NAM
 
 		const notes = notesSnapshot(channel);
 		if (!notes.length) {
-			reply(`notes in #${channel}\n\nnone yet`, geo);
+			reply(`notes in #${channel}:\n\nnone yet`, geo);
 			return;
 		}
 
@@ -589,19 +589,20 @@ export function createBot({ broadcast, store, botName = process.env.GLUB_BOT_NAM
 		const slice = notes.slice(start, start + NOTES_PAGE_SIZE);
 		const nowSec = now();
 
+		// same firehose line shape as !listen: #geo <name> body  Nm ago
 		const items = slice
 			.map((ev) => {
 				const noteG = getGeohash(ev) || channel;
 				const nm = String(getName(ev) || "").trim() || "anon";
 				const body = clipText(String(ev.content || "").replace(/\s+/g, " ").trim(), NOTE_CLIP);
-				return `- #${noteG} ${nm} · ${timeAgo(nowSec, ev.created_at)} · ${body}`;
+				return `#${noteG} <${nm}> ${body} ${timeAgo(nowSec, ev.created_at)} ago`;
 			})
 			.join("\n");
 
-		const header = `notes in #${channel} · ${notes.length} total`;
+		// !top-style footer stat: the total, plus the next-page hint when there's more
 		const chanArg = channel === String(geo || "").trim().toLowerCase() ? "" : `${channel} `;
-		const footer = p < totalPages ? `\n\npage ${p}/${totalPages} · !notes ${chanArg}${p + 1} for more` : "";
-		reply(`${header}\n\n${items}${footer}`, geo);
+		const more = p < totalPages ? ` · page ${p}/${totalPages} · !notes ${chanArg}${p + 1} for more` : "";
+		reply(`notes in #${channel}:\n\n${items}\n\n${notes.length} total${more}`, geo);
 	}
 
 	// cached page source: query the note store once per channel and reuse it while
@@ -657,7 +658,7 @@ export function createBot({ broadcast, store, botName = process.env.GLUB_BOT_NAM
 		const pick = events[0];
 		if (!pick) {
 			const f = tag ? ` for #${tag}` : author ? ` for ${toNpub(author).slice(0, 12)}…` : contentMatch ? ` for "${raw}"` : "";
-			reply(`nostr\n\nno new notes${f}`, geo);
+			reply(`nostr:\n\nno new notes${f}`, geo);
 			return;
 		}
 		nostrSeen.add(pick.id);
@@ -667,7 +668,7 @@ export function createBot({ broadcast, store, botName = process.env.GLUB_BOT_NAM
 		const meta = `${timeAgo(now(), pick.created_at)} ago` + (tag ? ` · #${tag}` : contentMatch ? ` · "${raw}"` : "");
 		const body = clipText(String(pick.content || "").replace(/\s+/g, " ").trim(), 200);
 
-		const lines = [`nostr`, "", toNpub(pick.pubkey)];
+		const lines = [`nostr:`, "", toNpub(pick.pubkey)];
 		if (body) lines.push("", body);
 		if (url) lines.push(url);
 		lines.push("", meta);
@@ -683,12 +684,12 @@ export function createBot({ broadcast, store, botName = process.env.GLUB_BOT_NAM
 			const c = byToken.get(q);
 			if (c) {
 				const alias = c.aliases?.length ? `\n\nalias: ${c.aliases.map((a) => "!" + a).join(" · ")}` : "";
-				reply(`!${c.name}\n\n${c.usage || c.desc}${alias}`, geo);
+				reply(`!${c.name}:\n\n${c.usage || c.desc}${alias}`, geo);
 				return;
 			}
 		}
 		const lines = [...COMMANDS].sort((a, b) => a.name.localeCompare(b.name)).map((c) => `- !${c.name} · ${c.desc}`);
-		reply(`commands\n\n${lines.join("\n")}\n\n!help <command> for more`, geo);
+		reply(`commands:\n\n${lines.join("\n")}\n\n!help <command> for more`, geo);
 	}
 
 	// the command registry: adding an entry here makes a command parse, dispatch,

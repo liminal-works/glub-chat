@@ -3343,7 +3343,11 @@ function ingestEvent(ev, live = true) {
 		const geo = getGeohash(ev);
 		if (geo && /^[0-9a-z]{1,12}$/.test(geo)) {
 			mapInstance.ping(geo);
-			if (!isActionMessage(ev.content) && !isBlocked(ev.pubkey) && !mutedChannels.has(geo)) pushMapFeed(ev, geo);
+			// only surface a message whose ping is actually on-screen right now - if you
+			// can see the dot fire, you see the words; otherwise it's out of view.
+			if (mapInstance.isOnScreen(geo) && !isActionMessage(ev.content) && !isBlocked(ev.pubkey) && !mutedChannels.has(geo)) {
+				pushMapFeed(ev, geo);
+			}
 		}
 	}
 }

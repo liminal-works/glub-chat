@@ -153,18 +153,24 @@ function geohashRegionMaxMi(g) {
 	return Math.max(widthMi, heightMi);
 }
 
-// "~4.9 mi" style span label for a geohash cell (ported verbatim, incl. the 666
-// dodge), or null for a non-geohash.
-export function formatRegionSizeMi(g) {
+// round a distance to a readable precision (whole numbers past 100, one decimal
+// down to 1, two below), keeping the ported "666" dodge.
+function fmtSpan(v) {
+	if (v >= 100) {
+		let rounded = Math.round(v);
+		if (rounded === 666) rounded++;
+		return String(rounded);
+	}
+	if (v >= 1) return v.toFixed(1);
+	return v.toFixed(2);
+}
+
+// "~4.9 mi · 7.9 km" span label for a geohash cell - both units so the bot reads
+// naturally for everyone, no locale guessing. null for a non-geohash.
+export function formatRegionSize(g) {
 	const mi = geohashRegionMaxMi(g);
 	if (mi == null) return null;
-	if (mi >= 100) {
-		let rounded = Math.round(mi);
-		if (rounded === 666) rounded++;
-		return `~${rounded} mi`;
-	}
-	if (mi >= 1) return `~${mi.toFixed(1)} mi`;
-	return `~${mi.toFixed(2)} mi`;
+	return `~${fmtSpan(mi)} mi · ${fmtSpan(mi * 1.60934)} km`;
 }
 
 // parse a "lat, lon" string into { lat, lon } (validated ranges), else null.

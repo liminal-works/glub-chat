@@ -642,6 +642,16 @@ export function createMap({ canvas, onPick, colors }) {
 		setZoom(90 / (minDim * 0.42 * wDeg * DEG)); // ~90px cells at this depth
 		lastInteract = performance.now();
 	}
+	// is a geohash's cell visible on-screen right now: front-facing (near hemisphere)
+	// AND inside the canvas rect (so a zoomed-in view over asia doesn't count a
+	// front-but-off-frame cell in africa). used to gate the live-chat ticker to
+	// messages whose ping the viewer can actually see fire.
+	function isOnScreen(gh) {
+		if (!gh || !/^[0-9a-z]{1,12}$/.test(gh)) return false;
+		const b = geohashBounds(gh);
+		const p = project(wrapLon((b.lonLo + b.lonHi) / 2), (b.latLo + b.latHi) / 2, radius(), sinP(), cosP());
+		return p.front && p.x >= 0 && p.x <= W && p.y >= 0 && p.y <= H;
+	}
 	function destroy() {
 		close();
 		canvas.removeEventListener("pointerdown", onDown);
@@ -659,7 +669,7 @@ export function createMap({ canvas, onPick, colors }) {
 	canvas.addEventListener("wheel", onWheel, { passive: false });
 	window.addEventListener("resize", resize);
 
-	return { open, close, setActivity, ping, focusGeohash, destroy, resize };
+	return { open, close, setActivity, ping, isOnScreen, focusGeohash, destroy, resize };
 }
 
 // --- helpers -----------------------------------------------------------------

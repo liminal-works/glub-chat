@@ -16,7 +16,7 @@ import crypto from "node:crypto";
 import { finalizeEvent, getPublicKey, nip19 } from "nostr-tools";
 import { franc } from "franc";
 import { CHAT_KIND, getName, getGeohash } from "./nostr.mjs";
-import { geohashToLatLon, countryCodeToFlag, latLonToGeohash, formatRegionSizeMi, parseLatLonInput } from "./geo.mjs";
+import { geohashToLatLon, countryCodeToFlag, latLonToGeohash, formatRegionSize, parseLatLonInput } from "./geo.mjs";
 import { queryNostr, extractImageUrlsFromEvent, normalizeNostrTag } from "./nostrQuery.mjs";
 
 const now = () => Math.floor(Date.now() / 1000);
@@ -561,7 +561,7 @@ export function createBot({ broadcast, store, botName = process.env.GLUB_BOT_NAM
 			const info = await geocodeGeohash(geo);
 			const label = (info?.label || "unknown area").toLowerCase();
 			const flag = countryCodeToFlag(info?.country_code);
-			const span = formatRegionSizeMi(geo);
+			const span = formatRegionSize(geo);
 			reply(
 				`#${geo}:\n\n` +
 					`${label} ${flag}\n` +
@@ -594,7 +594,7 @@ export function createBot({ broadcast, store, botName = process.env.GLUB_BOT_NAM
 		]
 			.map(([p, label]) => {
 				const gh = latLonToGeohash(target.lat, target.lon, p);
-				const size = formatRegionSizeMi(gh);
+				const size = formatRegionSize(gh);
 				return `- #${gh} · ${label}${size ? ` · ${size}` : ""}`;
 			})
 			.join("\n");

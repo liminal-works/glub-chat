@@ -654,6 +654,7 @@ export function createMap({ canvas, onPick, colors }) {
 	}
 	function destroy() {
 		close();
+		ro?.disconnect();
 		canvas.removeEventListener("pointerdown", onDown);
 		canvas.removeEventListener("pointermove", onMove);
 		canvas.removeEventListener("pointerup", onUp);
@@ -668,6 +669,13 @@ export function createMap({ canvas, onPick, colors }) {
 	canvas.addEventListener("pointercancel", onUp);
 	canvas.addEventListener("wheel", onWheel, { passive: false });
 	window.addEventListener("resize", resize);
+	// the window resize event is unreliable on ios orientation flips (it can fire
+	// with stale layout, or not at all), which left the canvas holding its old
+	// landscape pixel size while the css box turned portrait - stretching the
+	// globe. observe the canvas box directly so we re-measure exactly when it
+	// actually changes size, whatever triggered it.
+	const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(() => resize()) : null;
+	ro?.observe(canvas);
 
 	return { open, close, setActivity, ping, isOnScreen, focusGeohash, destroy, resize };
 }

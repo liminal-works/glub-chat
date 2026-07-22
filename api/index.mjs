@@ -59,7 +59,7 @@ function broadcast(ev, geo) {
 let bot;
 const aggregator = createAggregator(store, {
 	onStored: broadcast,
-	onChat: (ev, geo) => bot?.observe(ev, geo),
+	onChat: (ev, geo, source) => bot?.observe(ev, geo, source),
 });
 bot = createBot({ store, broadcast: (ev, geo) => aggregator.broadcast(ev, geo) });
 const profiles = createProfiles();

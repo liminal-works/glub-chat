@@ -87,7 +87,7 @@ export function createAggregator(store, { onStored, onChat } = {}) {
 	// tests (no live relay needed). Streams to subscribers only when it's new, so
 	// relays resending the same event don't double-fire. `live` = arrived after
 	// its source socket's EOSE (backlog replays bypass the rate buckets).
-	function ingest(ev, live = true) {
+	function ingest(ev, live = true, source) {
 		const geo = acceptableGeo(ev);
 		if (!geo) return false;
 		if (live && !chatLimiter.allow("nostr:" + ev.pubkey.toLowerCase(), ev.content)) {
@@ -98,8 +98,9 @@ export function createAggregator(store, { onStored, onChat } = {}) {
 		if (inserted && onStored) onStored(ev, geo);
 		// feed the global bot every fresh live chat event (activity/language/commands).
 		// only on first insert + live, so backlog replays and cross-relay duplicates
-		// don't double-count or trigger stale command replies.
-		if (inserted && live && onChat) onChat(ev, geo);
+		// don't double-count or trigger stale command replies. `source` is the relay
+		// url that carried it, passed through for the bot's abuse logging.
+		if (inserted && live && onChat) onChat(ev, geo, source);
 		return inserted;
 	}
 
@@ -206,7 +207,7 @@ export function createAggregator(store, { onStored, onChat } = {}) {
 				// assist-mode clients send here instead of to relays, so this is the
 				// bot's only sight of their chat + commands. Gate on `inserted` so the
 				// relay echo of this same event (via handleFrame->ingest) can't re-fire.
-				if (inserted && onChat) onChat(ev, geo);
+				if (inserted && onChat) onChat(ev, geo, "api:publish");
 			} else {
 				trackPresence(ev); // record our own presence like any relay-sourced one
 			}
@@ -309,7 +310,7 @@ export function createAggregator(store, { onStored, onChat } = {}) {
 		if (ev.kind === PRESENCE_KIND) trackPresence(ev, conn.eosed);
 		else if (ev.kind === NOTE_KIND) ingestNote(ev, conn.eosed);
 		else if (ev.kind === DELETE_KIND) handleDeletion(ev, conn.eosed);
-		else ingest(ev, conn.eosed);
+		else ingest(ev, conn.eosed, conn.url);
 	}
 
 	function connectRelay(url, attempt = 0) {
@@ -349,7 +350,7 @@ export function createAggregator(store, { onStored, onChat } = {}) {
 				])
 			);
 		});
-		const conn = { eosed: false }; // per-socket backlog/live phase (see handleFrame)
+		const conn = { eosed: false, url }; // per-socket backlog/live phase + source url (see handleFrame)
 		ws.on("message", (data) => handleFrame(data.toString(), conn));
 		ws.on("error", () => {});
 		ws.on("close", retry);

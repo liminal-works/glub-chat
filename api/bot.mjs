@@ -97,6 +97,50 @@ const PLACE_CACHE_MAX = 2000; // forward place-lookup (!goto) cache bound
 const GEOCODE_TIMEOUT_MS = 2500; // per reverse-geocode; a flag must never stall a reply
 const NOMINATIM_UA = "glub.chat-bot (https://glub.chat)";
 
+// the bot honors the same visibility rules a client does: a message no client
+// would render must not be able to drive the bot either.
+const MAX_FUTURE_SEC = 120; // drop events timestamped this far ahead (forged/skewed clock), matching the client
+const BOT_REQUIRE_POW = process.env.GLUB_BOT_REQUIRE_POW !== "0"; // require a real NIP-13 nonce (native's default inbound filter drops no-nonce events); set 0 to disable
+const BOT_MIN_POW = Number(process.env.GLUB_BOT_MIN_POW) || 0; // extra floor on the committed difficulty (0 = just require a valid, self-consistent nonce)
+
+// --- NIP-13 proof-of-work (ported from the client's pow.js) ------------------
+// leading-zero *bits* of a hex event id.
+function idDifficulty(idHex) {
+	let bits = 0;
+	for (const c of String(idHex || "")) {
+		const nibble = parseInt(c, 16);
+		if (Number.isNaN(nibble)) break;
+		if (nibble === 0) {
+			bits += 4;
+			continue;
+		}
+		bits += nibble < 2 ? 3 : nibble < 4 ? 2 : nibble < 8 ? 1 : 0;
+		break;
+	}
+	return bits;
+}
+// the difficulty an event's nonce tag COMMITS to (3rd element), or 0 if absent.
+function committedDifficulty(ev) {
+	const tag = (Array.isArray(ev.tags) ? ev.tags : []).find((t) => Array.isArray(t) && t[0] === "nonce");
+	if (!tag) return 0;
+	const n = parseInt(tag[2], 10);
+	return Number.isFinite(n) ? n : 0;
+}
+
+// would a client actually render this event? forged-future timestamps are out,
+// and (like a default native client) a message must carry a real, self-consistent
+// proof-of-work nonce. returns { ok } or { ok:false, reason } for logging.
+function isRenderable(ev, nowSec) {
+	if (ev.created_at > nowSec + MAX_FUTURE_SEC) return { ok: false, reason: "future-timestamp" };
+	if (BOT_REQUIRE_POW) {
+		const committed = committedDifficulty(ev);
+		if (committed === 0) return { ok: false, reason: "no-pow-nonce" };
+		if (idDifficulty(ev.id) < committed) return { ok: false, reason: "pow-mismatch" };
+		if (committed < BOT_MIN_POW) return { ok: false, reason: `pow-below-min(${committed}<${BOT_MIN_POW})` };
+	}
+	return { ok: true };
+}
+
 // createBot({ broadcast, botName })
 //   broadcast(signedEvent, geohash)  fan the reply out (the aggregator supplies it)
 //   botName                          the `n` tag / display handle (default "glub.bot")
@@ -784,11 +828,29 @@ export function createBot({ broadcast, store, botName = process.env.GLUB_BOT_NAM
 	// + language for every real message, and serves any `!command`. Backlog replays
 	// (live=false) are never passed here, so the bot never answers stale history or
 	// double-counts a relay's stored backlog.
-	function observe(ev, geo) {
+	function observe(ev, geo, source) {
 		if (!ev || ev.kind !== CHAT_KIND || !geo) return;
 		if (botPubkeys.has(ev.pubkey)) return; // never react to / count our own replies (incl. just-rotated keys)
 
 		const content = String(ev.content || "");
+		const parsed = parseCommand(content);
+
+		// gate on the same rules a client uses to render a message. an event no client
+		// would show (forged-future timestamp, or - like a default native client - no
+		// valid proof-of-work nonce) is ignored entirely, so a stealth message can't
+		// drive the bot without also being a real, visible message.
+		const vis = isRenderable(ev, now());
+		if (!vis.ok) {
+			// a hidden *command* is exactly the abuse to inspect: dump the raw event +
+			// the relay that carried it (a nonce mine cost / a forged clock will show).
+			if (parsed) {
+				console.warn(
+					`[bot] IGNORED !${parsed.name} in #${geo} — ${vis.reason} — via ${source || "?"} — ` +
+						`pow ${idDifficulty(ev.id)}/${committedDifficulty(ev)} — ${JSON.stringify(ev)}`,
+				);
+			}
+			return;
+		}
 
 		// language + presence + last-seen tracking happen for every message (commands
 		// included, exactly as before - a "!top" is too short for franc to latch onto).
@@ -796,14 +858,13 @@ export function createBot({ broadcast, store, botName = process.env.GLUB_BOT_NAM
 		noteActivePubkey(ev.pubkey, ev.created_at);
 		noteSeen(nameOf(ev), geo, ev.created_at);
 
-		const parsed = parseCommand(content);
 		if (parsed) {
 			// any "!"-prefixed message is a command attempt - never counted as chat.
 			if (!parsed.command) {
 				console.log(`[bot] saw !${parsed.name} in #${geo} (unknown - no handler)`);
 				return;
 			}
-			console.log(`[bot] saw !${parsed.name} in #${geo} from ${ev.pubkey.slice(0, 8)}`);
+			console.log(`[bot] saw !${parsed.name} in #${geo} from ${ev.pubkey.slice(0, 8)} · pow ${committedDifficulty(ev)} · via ${source || "?"}`);
 			if (!commandCooldownOk()) {
 				console.log(`[bot] !${parsed.name} dropped (global cooldown)`);
 				return; // global budget spent

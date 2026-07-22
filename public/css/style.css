@@ -1021,6 +1021,28 @@ textarea {
 	letter-spacing: 0.02em;
 }
 
+/* landscape: the globe is height-bound and leaves wide empty bands on either
+   side, so give it more room (wider/taller panel, full stage width). the ticker
+   stays a bottom-left overlay whose lines spill rightward across the globe rather
+   than being cropped in a side rail. the header and hint keep spanning top/bottom. */
+@media (orientation: landscape) and (min-width: 600px) {
+	.mapPanel {
+		max-width: min(94vw, 1040px);
+		height: min(94vh, 700px);
+	}
+	.mapFeed {
+		left: 16px;
+		right: auto;
+		bottom: 10px;
+		max-height: 72%;
+		overflow: visible; /* let long lines run over the globe instead of clipping */
+	}
+	.mapFeed .mapFeedLine {
+		overflow: visible;
+		text-overflow: clip;
+	}
+}
+
 /* --- location notes: a per-geohash bulletin board (persistent kind-1) --- */
 /* notes has a text composer, so - like the DM thread - it lives inside #app
    (which JS sizes to the visual viewport) and is absolutely positioned rather

@@ -100,8 +100,12 @@ const NOMINATIM_UA = "glub.chat-bot (https://glub.chat)";
 // the bot honors the same visibility rules a client does: a message no client
 // would render must not be able to drive the bot either.
 const MAX_FUTURE_SEC = 120; // drop events timestamped this far ahead (forged/skewed clock), matching the client
-const BOT_REQUIRE_POW = process.env.GLUB_BOT_REQUIRE_POW !== "0"; // require a real NIP-13 nonce (native's default inbound filter drops no-nonce events); set 0 to disable
-const BOT_MIN_POW = Number(process.env.GLUB_BOT_MIN_POW) || 0; // extra floor on the committed difficulty (0 = just require a valid, self-consistent nonce)
+// PoW is OFF by default: ios bitchat attaches no nonce tag at all (only android's
+// *inbound* filter drops no-nonce events, and even that's opt-in), so requiring
+// one here drops heaps of legit traffic. leave this off unless you've confirmed
+// your abuser mines and your audience does too; set GLUB_BOT_REQUIRE_POW=1.
+const BOT_REQUIRE_POW = process.env.GLUB_BOT_REQUIRE_POW === "1";
+const BOT_MIN_POW = Number(process.env.GLUB_BOT_MIN_POW) || 0; // extra floor on the committed difficulty when PoW is required
 
 // --- NIP-13 proof-of-work (ported from the client's pow.js) ------------------
 // leading-zero *bits* of a hex event id.
@@ -864,7 +868,12 @@ export function createBot({ broadcast, store, botName = process.env.GLUB_BOT_NAM
 				console.log(`[bot] saw !${parsed.name} in #${geo} (unknown - no handler)`);
 				return;
 			}
-			console.log(`[bot] saw !${parsed.name} in #${geo} from ${ev.pubkey.slice(0, 8)} · pow ${committedDifficulty(ev)} · via ${source || "?"}`);
+			// log the whole event for every command so an odd/stealth one can be
+			// inspected (which relay, pow it carried, tags, timestamp skew, raw json).
+			console.log(
+				`[bot] !${parsed.name} in #${geo} from ${ev.pubkey.slice(0, 8)} · pow ${idDifficulty(ev.id)}/${committedDifficulty(ev)} · ` +
+					`skew ${ev.created_at - now()}s · via ${source || "?"} · ${JSON.stringify(ev)}`,
+			);
 			if (!commandCooldownOk()) {
 				console.log(`[bot] !${parsed.name} dropped (global cooldown)`);
 				return; // global budget spent

@@ -100,6 +100,10 @@ const NOMINATIM_UA = "glub.chat-bot (https://glub.chat)";
 // the bot honors the same visibility rules a client does: a message no client
 // would render must not be able to drive the bot either.
 const MAX_FUTURE_SEC = 120; // drop events timestamped this far ahead (forged/skewed clock), matching the client
+// live chat reads as "~now"; a backdated event is a replay clients won't surface
+// as a live message (native hides ephemeral chat outside a recency window). 5min
+// default is generous enough for clock skew + relay latency, env-tunable tighter.
+const MAX_PAST_SEC = Number(process.env.GLUB_BOT_MAX_PAST_SEC) || 300;
 // PoW is OFF by default: ios bitchat attaches no nonce tag at all (only android's
 // *inbound* filter drops no-nonce events, and even that's opt-in), so requiring
 // one here drops heaps of legit traffic. leave this off unless you've confirmed
@@ -135,7 +139,8 @@ function committedDifficulty(ev) {
 // and (like a default native client) a message must carry a real, self-consistent
 // proof-of-work nonce. returns { ok } or { ok:false, reason } for logging.
 function isRenderable(ev, nowSec) {
-	if (ev.created_at > nowSec + MAX_FUTURE_SEC) return { ok: false, reason: "future-timestamp" };
+	if (ev.created_at > nowSec + MAX_FUTURE_SEC) return { ok: false, reason: `future-timestamp(+${ev.created_at - nowSec}s)` };
+	if (ev.created_at < nowSec - MAX_PAST_SEC) return { ok: false, reason: `stale-timestamp(-${nowSec - ev.created_at}s)` };
 	if (BOT_REQUIRE_POW) {
 		const committed = committedDifficulty(ev);
 		if (committed === 0) return { ok: false, reason: "no-pow-nonce" };

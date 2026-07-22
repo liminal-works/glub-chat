@@ -36,10 +36,14 @@ export function createSuggest(boxEl) {
 		if (activeEl) activeEl.scrollIntoView({ block: "nearest" });
 	}
 
-	function show(nextItems, pick) {
+	// autoHighlight:false starts with no row selected, so Enter commits what the
+	// user typed instead of the nearest suggestion (the channel-join picker wants
+	// this - typing "#s" must join "#s", not the popular "#st" it suggests). the
+	// user can still arrow onto a row or tap one. mentions/commands leave it on.
+	function show(nextItems, pick, { autoHighlight = true } = {}) {
 		items = nextItems;
 		onPick = pick;
-		active = 0;
+		active = autoHighlight ? 0 : -1;
 		boxEl.hidden = false;
 		render();
 	}
@@ -58,7 +62,8 @@ export function createSuggest(boxEl) {
 
 	function move(delta) {
 		if (!items.length) return;
-		active = Math.max(0, Math.min(items.length - 1, active + delta));
+		if (active < 0) active = 0; // first arrow onto an unselected list highlights the nearest
+		else active = Math.max(0, Math.min(items.length - 1, active + delta));
 		render();
 	}
 
@@ -84,9 +89,16 @@ export function createSuggest(boxEl) {
 				move(-1);
 				return true;
 			case "Enter":
-			case "Tab":
+				// nothing highlighted (auto-highlight off) -> don't consume it; let the
+				// caller commit what was typed (e.g. join the exact channel you wrote).
+				if (active < 0) return false;
 				e.preventDefault();
 				pick(active);
+				return true;
+			case "Tab":
+				// tab always completes the nearest match, even when unhighlighted.
+				e.preventDefault();
+				pick(active < 0 ? 0 : active);
 				return true;
 			case "Escape":
 				e.preventDefault();

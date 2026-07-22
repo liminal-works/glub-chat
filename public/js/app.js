@@ -4381,7 +4381,9 @@ function channelProvider(value, caret) {
 			html: `#${escapeHtml(c.geo)}`,
 			meta: t("suggest.here", { count: c.count }),
 		}));
-	return { items, onPick: (item) => joinFromSuggest(item.geo) };
+	// no auto-highlight: Enter joins exactly what you typed (so "#s" joins "#s", not
+	// the popular "#st" it suggests); tap a row or arrow onto it to pick one instead.
+	return { items, onPick: (item) => joinFromSuggest(item.geo), autoHighlight: false };
 }
 
 // join a channel chosen from the picker, clearing the composer + popup.
@@ -4402,7 +4404,7 @@ function refreshSuggest() {
 		const ctx = provider(value, caret);
 		if (ctx && ctx.items.length) {
 			const pick = ctx.onPick || ((item) => applySuggest(ctx.start, ctx.end, item.insert));
-			suggest.show(ctx.items, pick);
+			suggest.show(ctx.items, pick, { autoHighlight: ctx.autoHighlight !== false });
 			return;
 		}
 	}

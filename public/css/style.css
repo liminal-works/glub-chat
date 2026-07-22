@@ -969,7 +969,7 @@ textarea {
 	max-height: 46%;
 	overflow: hidden;
 	pointer-events: none;
-	text-align: center;
+	text-align: left;
 	font-size: 11.5px;
 	line-height: 1.35;
 }

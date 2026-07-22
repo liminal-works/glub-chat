@@ -126,6 +126,7 @@ const usersMap = document.getElementById("usersMap");
 const mapGate = document.getElementById("mapGate");
 const mapClose = document.getElementById("mapClose");
 const mapCanvas = document.getElementById("mapCanvas");
+const mapFeed = document.getElementById("mapFeed");
 const usersNotes = document.getElementById("usersNotes");
 const notesGate = document.getElementById("notesGate");
 const notesTitle = document.getElementById("notesTitle");
@@ -1691,6 +1692,7 @@ function openMap() {
 		});
 	}
 	closeUsers();
+	if (mapFeed) mapFeed.innerHTML = ""; // start the live-chat ticker empty
 	mapGate.classList.add("show");
 	mapInstance.setActivity(buildActivityMap(), buildCountMap());
 	// the canvas has no size until the gate is visible - size it next frame
@@ -1709,7 +1711,29 @@ function closeMap() {
 	mapGate.classList.remove("show");
 	clearInterval(mapActivityTimer);
 	mapActivityTimer = null;
+	if (mapFeed) mapFeed.innerHTML = "";
 	if (mapInstance) mapInstance.close();
+}
+
+// the globe's live-chat ticker: push one fading line per live message while the
+// map is open. it's ambient - a glimpse of what the world is saying right now,
+// languages and all - so it stays lightweight (capped, self-removing) and never
+// blocks the globe underneath (pointer-events: none in css).
+const MAP_FEED_MAX = 5; // most lines visible at once; a burst evicts the oldest early
+function pushMapFeed(ev, geo) {
+	if (!mapFeed) return;
+	const text = String(ev.content || "").replace(/\s+/g, " ").trim();
+	if (!text) return;
+	const who = clipWithEllipsis(getName(ev) || "anon", 14);
+	const line = document.createElement("div");
+	line.className = "mapFeedLine";
+	line.innerHTML =
+		`<span class="mfGeo">#${escapeHtml(geo)}</span> ` +
+		`<span class="mfWho" style="color:${pubkeyColor(ev.pubkey)}">${escapeHtml(who)}</span> ` +
+		`<span class="mfMsg">${escapeHtml(clipWithEllipsis(text, 90))}</span>`;
+	line.addEventListener("animationend", () => line.remove());
+	mapFeed.appendChild(line);
+	while (mapFeed.childElementCount > MAP_FEED_MAX) mapFeed.firstElementChild.remove();
 }
 
 // --- location notes ---------------------------------------------------------
@@ -3311,11 +3335,16 @@ function ingestEvent(ev, live = true) {
 
 	renderEvent(ev);
 
-	// ripple the globe wherever a live message just landed (map open only). backlog
-	// replays (live=false) don't ping - they're history, not a heartbeat.
+	// ripple the globe wherever a live message just landed, and drift its text into
+	// the ambient chat ticker (map open only). backlog replays (live=false) don't -
+	// they're history, not a heartbeat. blocked authors and muted channels are kept
+	// out of the ticker, matching what you'd see everywhere else.
 	if (live && mapInstance && mapActivityTimer) {
 		const geo = getGeohash(ev);
-		if (geo && /^[0-9a-z]{1,12}$/.test(geo)) mapInstance.ping(geo);
+		if (geo && /^[0-9a-z]{1,12}$/.test(geo)) {
+			mapInstance.ping(geo);
+			if (!isActionMessage(ev.content) && !isBlocked(ev.pubkey) && !mutedChannels.has(geo)) pushMapFeed(ev, geo);
+		}
 	}
 }
 

@@ -195,7 +195,12 @@
 						<span id="mapTitle" data-i18n="map.title">geohash map</span>
 						<strong id="mapClose" class="usersExit" data-i18n="users.exit">[EXIT]</strong>
 					</div>
-					<canvas id="mapCanvas" class="mapCanvas"></canvas>
+					<div class="mapStage">
+						<canvas id="mapCanvas" class="mapCanvas"></canvas>
+						<!-- ephemeral live-chat ticker: fresh messages from anywhere drift up
+						     over the globe's lower third and fade after a few seconds (pushMapFeed) -->
+						<div id="mapFeed" class="mapFeed" aria-hidden="true"></div>
+					</div>
 					<div id="mapHint" class="mapHint" data-i18n="map.hint">drag to spin · zoom to explore · select a cell to join</div>
 				</div>
 			</div>

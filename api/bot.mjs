@@ -93,6 +93,7 @@ const NOSTR_SEEN_MAX = 5000; // event ids remembered so !nostr doesn't repeat
 const COMMAND_COOLDOWN_WINDOW_MS = 60_000; // global command budget window
 const COMMAND_COOLDOWN_MAX = 12; // ...and how many commands fit in it
 const GEO_CACHE_MAX = 5000; // reverse-geocode cache bound
+const PLACE_CACHE_MAX = 2000; // forward place-lookup (!goto) cache bound
 const GEOCODE_TIMEOUT_MS = 2500; // per reverse-geocode; a flag must never stall a reply
 const NOMINATIM_UA = "glub.chat-bot (https://glub.chat)";
 
@@ -141,6 +142,7 @@ export function createBot({ broadcast, store, botName = process.env.GLUB_BOT_NAM
 	const langBlob = new Map(); // geohash -> { blob, n } accumulating text for detection
 	const channelLanguage = new Map(); // geohash -> { lang, updated } (ISO 639-3, e.g. "eng")
 	const geoNameCache = new Map(); // geohash -> { country_code, geocodable } (reverse-geocode cache)
+	const placeCache = new Map(); // normalized query -> Promise<{ lat, lon, label } | null> (forward-geocode cache for !goto)
 	const commandHits = []; // ms timestamps of recently-served commands (global cooldown)
 	const recentOther = []; // cross-channel recent messages, newest last → !listen
 	const recentByLanguage = new Map(); // ISO-639-3 lang -> [{ g, user, msg, t }] → !listen <lang>
@@ -369,25 +371,41 @@ export function createBot({ broadcast, store, botName = process.env.GLUB_BOT_NAM
 		return country;
 	}
 
-	// forward geocode a free-text place query to { lat, lon, label } (or null).
-	async function geocodePlaceQuery(query) {
+	// forward geocode a free-text place query to { lat, lon, label } (or null),
+	// cached by normalized query so the same place never hits nominatim twice - a
+	// place's coordinates don't change, and !goto <place> is the kind of thing that
+	// gets repeated. the Promise itself is cached, so simultaneous lookups of the
+	// same place share one request. a resolved value (hit or genuine no-match) stays
+	// cached; a thrown request (down/rate-limited/timeout) is evicted so it retries.
+	function geocodePlaceQuery(query) {
 		const q = String(query || "").trim();
-		if (!q) return null;
-		const url =
-			`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}` +
-			`&format=jsonv2&limit=1&addressdetails=1&accept-language=en`;
-		const res = await fetch(url, {
-			headers: { "User-Agent": NOMINATIM_UA, "Accept-Language": "en" },
-			signal: AbortSignal.timeout(GEOCODE_TIMEOUT_MS),
-		});
-		if (!res.ok) throw new Error(`geocode failed (${res.status})`);
-		const json = await res.json().catch(() => null);
-		const hit = Array.isArray(json) ? json[0] : null;
-		if (!hit) return null;
-		const lat = Number(hit.lat);
-		const lon = Number(hit.lon);
-		if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
-		return { lat, lon, label: String(hit.display_name || q).trim() };
+		if (!q) return Promise.resolve(null);
+		const key = q.toLowerCase().replace(/\s+/g, " ");
+		const cached = placeCache.get(key);
+		if (cached) return cached;
+
+		const p = (async () => {
+			const url =
+				`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}` +
+				`&format=jsonv2&limit=1&addressdetails=1&accept-language=en`;
+			const res = await fetch(url, {
+				headers: { "User-Agent": NOMINATIM_UA, "Accept-Language": "en" },
+				signal: AbortSignal.timeout(GEOCODE_TIMEOUT_MS),
+			});
+			if (!res.ok) throw new Error(`geocode failed (${res.status})`);
+			const json = await res.json().catch(() => null);
+			const hit = Array.isArray(json) ? json[0] : null;
+			if (!hit) return null;
+			const lat = Number(hit.lat);
+			const lon = Number(hit.lon);
+			if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+			return { lat, lon, label: String(hit.display_name || q).trim() };
+		})();
+
+		p.catch(() => placeCache.delete(key)); // don't cache transient failures
+		if (placeCache.size >= PLACE_CACHE_MAX) placeCache.clear();
+		placeCache.set(key, p);
+		return p;
 	}
 
 	// !goto's resolver: a "lat, lon" pair, else a place-name lookup.

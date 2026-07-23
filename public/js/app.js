@@ -38,14 +38,18 @@ const MAX_MSG_LEN = 450; // collapse longer messages behind a "more" toggle
 const HARD_MAX_MSG_LEN = 8000; // absolute ceiling, even when expanded, to bound DOM/memory
 const MAX_IMAGES_PER_MESSAGE = 6; // anti-flood: cap how many previews one message can spam in
 const MAX_FUTURE_SECS = 120; // drop events timestamped more than this far ahead (skewed/forged clocks)
-// broadcast-spam suppression, GLOBAL feed only: when this many buffer entries
-// share one content signature, the message reads as a broadcast blast rather than
-// conversation and is omitted from the aggregated global view. entering its
-// channel still shows every copy - we just don't let the firehose be flooded.
-// counted over the whole buffer with NO time window, so a bot dripping one copy
-// every few minutes for weeks is caught by sheer accumulated quantity.
-const GLOBAL_SPAM_THRESHOLD = 5;
-const GLOBAL_SPAM_MIN_SIG = 24; // shorter signatures (greetings/reactions) are never suppressed
+// broadcast-spam suppression, GLOBAL feed only: a message present in the buffer
+// as a big cluster of one content signature reads as a broadcast, not chat, so
+// it's omitted from the aggregated global view (entering its channel still shows
+// every copy - we just don't let the firehose be flooded). counted over the whole
+// buffer with NO time window, so even a slow drip accumulates into a flag. two
+// shapes, distinguished by tracking counts PER KEY:
+//   flood - one key repeating the same message (any length): "still here" x30.
+//   spray - a distinctive long message across many burner keys: temu copypasta.
+const SPAM_FLOOD_PER_KEY = 4; // one key sending the same signature this many times = flood (length-agnostic)
+const SPAM_SPRAY_TOTAL = 5; // the same signature across keys this many times = spray
+const SPAM_SPRAY_MIN_SIG = 24; // ...but the spray rule only fires on messages this long, so common short lines said by many people aren't caught
+const SPAM_SIG_MIN = 3; // ignore signatures shorter than this entirely (bare reactions / "gm" / punctuation)
 const seen = new Set();
 const entries = []; // [{ ts, geo, system, pubkey, html, el }], ascending by ts - all received messages
 
@@ -626,7 +630,7 @@ function entryPassesPow(entry) {
 
 // content signature for spam grouping: letters only (case-folded, width/accent
 // normalized), urls stripped so a rotating link slug can't split a cluster. "" for
-// anything too short to judge - those are never counted or suppressed.
+// anything too short to be a meaningful signature (bare reactions / punctuation).
 function messageSignature(text) {
 	const sig = String(text || "")
 		.toLowerCase()
@@ -634,22 +638,41 @@ function messageSignature(text) {
 		.replace(/https?:\/\/\S+/g, " ")
 		.replace(/[^\p{L}]+/gu, " ")
 		.trim();
-	return sig.length >= GLOBAL_SPAM_MIN_SIG ? sig : "";
+	return sig.length >= SPAM_SIG_MIN ? sig : "";
 }
 
-// how many buffer entries currently share each signature - the basis for global
+// per-signature, per-key counts over the current buffer - the basis for global
 // broadcast-spam suppression, maintained incrementally as entries enter/leave.
-const sigCounts = new Map();
+const sigStats = new Map(); // sig -> Map<pubkey, count>
+const flaggedSpamSigs = new Set(); // signatures already swept from the global feed (avoids re-sweeping)
 function sigBump(entry, delta) {
 	const s = entry && entry.sig;
 	if (!s) return;
-	const n = (sigCounts.get(s) || 0) + delta;
-	if (n <= 0) sigCounts.delete(s);
-	else sigCounts.set(s, n);
+	const pk = entry.pubkey || "";
+	let byKey = sigStats.get(s);
+	if (!byKey) {
+		if (delta <= 0) return;
+		sigStats.set(s, (byKey = new Map()));
+	}
+	const n = (byKey.get(pk) || 0) + delta;
+	if (n <= 0) byKey.delete(pk);
+	else byKey.set(pk, n);
+	if (byKey.size === 0) sigStats.delete(s);
 }
-// this exact message is so numerous in the buffer it's a broadcast, not chat.
+// a signature reads as a broadcast (not chat) when either one key floods it, or a
+// long distinctive line is sprayed across many keys.
 function isGlobalSpam(entry) {
-	return !!entry.sig && (sigCounts.get(entry.sig) || 0) >= GLOBAL_SPAM_THRESHOLD;
+	if (!entry.sig) return false;
+	const byKey = sigStats.get(entry.sig);
+	if (!byKey) return false;
+	let total = 0,
+		max = 0;
+	for (const n of byKey.values()) {
+		total += n;
+		if (n > max) max = n;
+	}
+	if (max >= SPAM_FLOOD_PER_KEY) return true; // one key hammering the same line (any length)
+	return total >= SPAM_SPRAY_TOTAL && entry.sig.length >= SPAM_SPRAY_MIN_SIG; // distinctive line across many keys
 }
 
 function entryVisible(entry) {
@@ -914,8 +937,11 @@ function insertEntry(entry) {
 
 	// the moment a cluster crosses into broadcast-spam territory, pull its already-
 	// rendered copies out of the global feed (later copies simply won't render). in
-	// a channel we're not filtering, so this only matters in the global view.
-	if (!focusedGeo && entry.sig && sigCounts.get(entry.sig) === GLOBAL_SPAM_THRESHOLD) {
+	// a channel we're not filtering, so this only matters in the global view. the
+	// flagged set makes the sweep run once per signature, not on every later copy.
+	if (!focusedGeo && entry.sig && !flaggedSpamSigs.has(entry.sig) && isGlobalSpam(entry)) {
+		flaggedSpamSigs.add(entry.sig);
+		if (flaggedSpamSigs.size > 500) flaggedSpamSigs.clear();
 		for (const e of entries) {
 			if (e.sig === entry.sig && e.el) {
 				e.el.remove();

@@ -4337,7 +4337,7 @@ const COMMANDS = [
 			try {
 				const w = await fetchConditions(loc.lat, loc.lon);
 				if (typeof w.tempC !== "number") throw new Error("no data");
-				const { text, emoji } = wmoDescribe(w.code);
+				const { text, emoji } = wmoDescribe(w.code, w.isDay);
 				const tempF = Math.round((w.tempC * 9) / 5 + 32);
 				const wind = typeof w.windKmh === "number" ? `\nwind ${Math.round(w.windKmh)}km/h` : "";
 				transmit(`${loc.label}:\n\n${emoji} ${text}\n${Math.round(w.tempC)}°c · ${tempF}°f${wind}`, focusedGeo, botName());
@@ -4358,7 +4358,7 @@ const COMMANDS = [
 			const loc = await resolveBotLocation(arg);
 			if (!loc) return;
 			try {
-				const { timezone } = await fetchConditions(loc.lat, loc.lon);
+				const { timezone, isDay } = await fetchConditions(loc.lat, loc.lon);
 				if (!timezone) throw new Error("no tz");
 				const d = new Date();
 				const t12 = new Intl.DateTimeFormat("en-US", { timeZone: timezone, hour: "numeric", minute: "2-digit", hour12: true })
@@ -4367,7 +4367,9 @@ const COMMANDS = [
 				const t24 = new Intl.DateTimeFormat("en-GB", { timeZone: timezone, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(d);
 				const offParts = new Intl.DateTimeFormat("en-US", { timeZone: timezone, timeZoneName: "shortOffset" }).formatToParts(d);
 				const off = (offParts.find((p) => p.type === "timeZoneName")?.value || "utc").replace("GMT", "utc");
-				transmit(`${loc.label}:\n\n${t12} · ${t24}\n${off} · ${timezone.toLowerCase()}`, focusedGeo, botName());
+				// ☀️/🌙 reflects whether it's day or night at the location right now
+				const glyph = isDay ? "☀️" : "🌙";
+				transmit(`${loc.label}:\n\n${glyph} ${t12} · ${t24}\n${off} · ${timezone.toLowerCase()}`, focusedGeo, botName());
 			} catch {
 				appendSystem(t("system.time_failed"));
 			}

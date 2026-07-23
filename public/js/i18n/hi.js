@@ -158,6 +158,7 @@ export default {
 		mode_notes: "स्थान नोट्स",
 		opt_night: "दिन/रात छाया",
 		opt_tiles: "सड़क नक्शा",
+		opt_spin: "स्वतः घुमाव",
 	},
 
 	notes: {

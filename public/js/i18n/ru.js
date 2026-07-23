@@ -163,6 +163,7 @@ export default {
 		mode_notes: "заметки на карте",
 		opt_night: "день и ночь",
 		opt_tiles: "уличная карта",
+		opt_spin: "автовращение",
 	},
 
 	notes: {

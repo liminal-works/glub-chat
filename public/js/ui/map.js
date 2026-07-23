@@ -114,6 +114,7 @@ export function createMap({ canvas, onPick, onNotesPick, colors }) {
 	let overlayMode = "live";
 	let optNight = true; // day/night terminator + cell dimming
 	let optTiles = true; // street raster tiles under the flat grid
+	let optSpin = true; // gentle idle auto-spin of the globe
 	let noteData = []; // [{ id, gh, lon, lat }] - notes with precomputed cell centers
 	let noteClusters = []; // last frame's rendered pins (reused for tap hit-tests)
 	// cos(latitude) captured as the view crosses into the flat blend: it pins the
@@ -1224,7 +1225,7 @@ export function createMap({ canvas, onPick, onNotesPick, colors }) {
 	function frame() {
 		if (!running) return;
 		// gentle idle auto-spin when nobody's touched it for a moment (and not deep in)
-		if (performance.now() - lastInteract > 2500 && !drag && pointers.size === 0 && zoom < 4) {
+		if (optSpin && performance.now() - lastInteract > 2500 && !drag && pointers.size === 0 && zoom < 4) {
 			yaw = wrapLon(yaw + 0.08);
 		}
 		// drop expired ripples so the array stays bounded
@@ -1278,11 +1279,13 @@ export function createMap({ canvas, onPick, onNotesPick, colors }) {
 			})
 			.filter(Boolean);
 	}
-	// display toggles: { night, tiles } - partial updates fine.
+	// display toggles: { night, tiles, spin } - partial updates fine; unknown keys
+	// (e.g. a config blob's `mode`) are ignored.
 	function setOptions(o) {
 		if (!o) return;
 		if (o.night !== undefined) optNight = !!o.night;
 		if (o.tiles !== undefined) optTiles = !!o.tiles;
+		if (o.spin !== undefined) optSpin = !!o.spin;
 	}
 
 	// ripple a ping at a geohash's cell center - called when a message lands there
@@ -1363,6 +1366,8 @@ export function createMap({ canvas, onPick, onNotesPick, colors }) {
 			t,
 			mode: t >= 0.5 ? "flat" : "globe",
 			depth,
+			yaw: wrapLon(yaw),
+			pitch,
 			gh: encodeGeohash(pitch, wrapLon(yaw), depth),
 		};
 		if (overlayMode === "notes") {

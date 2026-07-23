@@ -167,6 +167,7 @@ export default {
 		mode_notes: "location notes",
 		opt_night: "day/night shading",
 		opt_tiles: "street tiles",
+		opt_spin: "idle spin",
 	},
 
 	// the location-notes sheet: a persistent per-channel bulletin board (kind-1)

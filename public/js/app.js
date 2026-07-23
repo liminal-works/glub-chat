@@ -1761,24 +1761,35 @@ function mapColors() {
 	};
 }
 
-// --- map overlay mode + display prefs (the title-dropdown menu) --------------
-// "live" is the default heat-map experience; "notes" swaps the overlay for
-// location-note pins. mode is session-only (the map opens how you left it this
-// session); the display toggles persist.
-const STORAGE_MAP_NIGHT_KEY = "glub_map_night";
-const STORAGE_MAP_TILES_KEY = "glub_map_tiles";
-let mapMode = "live";
-const mapOpts = {
-	night: localStorage.getItem(STORAGE_MAP_NIGHT_KEY) !== "false",
-	tiles: localStorage.getItem(STORAGE_MAP_TILES_KEY) !== "false",
-};
+// --- map configuration (the title-dropdown menu) -----------------------------
+// the whole map setup - overlay mode ("live" heat map vs "notes" pins) plus the
+// display toggles (day/night shading, street tiles, idle globe spin) - persists
+// as one blob, so the map reopens exactly the way you left it. everything but
+// mode reads on the map object as an option; mode drives the overlay swap.
+const STORAGE_MAP_KEY = "glub_map";
+const mapConfig = loadMapConfig();
+
+function loadMapConfig() {
+	const cfg = { mode: "live", night: true, tiles: true, spin: true };
+	try {
+		const s = JSON.parse(localStorage.getItem(STORAGE_MAP_KEY) || "{}");
+		if (s.mode === "notes") cfg.mode = "notes";
+		for (const k of ["night", "tiles", "spin"]) if (s[k] === false) cfg[k] = false;
+	} catch {}
+	return cfg;
+}
+function saveMapConfig() {
+	try {
+		localStorage.setItem(STORAGE_MAP_KEY, JSON.stringify(mapConfig));
+	} catch {}
+}
 
 function renderMapMenu() {
 	for (const btn of mapMenu.querySelectorAll("[data-map-mode]")) {
-		btn.querySelector(".mmMark").textContent = btn.dataset.mapMode === mapMode ? "●" : "○";
+		btn.querySelector(".mmMark").textContent = btn.dataset.mapMode === mapConfig.mode ? "●" : "○";
 	}
 	for (const btn of mapMenu.querySelectorAll("[data-map-opt]")) {
-		btn.querySelector(".mmMark").textContent = mapOpts[btn.dataset.mapOpt] ? "[x]" : "[ ]";
+		btn.querySelector(".mmMark").textContent = mapConfig[btn.dataset.mapOpt] ? "[x]" : "[ ]";
 	}
 }
 
@@ -1791,13 +1802,13 @@ function toggleMapMenu(show) {
 // push the current mode into the map + surrounding chrome. safe to call any
 // time; the notes fetch loop only actually runs while the map gate is up.
 function applyMapMode() {
-	if (mapInstance) mapInstance.setMode(mapMode);
+	if (mapInstance) mapInstance.setMode(mapConfig.mode);
 	// the hint line follows the mode; keep data-i18n in sync so a language
 	// switch re-translates the right key
-	const hintKey = mapMode === "notes" ? "map.hint_notes" : "map.hint";
+	const hintKey = mapConfig.mode === "notes" ? "map.hint_notes" : "map.hint";
 	mapHint.setAttribute("data-i18n", hintKey);
 	mapHint.textContent = t(hintKey);
-	if (mapMode === "notes") {
+	if (mapConfig.mode === "notes") {
 		if (mapFeed) mapFeed.innerHTML = ""; // the live ticker has no place among pins
 		if (mapGate.classList.contains("show")) startMapNotes();
 	} else {
@@ -1819,7 +1830,7 @@ function openMap() {
 			// over the map, so [EXIT] drops you right back on it
 			onNotesPick: (gh) => openNotesForGeo(gh),
 		});
-		mapInstance.setOptions(mapOpts);
+		mapInstance.setOptions(mapConfig);
 	}
 	closeUsers();
 	if (mapFeed) mapFeed.innerHTML = ""; // start the live-chat ticker empty
@@ -3154,17 +3165,18 @@ mapMenu.addEventListener("click", (e) => {
 	e.stopPropagation();
 	if (item.dataset.mapMode) {
 		// mode is a radio: picking one closes the menu
-		if (mapMode !== item.dataset.mapMode) {
-			mapMode = item.dataset.mapMode;
+		if (mapConfig.mode !== item.dataset.mapMode) {
+			mapConfig.mode = item.dataset.mapMode;
+			saveMapConfig();
 			applyMapMode();
 		}
 		toggleMapMenu(false);
 	} else if (item.dataset.mapOpt) {
-		// display toggles stay open so both can be flipped in one visit
+		// display toggles stay open so several can be flipped in one visit
 		const k = item.dataset.mapOpt;
-		mapOpts[k] = !mapOpts[k];
-		localStorage.setItem(k === "night" ? STORAGE_MAP_NIGHT_KEY : STORAGE_MAP_TILES_KEY, mapOpts[k] ? "true" : "false");
-		if (mapInstance) mapInstance.setOptions(mapOpts);
+		mapConfig[k] = !mapConfig[k];
+		saveMapConfig();
+		if (mapInstance) mapInstance.setOptions(mapConfig);
 		renderMapMenu();
 	}
 });
@@ -3587,7 +3599,7 @@ function ingestEvent(ev, live = true) {
 	// the whole live overlay out for pins). backlog replays (live=false) don't -
 	// they're history, not a heartbeat. blocked authors and muted channels are kept
 	// out of the ticker, matching what you'd see everywhere else.
-	if (live && mapInstance && mapActivityTimer && mapMode === "live") {
+	if (live && mapInstance && mapActivityTimer && mapConfig.mode === "live") {
 		const geo = getGeohash(ev);
 		if (geo && /^[0-9a-z]{1,12}$/.test(geo)) {
 			mapInstance.ping(geo);

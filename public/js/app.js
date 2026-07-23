@@ -1478,9 +1478,17 @@ function usesImperial() {
 }
 
 // native's coverage style: a "~" prefix, one decimal below 100, whole numbers
-// above (~777 mi, ~24.3 mi, ~3.0 mi, ~0.1 mi).
+// above (~777 mi, ~24.3 mi, ~3.0 mi, ~0.1 mi). building-scale cells (a length-8
+// geohash ~ 38m) round to "~0.0" in mi/km, so drop to meters/feet below ~150m -
+// a "~40 m" / "~130 ft" reads far better than "~0.0 km".
 function formatDistance(km) {
 	const imperial = usesImperial();
+	if (km < 0.15) {
+		const small = imperial
+			? { v: Math.round((km * 3280.84) / 10) * 10, unit: "ft" }
+			: { v: Math.round((km * 1000) / 10) * 10, unit: "m" };
+		return `~${small.v} ${small.unit}`;
+	}
 	const val = imperial ? km * 0.621371 : km;
 	const n = val < 100 ? val.toFixed(1) : String(Math.round(val));
 	return `~${n} ${imperial ? "mi" : "km"}`;
@@ -2047,7 +2055,10 @@ function closeNotes() {
 // scope labels carry a localized distance for the band's cell size, using the
 // same mi/km logic (formatDistance/usesImperial) the users list shows for a
 // channel's coverage - built fresh each open so it follows the language + region.
-const NOTE_SCOPE_KEYS = { 7: "notes.scope_precise", 6: "notes.scope_block", 5: "notes.scope_city", 4: "notes.scope_region" };
+// precise is length 8 - native bitchat's building-level note precision (its
+// notes are "scoped to a building-level geohash, precision 8"), the tightest a
+// location note usefully gets. the coarser bands step down from there.
+const NOTE_SCOPE_KEYS = { 8: "notes.scope_precise", 6: "notes.scope_block", 5: "notes.scope_city", 4: "notes.scope_region" };
 function renderNotesMenu() {
 	for (const btn of notesMenu.querySelectorAll("[data-note-scope]")) {
 		const len = parseInt(btn.dataset.noteScope, 10);

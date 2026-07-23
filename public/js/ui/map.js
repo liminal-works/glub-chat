@@ -284,6 +284,7 @@ export function createMap({ canvas, onPick, colors }) {
 
 		const depth = depthFor(R);
 		drawGeohashGrid(R, sp, cp, depth, c, sunVec);
+		drawParentFrames(R, sp, cp, depth, c, sunVec);
 
 		ctx.restore();
 	}
@@ -302,7 +303,47 @@ export function createMap({ canvas, onPick, colors }) {
 		const sun = subsolarPoint();
 		drawFlatNight(c, wpx, sun);
 		drawFlatGrid(c, wpx, sun);
+		drawFlatParentFrames(c, wpx, sun);
 		drawAttribution(c);
+	}
+
+	// flat twin of drawParentFrames: once the grid is length 4+, overlay the parent
+	// prefix (one char shorter) as heavier rectangles so each cluster of 32 cells
+	// carries a thick surrounding border. geohash cells are axis-aligned in mercator,
+	// so a parent box is a plain strokeRect on its bounds.
+	function drawFlatParentFrames(c, wpx, sun) {
+		const depth = flatDepthFor(wpx);
+		if (depth < 4) return;
+		const pd = depth - 1;
+		const { lat: latBits, lon: lonBits } = bitsFor(pd);
+		const latStep = 180 / 2 ** latBits;
+		const lonStep = 360 / 2 ** lonBits;
+		const latHi = Math.min(MERC_LAT_MAX, latFromY(0, wpx));
+		const latLo = Math.max(-MERC_LAT_MAX, latFromY(H, wpx));
+		const lonHalfSpan = Math.min(180, (W * 360) / (2 * wpx));
+		const latStart = Math.floor((latLo + 90) / latStep) * latStep - 90;
+		const lonStart = Math.floor((yaw - lonHalfSpan + 180) / lonStep) * lonStep - 180;
+		const lonEnd = yaw + lonHalfSpan;
+		let drawn = 0;
+		for (let lat = latStart; lat <= latHi && lat < 90; lat += latStep) {
+			for (let lon = lonStart; lon < lonEnd; lon += lonStep) {
+				if (drawn++ > 400) return;
+				const clat = lat + latStep / 2;
+				const clon = wrapLon(lon + lonStep / 2);
+				const gh = encodeGeohash(clat, clon, pd);
+				const b = geohashBounds(gh);
+				const x0 = xFromLon(b.lonLo, wpx);
+				const x1 = x0 + ((b.lonHi - b.lonLo) * wpx) / 360;
+				const y0 = yFromLat(b.latHi, wpx);
+				const y1 = yFromLat(b.latLo, wpx);
+				if (x1 < 0 || x0 > W || y1 < 0 || y0 > H) continue;
+				const night = sun ? flatNightFactor(clat, clon, sun) : 0;
+				const dim = 1 - NIGHT_GRID_DIM * night * 0.5;
+				ctx.lineWidth = 2;
+				ctx.strokeStyle = withAlpha(c.accent, 0.5 * dim);
+				ctx.strokeRect(x0, y0, x1 - x0, y1 - y0);
+			}
+		}
 	}
 
 	// flat-projection twin of drawNight: sample the terminator latitude across the
@@ -702,9 +743,52 @@ export function createMap({ canvas, onPick, colors }) {
 		}
 	}
 
-	function drawCell(gh, R, sp, cp, c, intensity, label, center, count, night = 0) {
+	// once the fine grid reaches length 4+, frame each parent prefix (one geohash
+	// char shorter) with a heavier stroke: the deep grid then reads as clusters -
+	// a thick length-(depth-1) border around its 32 thin children. a parent's box
+	// is exactly the outer edges of its edge-children, so an outline pass at the
+	// coarser depth lands precisely on the right seams.
+	function drawParentFrames(R, sp, cp, depth, c, sunVec) {
+		if (depth < 4) return;
+		const pd = depth - 1;
+		const { lat: latBits, lon: lonBits } = bitsFor(pd);
+		const latStep = 180 / 2 ** latBits;
+		const lonStep = 360 / 2 ** lonBits;
+		const win = visibleWindow(R);
+		const seen = new Set();
+		let drawn = 0;
+		const latStart = Math.floor((win.latLo + 90) / latStep) * latStep - 90;
+		for (let lat = latStart; lat <= win.latHi && lat < 90; lat += latStep) {
+			const lonStart = win.full ? -180 : Math.floor((win.lonLo + 180) / lonStep) * lonStep - 180;
+			const lonEnd = win.full ? 180 : win.lonHi;
+			for (let lon = lonStart; lon < lonEnd; lon += lonStep) {
+				if (drawn > 400) break;
+				const clat = lat + latStep / 2;
+				const clon = wrapLon(lon + lonStep / 2);
+				const cprj = project(clon, clat, R, sp, cp);
+				if (!cprj.front) continue;
+				const gh = encodeGeohash(clat, clon, pd);
+				if (seen.has(gh)) continue;
+				seen.add(gh);
+				drawn++;
+				if (!buildCellPath(gh, R, sp, cp)) continue;
+				// frames fade at night too, but only half as hard as the fine cells so
+				// the cluster structure still reads through the dark side.
+				const nf = sunVec ? nightFactor(viewVec(clon, clat, sp, cp), sunVec) : 0;
+				const dim = 1 - NIGHT_GRID_DIM * nf * 0.5;
+				ctx.lineWidth = 2;
+				ctx.strokeStyle = withAlpha(c.accent, 0.5 * dim);
+				ctx.stroke();
+			}
+		}
+	}
+
+	// lay a geohash cell's outline into the current ctx path, subdividing each edge
+	// so it curves with the sphere. returns false if the whole cell is on the far
+	// side (nothing to draw). shared by the fill/stroke in drawCell and the outline-
+	// only parent-frame pass.
+	function buildCellPath(gh, R, sp, cp) {
 		const b = geohashBounds(gh);
-		// subdivide each edge so cells curve with the sphere
 		const path = [];
 		const steps = 6;
 		const edge = (a, bb) => {
@@ -726,8 +810,12 @@ export function createMap({ canvas, onPick, colors }) {
 			if (any) ctx.lineTo(p.x, p.y);
 			else { ctx.moveTo(p.x, p.y); any = true; }
 		}
-		if (!any) return;
-		if (allFront) ctx.closePath();
+		if (any && allFront) ctx.closePath();
+		return any;
+	}
+
+	function drawCell(gh, R, sp, cp, c, intensity, label, center, count, night = 0) {
+		if (!buildCellPath(gh, R, sp, cp)) return;
 
 		const hovered = gh === hoverGeo;
 		// night fades only the "structural" cells - an active, counted, or hovered

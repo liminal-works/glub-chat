@@ -2047,6 +2047,10 @@ function notesFadesIn(expiresAt) {
 // translated across re-renders. value: { translating:true } | { text, detected }.
 const noteTranslations = new Map();
 
+// note ids the reader has expanded past the length cap. kept out of the client
+// snapshot (rebuilt on refetch) so an expanded note stays open across repaints.
+const expandedNotes = new Set();
+
 // the translated-note block, mirroring chat's renderTranslation but reading the
 // per-note translation map. reuses the same .translation* CSS.
 function renderNoteTranslation(id, content) {
@@ -2079,6 +2083,16 @@ function noteRowHtml(n) {
 	const del = n.mine
 		? `<button class="noteDelete" data-note-del="${escapeHtml(n.id)}">${escapeHtml(t("notes.delete"))}</button>`
 		: "";
+	// same safety cap as chat messages: collapse an over-long body behind a
+	// more/less toggle (with an absolute ceiling even when expanded) so one giant
+	// note can't blow out the list. our composer caps at 500, but notes from other
+	// clients carry no such limit.
+	const raw = String(n.content || "").slice(0, HARD_MAX_MSG_LEN);
+	const expanded = expandedNotes.has(n.id);
+	const shown = expanded ? raw : clipWithEllipsis(raw, MAX_MSG_LEN);
+	const toggle = raw.length > MAX_MSG_LEN
+		? `<span class="toggleMore" data-note-toggle="${escapeHtml(n.id)}">${escapeHtml(t(expanded ? "message.less" : "message.more"))}</span>`
+		: "";
 	// the row is tappable (data-note-id + data-pubkey) to open the action popup -
 	// translate/copy/mention/dm/block - just like tapping a chat message.
 	return (
@@ -2090,7 +2104,7 @@ function noteRowHtml(n) {
 		expiry +
 		del +
 		`</div>` +
-		`<div class="noteBody">${linkify(escapeHtml(n.content))}</div>` +
+		`<div class="noteBody">${linkify(escapeHtml(shown))}${toggle}</div>` +
 		// image previews, same blurred tap-to-reveal treatment as chat (renderImage-
 		// Previews reads .id + .images, so a lightweight shim is all it needs)
 		renderImagePreviews({ id: n.id, images: extractImageUrls(n.content) }) +
@@ -2108,6 +2122,12 @@ function renderNotes(snapshot) {
 			snap.state === "no_relays" ? "notes.no_relays" : snap.state === "loading" ? "notes.loading" : "notes.empty";
 		notesList.innerHTML = `<div class="notesStatus">${escapeHtml(t(key))}</div>`;
 		return;
+	}
+	// drop expand-state for notes no longer present (channel switch, expiry) so the
+	// set can't accrue stale ids across visits
+	if (expandedNotes.size) {
+		const live = new Set(notes.map((n) => n.id));
+		for (const id of expandedNotes) if (!live.has(id)) expandedNotes.delete(id);
 	}
 	notesList.innerHTML = notes.map(noteRowHtml).join("");
 }
@@ -3219,6 +3239,15 @@ notesList.addEventListener("click", (e) => {
 		const key = imgToggle.dataset.imgToggle;
 		if (revealedImages.has(key)) revealedImages.delete(key);
 		else revealedImages.add(key);
+		renderNotes();
+		return;
+	}
+	// expand/collapse an over-long note body in place, same as chat's more/less
+	const moreToggle = e.target.closest("[data-note-toggle]");
+	if (moreToggle) {
+		const id = moreToggle.getAttribute("data-note-toggle");
+		if (expandedNotes.has(id)) expandedNotes.delete(id);
+		else expandedNotes.add(id);
 		renderNotes();
 		return;
 	}

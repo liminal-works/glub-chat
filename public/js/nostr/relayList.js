@@ -8,6 +8,16 @@ function normalizeRelayUrl(raw) {
 	return "wss://" + r;
 }
 
+// "host", "host:443" and "host/" are the same endpoint; the CSV lists some
+// relays in more than one spelling, and duplicate rows would silently waste
+// slots in every nearest-N slice consumers take off this list.
+function canonicalHost(url) {
+	return url
+		.replace(/^wss?:\/\//, "")
+		.replace(/\/+$/, "")
+		.replace(/:443$/, "");
+}
+
 // returns [{ url, lat, lon }], deduped by url
 export async function fetchRelayList(url = DEFAULT_RELAY_CSV_URL) {
 	const res = await fetch(url);
@@ -25,13 +35,15 @@ export async function fetchRelayList(url = DEFAULT_RELAY_CSV_URL) {
 
 		const [rawUrl, rawLat, rawLon] = line.split(",");
 		const url = normalizeRelayUrl(rawUrl || "");
-		if (!url || seen.has(url)) continue;
+		if (!url) continue;
+		const host = canonicalHost(url);
+		if (!host || seen.has(host)) continue;
 
 		const lat = Number(rawLat);
 		const lon = Number(rawLon);
 		if (!Number.isFinite(lat) || !Number.isFinite(lon)) continue;
 
-		seen.add(url);
+		seen.add(host);
 		relays.push({ url, lat, lon });
 	}
 

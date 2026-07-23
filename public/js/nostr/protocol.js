@@ -189,6 +189,57 @@ export function decodeGeohash(geohash) {
 	return { lat: (latLo + latHi) / 2, lon: (lonLo + lonHi) / 2 };
 }
 
+// encodes a lat/lon to a geohash of the given length
+export function encodeGeohash(lat, lon, len) {
+	let latLo = -90, latHi = 90, lonLo = -180, lonHi = 180;
+	let even = true, bit = 0, ch = 0, out = "";
+	while (out.length < len) {
+		if (even) {
+			const mid = (lonLo + lonHi) / 2;
+			if (lon >= mid) { ch = (ch << 1) | 1; lonLo = mid; } else { ch <<= 1; lonHi = mid; }
+		} else {
+			const mid = (latLo + latHi) / 2;
+			if (lat >= mid) { ch = (ch << 1) | 1; latLo = mid; } else { ch <<= 1; latHi = mid; }
+		}
+		even = !even;
+		if (++bit === 5) { out += GEOHASH_BASE32[ch]; bit = 0; ch = 0; }
+	}
+	return out;
+}
+
+// the up-to-8 surrounding cells of a geohash at the same precision (fewer at
+// the poles / antimeridian dedupe). native bitchat subscribes location notes
+// on the center cell + these, because a note pinned one block over is still
+// "here" - a reader standing near a cell edge must see it.
+export function geohashNeighbors(geohash) {
+	const gh = String(geohash).toLowerCase();
+	let latLo = -90, latHi = 90, lonLo = -180, lonHi = 180, even = true;
+	for (const c of gh) {
+		const idx = GEOHASH_BASE32.indexOf(c);
+		if (idx === -1) throw new Error(`invalid geohash character: ${c}`);
+		for (let b = 4; b >= 0; b--) {
+			const v = (idx >> b) & 1;
+			if (even) { const m = (lonLo + lonHi) / 2; v ? (lonLo = m) : (lonHi = m); }
+			else { const m = (latLo + latHi) / 2; v ? (latLo = m) : (latHi = m); }
+			even = !even;
+		}
+	}
+	const clat = (latLo + latHi) / 2, clon = (lonLo + lonHi) / 2;
+	const dLat = latHi - latLo, dLon = lonHi - lonLo;
+	const out = new Set();
+	for (const dy of [-1, 0, 1]) {
+		for (const dx of [-1, 0, 1]) {
+			if (!dx && !dy) continue;
+			const lat = clat + dy * dLat;
+			if (lat <= -90 || lat >= 90) continue; // no cells past the poles
+			const lon = ((clon + dx * dLon + 540) % 360) - 180; // wrap the antimeridian
+			out.add(encodeGeohash(lat, lon, gh.length));
+		}
+	}
+	out.delete(gh);
+	return [...out];
+}
+
 // a geohash cell's center + nominal size. each character is 5 bits, split
 // longitude-first (lon gets ceil(bits/2)); the cell is 360/2^lonBits degrees
 // wide. spanKm is that width at the EQUATOR (not latitude-adjusted) - native

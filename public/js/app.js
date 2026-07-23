@@ -38,6 +38,14 @@ const MAX_MSG_LEN = 450; // collapse longer messages behind a "more" toggle
 const HARD_MAX_MSG_LEN = 8000; // absolute ceiling, even when expanded, to bound DOM/memory
 const MAX_IMAGES_PER_MESSAGE = 6; // anti-flood: cap how many previews one message can spam in
 const MAX_FUTURE_SECS = 120; // drop events timestamped more than this far ahead (skewed/forged clocks)
+// broadcast-spam suppression, GLOBAL feed only: when this many buffer entries
+// share one content signature, the message reads as a broadcast blast rather than
+// conversation and is omitted from the aggregated global view. entering its
+// channel still shows every copy - we just don't let the firehose be flooded.
+// counted over the whole buffer with NO time window, so a bot dripping one copy
+// every few minutes for weeks is caught by sheer accumulated quantity.
+const GLOBAL_SPAM_THRESHOLD = 5;
+const GLOBAL_SPAM_MIN_SIG = 24; // shorter signatures (greetings/reactions) are never suppressed
 const seen = new Set();
 const entries = []; // [{ ts, geo, system, pubkey, html, el }], ascending by ts - all received messages
 
@@ -616,12 +624,41 @@ function entryPassesPow(entry) {
 	return entry.powCommitted >= required && entry.pow >= required;
 }
 
+// content signature for spam grouping: letters only (case-folded, width/accent
+// normalized), urls stripped so a rotating link slug can't split a cluster. "" for
+// anything too short to judge - those are never counted or suppressed.
+function messageSignature(text) {
+	const sig = String(text || "")
+		.toLowerCase()
+		.normalize("NFKC")
+		.replace(/https?:\/\/\S+/g, " ")
+		.replace(/[^\p{L}]+/gu, " ")
+		.trim();
+	return sig.length >= GLOBAL_SPAM_MIN_SIG ? sig : "";
+}
+
+// how many buffer entries currently share each signature - the basis for global
+// broadcast-spam suppression, maintained incrementally as entries enter/leave.
+const sigCounts = new Map();
+function sigBump(entry, delta) {
+	const s = entry && entry.sig;
+	if (!s) return;
+	const n = (sigCounts.get(s) || 0) + delta;
+	if (n <= 0) sigCounts.delete(s);
+	else sigCounts.set(s, n);
+}
+// this exact message is so numerous in the buffer it's a broadcast, not chat.
+function isGlobalSpam(entry) {
+	return !!entry.sig && (sigCounts.get(entry.sig) || 0) >= GLOBAL_SPAM_THRESHOLD;
+}
+
 function entryVisible(entry) {
 	if (entry.ts < clearedBefore) return false; // hidden by /clear (local view filter)
 	if (entry.system) return true;
 	if (isBlocked(entry.pubkey)) return false; // blocked author (session-only, local)
 	if (!entryPassesPow(entry)) return false; // below the proof-of-work bar (live view filter)
-	if (focusedGeo) return entry.geo === focusedGeo; // focused: just this channel (mutes don't apply - you opened it on purpose)
+	if (focusedGeo) return entry.geo === focusedGeo; // focused: this channel, everything shown (spam included - you opened it on purpose)
+	if (isGlobalSpam(entry)) return false; // global feed: omit broadcast-spam clusters (still visible in-channel)
 	return !mutedChannels.has(entry.geo); // global feed: drop muted channels
 }
 
@@ -867,10 +904,24 @@ function insertEntry(entry) {
 		else hi = mid;
 	}
 	entries.splice(lo, 0, entry);
+	sigBump(entry, 1);
 
 	while (entries.length > MAX_LINES) {
 		const oldest = entries.shift();
+		sigBump(oldest, -1);
 		if (oldest.el) oldest.el.remove();
+	}
+
+	// the moment a cluster crosses into broadcast-spam territory, pull its already-
+	// rendered copies out of the global feed (later copies simply won't render). in
+	// a channel we're not filtering, so this only matters in the global view.
+	if (!focusedGeo && entry.sig && sigCounts.get(entry.sig) === GLOBAL_SPAM_THRESHOLD) {
+		for (const e of entries) {
+			if (e.sig === entry.sig && e.el) {
+				e.el.remove();
+				e.el = null;
+			}
+		}
 	}
 
 	if (entryVisible(entry)) {
@@ -914,6 +965,7 @@ function dismissEntry(entry) {
 	const idx = entries.indexOf(entry);
 	if (idx === -1) return;
 	entries.splice(idx, 1);
+	sigBump(entry, -1); // keep the spam-cluster count in step (no-op for signature-less system entries)
 	const el = entry.el;
 	if (!el) return;
 	el.classList.add("fading");
@@ -1061,6 +1113,7 @@ function renderEvent(ev) {
 		wall: looksLikeWall(text), // screen-eating content starts hard-collapsed
 		images: extractImageUrls(text),
 		profane: isProfane(text), // flagged once; the text-censor setting gates display live
+		sig: messageSignature(text), // "" unless long enough to judge as broadcast spam
 
 		expanded: false,
 		el: null,

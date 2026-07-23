@@ -1021,6 +1021,72 @@ textarea {
 	letter-spacing: 0.02em;
 }
 
+/* the map title doubles as the menu trigger (overlay mode + display toggles) */
+.mapMenuBtn {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	background: none;
+	border: none;
+	padding: 0;
+	color: var(--accent);
+	font: inherit;
+	cursor: pointer;
+}
+
+.mapMenuCaret {
+	font-size: 10px;
+	opacity: 0.8;
+}
+
+/* the dropdown itself: floats over the stage's top-left, under the header */
+.mapMenu {
+	position: absolute;
+	top: 6px;
+	left: 6px;
+	z-index: 6;
+	display: flex;
+	flex-direction: column;
+	min-width: 200px;
+	border: 1px solid var(--chrome-border-strong);
+	background: var(--chrome-bg);
+	padding: 4px;
+}
+
+.mapMenu[hidden] {
+	display: none;
+}
+
+.mapMenuItem {
+	display: flex;
+	align-items: center;
+	gap: 9px;
+	background: none;
+	border: none;
+	text-align: left;
+	font: inherit;
+	font-size: 13px;
+	color: var(--fg);
+	padding: 7px 8px;
+	cursor: pointer;
+}
+
+.mapMenuItem:hover {
+	background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.mapMenuItem .mmMark {
+	color: var(--accent);
+	min-width: 18px;
+	text-align: center;
+}
+
+.mapMenuSep {
+	height: 1px;
+	background: var(--chrome-border);
+	margin: 4px 2px;
+}
+
 /* landscape: the globe is height-bound and leaves wide empty bands on either
    side, so give it more room (wider/taller panel, full stage width). the ticker
    stays a bottom-left overlay whose lines spill rightward across the globe rather

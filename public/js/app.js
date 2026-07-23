@@ -139,6 +139,9 @@ const mapGate = document.getElementById("mapGate");
 const mapClose = document.getElementById("mapClose");
 const mapCanvas = document.getElementById("mapCanvas");
 const mapFeed = document.getElementById("mapFeed");
+const mapMenuBtn = document.getElementById("mapMenuBtn");
+const mapMenu = document.getElementById("mapMenu");
+const mapHint = document.getElementById("mapHint");
 const usersNotes = document.getElementById("usersNotes");
 const notesGate = document.getElementById("notesGate");
 const notesTitle = document.getElementById("notesTitle");
@@ -1758,6 +1761,50 @@ function mapColors() {
 	};
 }
 
+// --- map overlay mode + display prefs (the title-dropdown menu) --------------
+// "live" is the default heat-map experience; "notes" swaps the overlay for
+// location-note pins. mode is session-only (the map opens how you left it this
+// session); the display toggles persist.
+const STORAGE_MAP_NIGHT_KEY = "glub_map_night";
+const STORAGE_MAP_TILES_KEY = "glub_map_tiles";
+let mapMode = "live";
+const mapOpts = {
+	night: localStorage.getItem(STORAGE_MAP_NIGHT_KEY) !== "false",
+	tiles: localStorage.getItem(STORAGE_MAP_TILES_KEY) !== "false",
+};
+
+function renderMapMenu() {
+	for (const btn of mapMenu.querySelectorAll("[data-map-mode]")) {
+		btn.querySelector(".mmMark").textContent = btn.dataset.mapMode === mapMode ? "●" : "○";
+	}
+	for (const btn of mapMenu.querySelectorAll("[data-map-opt]")) {
+		btn.querySelector(".mmMark").textContent = mapOpts[btn.dataset.mapOpt] ? "[x]" : "[ ]";
+	}
+}
+
+function toggleMapMenu(show) {
+	const on = show !== undefined ? show : mapMenu.hidden;
+	if (on) renderMapMenu();
+	mapMenu.hidden = !on;
+}
+
+// push the current mode into the map + surrounding chrome. safe to call any
+// time; the notes fetch loop only actually runs while the map gate is up.
+function applyMapMode() {
+	if (mapInstance) mapInstance.setMode(mapMode);
+	// the hint line follows the mode; keep data-i18n in sync so a language
+	// switch re-translates the right key
+	const hintKey = mapMode === "notes" ? "map.hint_notes" : "map.hint";
+	mapHint.setAttribute("data-i18n", hintKey);
+	mapHint.textContent = t(hintKey);
+	if (mapMode === "notes") {
+		if (mapFeed) mapFeed.innerHTML = ""; // the live ticker has no place among pins
+		if (mapGate.classList.contains("show")) startMapNotes();
+	} else {
+		stopMapNotes();
+	}
+}
+
 function openMap() {
 	if (!mapInstance) {
 		mapInstance = createMap({
@@ -1768,7 +1815,11 @@ function openMap() {
 				closeUsers();
 				focusChannel(gh);
 			},
+			// notes mode: any tap means "show me the notes here" - the sheet opens
+			// over the map, so [EXIT] drops you right back on it
+			onNotesPick: (gh) => openNotesForGeo(gh),
 		});
+		mapInstance.setOptions(mapOpts);
 	}
 	closeUsers();
 	if (mapFeed) mapFeed.innerHTML = ""; // start the live-chat ticker empty
@@ -1784,14 +1835,90 @@ function openMap() {
 	// refresh the activity glow while the map is up (new messages keep arriving)
 	clearInterval(mapActivityTimer);
 	mapActivityTimer = setInterval(() => mapInstance.setActivity(buildActivityMap(), buildCountMap()), 4000);
+	applyMapMode();
 }
 
 function closeMap() {
 	mapGate.classList.remove("show");
 	clearInterval(mapActivityTimer);
 	mapActivityTimer = null;
+	toggleMapMenu(false);
+	stopMapNotes();
 	if (mapFeed) mapFeed.innerHTML = "";
 	if (mapInstance) mapInstance.close();
+}
+
+// --- map notes: fetch what's under the viewport, pin it -----------------------
+// a second notes client feeds the map. the client itself retargets (and clears)
+// on every open(), so pins accumulate here instead: an id-keyed store that
+// survives panning - scroll around and the notes you've swept over stay pinned.
+let mapNotesClient = null;
+let mapNotesTimer = null;
+let mapNotesPrefix = null;
+const mapNotesStore = new Map(); // note id -> note
+const MAP_NOTES_MAX = 500; // cap the sweep cache; oldest fall off first
+
+function ensureMapNotesClient() {
+	if (!mapNotesClient) {
+		mapNotesClient = createNotesClient({
+			getIdentity: () => identity,
+			getRelays: geoRelaysFor,
+			onChange: (snap) => {
+				const now = Math.floor(Date.now() / 1000);
+				for (const n of (snap && snap.notes) || []) {
+					if (n.expiresAt && n.expiresAt <= now) continue;
+					mapNotesStore.set(n.id, n);
+				}
+				pruneMapNotes(now);
+				pushMapNotes();
+			},
+			assist: notesAssistBridge,
+		});
+	}
+	return mapNotesClient;
+}
+
+function pruneMapNotes(nowSecs) {
+	for (const [id, n] of mapNotesStore) {
+		if (n.expiresAt && n.expiresAt <= nowSecs) mapNotesStore.delete(id);
+	}
+	if (mapNotesStore.size > MAP_NOTES_MAX) {
+		const keep = [...mapNotesStore.values()].sort((a, b) => b.createdAt - a.createdAt).slice(0, MAP_NOTES_MAX);
+		mapNotesStore.clear();
+		for (const n of keep) mapNotesStore.set(n.id, n);
+	}
+}
+
+function pushMapNotes() {
+	if (!mapInstance) return;
+	mapInstance.setNotes([...mapNotesStore.values()].filter((n) => !isBlocked(n.pubkey)));
+}
+
+// poll the view center and retarget the fetch when it moves to a new prefix.
+// fetching one level above the display depth roughly covers the viewport (a
+// parent cell is 32 children), and the store keeps everything already swept.
+function mapNotesTick() {
+	if (!mapInstance) return;
+	const v = mapInstance.view();
+	const prefix = v.gh.slice(0, Math.max(1, Math.min(v.gh.length, v.depth - 1)));
+	if (prefix && prefix !== mapNotesPrefix) {
+		mapNotesPrefix = prefix;
+		ensureMapNotesClient().open(prefix);
+	}
+}
+
+function startMapNotes() {
+	if (mapNotesTimer) return;
+	pushMapNotes(); // pins from earlier sweeps show immediately
+	mapNotesTick();
+	mapNotesTimer = setInterval(mapNotesTick, 1200);
+}
+
+function stopMapNotes() {
+	clearInterval(mapNotesTimer);
+	mapNotesTimer = null;
+	mapNotesPrefix = null;
+	if (mapNotesClient) mapNotesClient.close();
 }
 
 // the globe's live-chat ticker: push one fading line per live message while the
@@ -1840,25 +1967,28 @@ function updateNotesButton() {
 	usersNotes.hidden = !notesEnabledGeo();
 }
 
+// with server assist on, read/write notes through the API: it keeps a
+// persistent cache and answers a geohash PREFIX query, so a channel gets
+// every note nested under it at any depth (relays can't prefix-filter).
+// shared by the channel notes sheet and the map's pin fetcher.
+const notesAssistBridge = {
+	isActive: () => liveSource === "assist",
+	fetchNotes: async (geo) => {
+		const res = await fetch(`${API_BASE}/api/notes?geo=${encodeURIComponent(geo)}`, { cache: "no-store" });
+		if (!res.ok) return [];
+		const data = await res.json();
+		return Array.isArray(data.notes) ? data.notes : [];
+	},
+	publish: (event) => publishViaApi(event),
+};
+
 function ensureNotesClient() {
 	if (!notesClient) {
 		notesClient = createNotesClient({
 			getIdentity: () => identity,
 			getRelays: geoRelaysFor,
 			onChange: renderNotes,
-			// with server assist on, read/write notes through the API: it keeps a
-			// persistent cache and answers a geohash PREFIX query, so a channel gets
-			// every note nested under it at any depth (relays can't prefix-filter).
-			assist: {
-				isActive: () => liveSource === "assist",
-				fetchNotes: async (geo) => {
-					const res = await fetch(`${API_BASE}/api/notes?geo=${encodeURIComponent(geo)}`, { cache: "no-store" });
-					if (!res.ok) return [];
-					const data = await res.json();
-					return Array.isArray(data.notes) ? data.notes : [];
-				},
-				publish: (event) => publishViaApi(event),
-			},
+			assist: notesAssistBridge,
 		});
 	}
 	return notesClient;
@@ -1868,6 +1998,16 @@ function openNotes() {
 	const geo = notesEnabledGeo();
 	if (!geo) return;
 	closeUsers();
+	openNotesForGeo(geo);
+}
+
+// open the notes sheet for an arbitrary geohash - this is where map pin/cell
+// taps land. the map stays open (and running) underneath, so [EXIT] on the
+// sheet drops you straight back onto it, and the composer posts to whatever
+// cell you tapped: leave a note exactly where you're looking.
+function openNotesForGeo(geo) {
+	geo = String(geo || "").toLowerCase();
+	if (!/^[0-9a-z]{1,12}$/.test(geo)) return;
 	ensureNotesClient();
 	notesTitle.innerHTML = `${escapeHtml(t("notes.title"))} <span class="notesTitleGeo">#${escapeHtml(geo)}</span>`;
 	notesInput.value = "";
@@ -3004,6 +3144,34 @@ usersGate.addEventListener("click", (e) => {
 });
 usersMap.addEventListener("click", openMap);
 mapClose.addEventListener("click", closeMap);
+mapMenuBtn.addEventListener("click", (e) => {
+	e.stopPropagation();
+	toggleMapMenu();
+});
+mapMenu.addEventListener("click", (e) => {
+	const item = e.target.closest(".mapMenuItem");
+	if (!item) return;
+	e.stopPropagation();
+	if (item.dataset.mapMode) {
+		// mode is a radio: picking one closes the menu
+		if (mapMode !== item.dataset.mapMode) {
+			mapMode = item.dataset.mapMode;
+			applyMapMode();
+		}
+		toggleMapMenu(false);
+	} else if (item.dataset.mapOpt) {
+		// display toggles stay open so both can be flipped in one visit
+		const k = item.dataset.mapOpt;
+		mapOpts[k] = !mapOpts[k];
+		localStorage.setItem(k === "night" ? STORAGE_MAP_NIGHT_KEY : STORAGE_MAP_TILES_KEY, mapOpts[k] ? "true" : "false");
+		if (mapInstance) mapInstance.setOptions(mapOpts);
+		renderMapMenu();
+	}
+});
+// any click outside the open menu dismisses it (canvas taps included)
+document.addEventListener("click", (e) => {
+	if (!mapMenu.hidden && !mapMenu.contains(e.target) && !mapMenuBtn.contains(e.target)) toggleMapMenu(false);
+});
 usersNotes.addEventListener("click", openNotes);
 notesClose.addEventListener("click", closeNotes);
 notesGate.addEventListener("click", (e) => {
@@ -3415,10 +3583,11 @@ function ingestEvent(ev, live = true) {
 	renderEvent(ev);
 
 	// ripple the globe wherever a live message just landed, and drift its text into
-	// the ambient chat ticker (map open only). backlog replays (live=false) don't -
+	// the ambient chat ticker (map open only, live mode only - notes mode swaps
+	// the whole live overlay out for pins). backlog replays (live=false) don't -
 	// they're history, not a heartbeat. blocked authors and muted channels are kept
 	// out of the ticker, matching what you'd see everywhere else.
-	if (live && mapInstance && mapActivityTimer) {
+	if (live && mapInstance && mapActivityTimer && mapMode === "live") {
 		const geo = getGeohash(ev);
 		if (geo && /^[0-9a-z]{1,12}$/.test(geo)) {
 			mapInstance.ping(geo);

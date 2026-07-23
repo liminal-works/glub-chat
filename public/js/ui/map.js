@@ -10,7 +10,13 @@
 // just "flattens" underfoot. Both modes share the overlays: activity glow, live
 // pings, "here" counts, hover/tap-to-join.
 //
-// createMap({ canvas, onPick, colors }) -> { open, close, setActivity, ping, ... }
+// Two overlay modes share the basemap + grid:
+//   "live"  - the default: activity glow, "here" counts, message pings.
+//   "notes" - location-note pins, clustered by geohash prefix at the current
+//             grid depth; tapping a pin (or any cell) hands its geohash to
+//             onNotesPick so the caller can open the notes sheet for it.
+//
+// createMap({ canvas, onPick, onNotesPick, colors }) -> { open, close, ... }
 // colors: () => ({ accent, fg, muted, bg }) so the map follows the theme.
 
 import { COASTLINES } from "./coastlines.js";
@@ -78,7 +84,7 @@ function geohashBounds(gh) {
 	return { latLo, latHi, lonLo, lonHi };
 }
 
-export function createMap({ canvas, onPick, colors }) {
+export function createMap({ canvas, onPick, onNotesPick, colors }) {
 	const ctx = canvas.getContext("2d");
 	let W = 0, H = 0, cx = 0, cy = 0, dpr = 1;
 
@@ -95,6 +101,13 @@ export function createMap({ canvas, onPick, colors }) {
 	let raf = null, running = false;
 	let lastInteract = 0;
 	let hoverGeo = null; // cell under the pointer (for the label/pick affordance)
+	// which overlay sits on the basemap+grid: "live" (activity/counts/pings) or
+	// "notes" (location-note pins). the grid and projections are shared.
+	let overlayMode = "live";
+	let optNight = true; // day/night terminator + cell dimming
+	let optTiles = true; // street raster tiles under the flat grid
+	let noteData = []; // [{ id, gh, lon, lat }] - notes with precomputed cell centers
+	let noteClusters = []; // last frame's rendered pins (reused for tap hit-tests)
 	// cos(latitude) captured as the view crosses into the flat blend: it pins the
 	// mercator world size so one degree of longitude spans the same pixels in both
 	// projections at the handoff - that scale match IS the seamlessness. cleared
@@ -248,7 +261,15 @@ export function createMap({ canvas, onPick, colors }) {
 			drawFlat(c);
 			ctx.restore();
 		}
-		drawPings(c);
+		// the mode's own overlay, full-strength above both layers
+		if (overlayMode === "notes") drawNotes(c);
+		else drawPings(c);
+	}
+
+	// the grid depth both projections are currently showing - the same value the
+	// grids themselves derive, shared by note clustering and the view() snapshot.
+	function displayDepth() {
+		return flatT() >= 0.5 ? flatDepthFor(worldPx()) : depthFor(radius());
 	}
 
 	function drawGlobe(c) {
@@ -272,15 +293,16 @@ export function createMap({ canvas, onPick, colors }) {
 
 		// subsolar direction in view space, computed once and shared: it darkens the
 		// night hemisphere AND fades each night-side geohash cell (see drawCell).
-		const sun = subsolarPoint();
-		const sunVec = viewVec(sun.lon, sun.lat, sp, cp);
+		// null when day/night shading is toggled off - everything downstream guards.
+		const sun = optNight ? subsolarPoint() : null;
+		const sunVec = sun ? viewVec(sun.lon, sun.lat, sp, cp) : null;
 
 		drawGraticule(R, sp, cp, withAlpha(c.accent, 0.1));
 		drawCoastlines(R, sp, cp, withAlpha(c.fg, 0.32));
 
 		// twilight: shade the night hemisphere, with a soft glowing rim along the
 		// terminator. drawn before the grid so the land/ocean dim underneath.
-		drawNight(R, sp, cp, sunVec, c);
+		if (sunVec) drawNight(R, sp, cp, sunVec, c);
 
 		const depth = depthFor(R);
 		drawGeohashGrid(R, sp, cp, depth, c, sunVec);
@@ -300,8 +322,8 @@ export function createMap({ canvas, onPick, colors }) {
 		ctx.fillRect(0, 0, W, H);
 		// same day/night pass the globe runs: shade the night side and fade its grid
 		// cells, so the two projections carry an identical terminator through the blend.
-		const sun = subsolarPoint();
-		drawFlatNight(c, wpx, sun);
+		const sun = optNight ? subsolarPoint() : null;
+		if (sun) drawFlatNight(c, wpx, sun);
 		drawFlatGrid(c, wpx, sun);
 		drawFlatParentFrames(c, wpx, sun);
 		drawAttribution(c);
@@ -417,7 +439,7 @@ export function createMap({ canvas, onPick, colors }) {
 	}
 
 	function drawTiles(wpx) {
-		if (!tileUrl()) return;
+		if (!optTiles || !tileUrl()) return;
 		const z = Math.max(0, Math.min(TILE_MAX_Z, Math.floor(Math.log2(wpx / TILE_SIZE))));
 		const n = 2 ** z;
 		const tpx = wpx / n; // on-screen size of one tile
@@ -440,7 +462,7 @@ export function createMap({ canvas, onPick, colors }) {
 
 	// carto's tile terms require attribution; shown whenever the street layer is.
 	function drawAttribution(c) {
-		if (!tileUrl()) return;
+		if (!optTiles || !tileUrl()) return;
 		ctx.font = "9px ui-monospace, monospace";
 		ctx.textAlign = "right";
 		ctx.textBaseline = "bottom";
@@ -456,20 +478,7 @@ export function createMap({ canvas, onPick, colors }) {
 		const { lat: latBits, lon: lonBits } = bitsFor(depth);
 		const latStep = 180 / 2 ** latBits;
 		const lonStep = 360 / 2 ** lonBits;
-
-		// same activity/count rollups the globe grid uses
-		const act = new Map();
-		for (const [gh, inten] of activity) {
-			if (gh.length < depth) continue;
-			const key = gh.slice(0, depth);
-			act.set(key, Math.max(act.get(key) || 0, inten));
-		}
-		const cnt = new Map();
-		for (const [gh, n] of counts) {
-			if (gh.length < depth) continue;
-			const key = gh.slice(0, depth);
-			cnt.set(key, (cnt.get(key) || 0) + n);
-		}
+		const { act, cnt } = gridRollups(depth);
 
 		const label = (wpx * lonStep) / 360 >= 58;
 		const latHi = Math.min(MERC_LAT_MAX, latFromY(0, wpx));
@@ -539,6 +548,113 @@ export function createMap({ canvas, onPick, colors }) {
 			} else {
 				ctx.fillText("#" + gh, mx, my);
 			}
+		}
+	}
+
+	// prefix -> intensity / summed talkers at the given depth, shared by both grids.
+	// notes mode swaps the live overlay out entirely, so the rollups come back
+	// empty there: no heat fill, no "here" counts, just the structural grid the
+	// pins sit on.
+	function gridRollups(depth) {
+		const act = new Map();
+		const cnt = new Map();
+		if (overlayMode === "notes") return { act, cnt };
+		for (const [gh, inten] of activity) {
+			if (gh.length < depth) continue;
+			const key = gh.slice(0, depth);
+			act.set(key, Math.max(act.get(key) || 0, inten));
+		}
+		// a region shows the people across all its child cells
+		for (const [gh, n] of counts) {
+			if (gh.length < depth) continue;
+			const key = gh.slice(0, depth);
+			cnt.set(key, (cnt.get(key) || 0) + n);
+		}
+		return { act, cnt };
+	}
+
+	// --- location-note pins ------------------------------------------------------
+
+	// group the notes by geohash prefix at the current grid depth, so pins split
+	// apart exactly as the grid subdivides: zoomed out one pin carries a whole
+	// region's count, zoomed in it scatters into per-cell pins. each cluster keeps
+	// the longest common prefix of its members - that's the channel a tap opens
+	// (a lone note opens its exact cell, a mixed cluster the tightest region
+	// containing all of them).
+	function buildNoteClusters() {
+		const depth = displayDepth();
+		const groups = new Map();
+		for (const n of noteData) {
+			const key = n.gh.slice(0, Math.min(depth, n.gh.length));
+			let g = groups.get(key);
+			if (!g) groups.set(key, (g = { gh: n.gh, lon: 0, lat: 0, count: 0 }));
+			else {
+				let i = 0;
+				while (i < g.gh.length && i < n.gh.length && g.gh[i] === n.gh[i]) i++;
+				g.gh = g.gh.slice(0, i);
+			}
+			g.lon += n.lon;
+			g.lat += n.lat;
+			g.count++;
+		}
+		// anchor each pin at the mean of its members' cell centers (members share a
+		// display cell, so no antimeridian wraparound inside a group), then keep
+		// only the on-screen ones. hx/hy/r are the pin head's hit-test circle.
+		const out = [];
+		for (const g of groups.values()) {
+			const p = projectPoint(wrapLon(g.lon / g.count), g.lat / g.count);
+			if (!p.front || p.x < -24 || p.x > W + 24 || p.y < -24 || p.y > H + 24) continue;
+			out.push({ gh: g.gh, count: g.count, x: p.x, y: p.y, hx: 0, hy: 0, r: 0 });
+		}
+		return out;
+	}
+
+	function drawNotes(c) {
+		noteClusters = buildNoteClusters();
+		for (const cl of noteClusters) drawPin(cl, c);
+	}
+
+	// one pin: a stem rising from the anchor point to a circular head - count
+	// inside for clusters, a solid dot for a single note. pins are content (like
+	// counted cells), so they never night-dim.
+	function drawPin(cl, c) {
+		const multi = cl.count > 1;
+		const txt = cl.count > 99 ? "99+" : String(cl.count);
+		ctx.font = "10px ui-monospace, monospace";
+		const r = multi ? Math.max(8, ctx.measureText(txt).width / 2 + 5) : 5;
+		const hy = cl.y - 7 - r; // head center sits above the anchor
+		cl.hx = cl.x;
+		cl.hy = hy;
+		cl.r = r;
+		// anchor dot + stem
+		ctx.beginPath();
+		ctx.arc(cl.x, cl.y, 1.6, 0, TWO_PI);
+		ctx.fillStyle = withAlpha(c.accent, 0.9);
+		ctx.fill();
+		ctx.beginPath();
+		ctx.moveTo(cl.x, cl.y - 1.5);
+		ctx.lineTo(cl.x, hy + r - 1);
+		ctx.lineWidth = 1.4;
+		ctx.strokeStyle = withAlpha(c.accent, 0.9);
+		ctx.stroke();
+		// head: theme-dark fill so the count reads over tiles, accent ring
+		ctx.beginPath();
+		ctx.arc(cl.hx, hy, r, 0, TWO_PI);
+		ctx.fillStyle = withAlpha(c.bg, 0.88);
+		ctx.fill();
+		ctx.lineWidth = 1.4;
+		ctx.strokeStyle = withAlpha(c.accent, 0.95);
+		ctx.stroke();
+		if (multi) {
+			ctx.textAlign = "center";
+			ctx.textBaseline = "middle";
+			ctx.fillStyle = withAlpha(c.accent, 1);
+			ctx.fillText(txt, cl.hx, hy + 0.5);
+		} else {
+			ctx.beginPath();
+			ctx.arc(cl.hx, hy, 2, 0, TWO_PI);
+			ctx.fillStyle = withAlpha(c.accent, 1);
+			ctx.fill();
 		}
 	}
 
@@ -699,22 +815,7 @@ export function createMap({ canvas, onPick, colors }) {
 		const latStep = 180 / 2 ** latBits;
 		const lonStep = 360 / 2 ** lonBits;
 		const win = visibleWindow(R);
-
-		// prefix -> intensity for the current depth (activity is on full geohashes)
-		const act = new Map();
-		for (const [gh, inten] of activity) {
-			if (gh.length < depth) continue;
-			const key = gh.slice(0, depth);
-			act.set(key, Math.max(act.get(key) || 0, inten));
-		}
-		// prefix -> summed talkers for the current depth (a region shows the people
-		// across all its child cells)
-		const cnt = new Map();
-		for (const [gh, n] of counts) {
-			if (gh.length < depth) continue;
-			const key = gh.slice(0, depth);
-			cnt.set(key, (cnt.get(key) || 0) + n);
-		}
+		const { act, cnt } = gridRollups(depth);
 
 		const px = cellPx(depth, R);
 		const label = px >= 58;
@@ -980,8 +1081,22 @@ export function createMap({ canvas, onPick, colors }) {
 		if (pointers.size < 2) pinchBase = 0;
 		if (drag && !wasDrag && pointers.size === 0) {
 			const r = canvas.getBoundingClientRect();
-			const gh = geoAt(e.clientX - r.left, e.clientY - r.top);
-			if (gh) onPick?.(gh);
+			const px = e.clientX - r.left;
+			const py = e.clientY - r.top;
+			if (overlayMode === "notes") {
+				// pins first (generous halo for touch), else the tapped cell - either
+				// way the tap means "notes here", never "join channel".
+				let best = null, bestD = Infinity;
+				for (const cl of noteClusters) {
+					const d = Math.hypot(px - cl.hx, py - cl.hy) - cl.r;
+					if (d < bestD) { bestD = d; best = cl; }
+				}
+				const gh = best && bestD <= 12 ? best.gh : geoAt(px, py);
+				if (gh) onNotesPick?.(gh);
+			} else {
+				const gh = geoAt(px, py);
+				if (gh) onPick?.(gh);
+			}
 		}
 		drag = null;
 	}
@@ -1033,6 +1148,30 @@ export function createMap({ canvas, onPick, colors }) {
 	function setActivity(map, countMap) {
 		activity = map instanceof Map ? map : new Map(Object.entries(map || {}));
 		if (countMap !== undefined) counts = countMap instanceof Map ? countMap : new Map(Object.entries(countMap || {}));
+	}
+	// swap the overlay: "live" (default) or "notes". the basemap, grid, and view
+	// state are untouched - only what sits on top changes.
+	function setMode(m) {
+		overlayMode = m === "notes" ? "notes" : "live";
+		if (overlayMode === "live") noteClusters = [];
+	}
+	// the location notes to pin (notes mode only). centers are precomputed here so
+	// clustering stays cheap per frame.
+	function setNotes(list) {
+		noteData = (Array.isArray(list) ? list : [])
+			.map((n) => {
+				const gh = String(n.geohash || "").toLowerCase();
+				if (!/^[0-9a-z]{1,12}$/.test(gh)) return null;
+				const b = geohashBounds(gh);
+				return { id: n.id, gh, lon: wrapLon((b.lonLo + b.lonHi) / 2), lat: (b.latLo + b.latHi) / 2 };
+			})
+			.filter(Boolean);
+	}
+	// display toggles: { night, tiles } - partial updates fine.
+	function setOptions(o) {
+		if (!o) return;
+		if (o.night !== undefined) optNight = !!o.night;
+		if (o.tiles !== undefined) optTiles = !!o.tiles;
 	}
 
 	// ripple a ping at a geohash's cell center - called when a message lands there
@@ -1101,14 +1240,27 @@ export function createMap({ canvas, onPick, colors }) {
 	const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(() => resize()) : null;
 	ro?.observe(canvas);
 
-	// read-only view snapshot, for debugging/tests (zoom axis, blend factor, and
-	// which projection + grid depth are live right now).
+	// read-only view snapshot: zoom axis, blend factor, which projection + grid
+	// depth are live, and the geohash under the view center at that depth (used
+	// by the notes fetcher to derive a viewport prefix, and by tests). in notes
+	// mode it also carries the rendered pins (screen-space), for tests.
 	function view() {
 		const t = flatT();
-		return { zoom, t, mode: t >= 0.5 ? "flat" : "globe", depth: t >= 0.5 ? flatDepthFor(worldPx()) : depthFor(radius()) };
+		const depth = displayDepth();
+		const snap = {
+			zoom,
+			t,
+			mode: t >= 0.5 ? "flat" : "globe",
+			depth,
+			gh: encodeGeohash(pitch, wrapLon(yaw), depth),
+		};
+		if (overlayMode === "notes") {
+			snap.pins = noteClusters.map((p) => ({ gh: p.gh, count: p.count, x: p.hx, y: p.hy, r: p.r }));
+		}
+		return snap;
 	}
 
-	return { open, close, setActivity, ping, isOnScreen, focusGeohash, view, destroy, resize };
+	return { open, close, setActivity, setMode, setNotes, setOptions, ping, isOnScreen, focusGeohash, view, destroy, resize };
 }
 
 // --- helpers -----------------------------------------------------------------

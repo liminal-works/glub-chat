@@ -192,7 +192,10 @@
 			<div id="mapGate" class="gate">
 				<div class="mapPanel">
 					<div class="usersHeader">
-						<span id="mapTitle" data-i18n="map.title">geohash map</span>
+						<!-- the title doubles as the map menu trigger: overlay mode + display toggles -->
+						<button id="mapMenuBtn" class="mapMenuBtn" type="button" aria-haspopup="menu">
+							<span id="mapTitle" data-i18n="map.title">geohash map</span><span class="mapMenuCaret">▾</span>
+						</button>
 						<strong id="mapClose" class="usersExit" data-i18n="users.exit">[EXIT]</strong>
 					</div>
 					<div class="mapStage">
@@ -200,6 +203,13 @@
 						<!-- ephemeral live-chat ticker: fresh messages from anywhere drift up
 						     over the globe's lower third and fade after a few seconds (pushMapFeed) -->
 						<div id="mapFeed" class="mapFeed" aria-hidden="true"></div>
+						<div id="mapMenu" class="mapMenu" hidden>
+							<button type="button" class="mapMenuItem" data-map-mode="live"><span class="mmMark">●</span><span data-i18n="map.mode_live">live activity</span></button>
+							<button type="button" class="mapMenuItem" data-map-mode="notes"><span class="mmMark">○</span><span data-i18n="map.mode_notes">location notes</span></button>
+							<div class="mapMenuSep"></div>
+							<button type="button" class="mapMenuItem" data-map-opt="night"><span class="mmMark">[x]</span><span data-i18n="map.opt_night">day/night shading</span></button>
+							<button type="button" class="mapMenuItem" data-map-opt="tiles"><span class="mmMark">[x]</span><span data-i18n="map.opt_tiles">street tiles</span></button>
+						</div>
 					</div>
 					<div id="mapHint" class="mapHint" data-i18n="map.hint">drag to spin · zoom to explore · select a cell to join</div>
 				</div>

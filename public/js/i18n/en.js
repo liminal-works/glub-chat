@@ -162,6 +162,11 @@ export default {
 	map: {
 		title: "geohash map",
 		hint: "drag to spin · zoom to explore · select a cell to join",
+		hint_notes: "drag to explore · select a pin to read notes · select a cell to leave one",
+		mode_live: "live activity",
+		mode_notes: "location notes",
+		opt_night: "day/night shading",
+		opt_tiles: "street tiles",
 	},
 
 	// the location-notes sheet: a persistent per-channel bulletin board (kind-1)

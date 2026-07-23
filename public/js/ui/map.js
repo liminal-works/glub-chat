@@ -1,12 +1,17 @@
-// A hand-rolled wireframe globe for browsing geohash channels. Pure canvas 2D +
-// an orthographic projection - no three.js, no webgl. Draws the sphere limb,
-// vendored coastlines, a day/night terminator, and the geohash grid at a
-// zoom-derived depth; glows cells with live activity, ripples a ping wherever a
-// message just landed, labels cells with a live "here" count; drag to spin,
-// wheel/pinch to zoom, tap a cell to join it.
+// A hand-rolled map for browsing geohash channels, in two seamlessly blended
+// projections. Pure canvas 2D - no three.js, no leaflet, no webgl.
+//
+// Zoomed out it's the wireframe globe: orthographic projection, sphere limb,
+// vendored coastlines, day/night terminator, geohash grid at a zoom-derived
+// depth. Zoom past the blend band and it cross-fades into a flat web-mercator
+// street view - raster tiles (the same Carto basemap native bitchat-android
+// ships) under the same geohash grid, down to street-level precisions the globe
+// could never enumerate. The scales are matched at the crossing, so the grid
+// just "flattens" underfoot. Both modes share the overlays: activity glow, live
+// pings, "here" counts, hover/tap-to-join.
 //
 // createMap({ canvas, onPick, colors }) -> { open, close, setActivity, ping, ... }
-// colors: () => ({ accent, fg, muted, bg }) so the globe follows the theme.
+// colors: () => ({ accent, fg, muted, bg }) so the map follows the theme.
 
 import { COASTLINES } from "./coastlines.js";
 
@@ -17,6 +22,20 @@ const NIGHT_ALPHA = 0.58; // how dark the night hemisphere shade sits over the l
 const NIGHT_SHADE = "#03060c"; // near-black blue the night side dims toward
 const TWILIGHT_BAND = 0.16; // half-width (in surface-normal dot units) of the soft dawn/dusk falloff
 const NIGHT_GRID_DIM = 0.78; // how much a deep-night cell's outline/label fades (0 = none, 1 = gone)
+
+// --- globe -> flat street-map handoff ---------------------------------------
+const FLAT_LO = 26; // below this zoom the view is pure globe
+const FLAT_HI = 34; // above it, pure flat map; in between the two cross-fade
+const FLAT_MAX_DEPTH = 12; // flat grid enumerates to full geohash precision (viewport-bounded, so it's cheap)
+const MERC_LAT_MAX = 85.0511; // web-mercator's latitude limit
+const TILE_SIZE = 256;
+const TILE_MAX_Z = 19; // deepest tile level requested; zooming past it stretches tiles rather than 404ing
+const TILE_CACHE_MAX = 300;
+// the same basemap family native bitchat-android's picker uses (theirs is
+// light_all; dark_all matches our terminal look). override with
+// window.GLUB_TILE_URL - a custom template, or "" to disable tiles entirely
+// (the flat view then stays grid-only, which is also the offline behavior).
+const TILE_URL_DEFAULT = "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png";
 
 // --- geohash math (self-contained; map owns its own encode/decode) -----------
 
@@ -63,9 +82,12 @@ export function createMap({ canvas, onPick, colors }) {
 	const ctx = canvas.getContext("2d");
 	let W = 0, H = 0, cx = 0, cy = 0, dpr = 1;
 
-	// view state: center lon/lat (yaw/pitch) + zoom (1 = globe fits the frame)
+	// view state: center lon/lat (yaw/pitch) + zoom (1 = globe fits the frame).
+	// zoom is one continuous axis across both projections: the globe carries it to
+	// the blend band, the flat map onward (its cap comes from tile depth, see
+	// maxZoom). ZOOM_MAX is gone on purpose.
 	let yaw = -20, pitch = 18, zoom = 1;
-	const ZOOM_MIN = 1, ZOOM_MAX = 90;
+	const ZOOM_MIN = 1;
 	let activity = new Map(); // full-geohash -> intensity 0..1
 	let counts = new Map(); // full-geohash -> distinct talkers "here" (last few min)
 	let pings = []; // { lon, lat, born } expanding ripples where a message just landed
@@ -73,6 +95,14 @@ export function createMap({ canvas, onPick, colors }) {
 	let raf = null, running = false;
 	let lastInteract = 0;
 	let hoverGeo = null; // cell under the pointer (for the label/pick affordance)
+	// cos(latitude) captured as the view crosses into the flat blend: it pins the
+	// mercator world size so one degree of longitude spans the same pixels in both
+	// projections at the handoff - that scale match IS the seamlessness. cleared
+	// once the view is fully back on the globe.
+	let flatCosLat = null;
+	const tiles = new Map(); // "z/x/y" -> { img, ok }
+	const tileUrl = () =>
+		typeof window !== "undefined" && window.GLUB_TILE_URL !== undefined ? window.GLUB_TILE_URL : TILE_URL_DEFAULT;
 
 	function resize() {
 		dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -139,13 +169,91 @@ export function createMap({ canvas, onPick, colors }) {
 		return { latLo, latHi, lonLo: yaw - lonHalf, lonHi: yaw + lonHalf, full: lonHalf >= 179 };
 	}
 
+	// --- flat (web-mercator) mode ----------------------------------------------
+
+	// blend factor: 0 = pure globe, 1 = pure flat, smoothstepped across the band.
+	function flatT() {
+		const t = Math.max(0, Math.min(1, (zoom - FLAT_LO) / (FLAT_HI - FLAT_LO)));
+		return t * t * (3 - 2 * t);
+	}
+
+	// mercator world width in px for the current zoom. derived from the globe's
+	// px-per-longitude-degree at the captured latitude, so the two projections
+	// agree on scale through the whole blend band.
+	function worldPx() {
+		if (flatCosLat == null) flatCosLat = Math.cos(pitch * DEG);
+		return radius() * flatCosLat * DEG * 360;
+	}
+
+	// flat projection: x is linear in longitude (wrapped around the view center so
+	// the antimeridian never splits the viewport), y is mercator in latitude.
+	function xFromLon(lon, wpx = worldPx()) {
+		return cx + wrapLon(lon - yaw) * (wpx / 360);
+	}
+	function yFromLat(lat, wpx = worldPx()) {
+		return cy + (mercY01(lat) - mercY01(pitch)) * wpx;
+	}
+	function lonFromX(px, wpx = worldPx()) {
+		return wrapLon(yaw + ((px - cx) * 360) / wpx);
+	}
+	function latFromY(py, wpx = worldPx()) {
+		return invMercY01(mercY01(pitch) + (py - cy) / wpx);
+	}
+
+	// deepest geohash depth whose cells read comfortably at this world size. the
+	// flat viewport bounds enumeration by construction, so full precision is fine.
+	function flatDepthFor(wpx) {
+		let best = 1;
+		for (let len = 1; len <= FLAT_MAX_DEPTH; len++) {
+			const wDeg = 360 / 2 ** bitsFor(len).lon;
+			if ((wpx * wDeg) / 360 >= 46) best = len;
+			else break;
+		}
+		return best;
+	}
+
+	// zoom cap: irrelevant on the globe (the blend takes over long before), and in
+	// flat mode set where the deepest tiles would be stretched ~2x - street level.
+	function maxZoom() {
+		if (flatCosLat == null) return 90;
+		const maxWorld = TILE_SIZE * 2 ** (TILE_MAX_Z + 1);
+		return maxWorld / (Math.min(W, H) * 0.42 * flatCosLat * DEG * 360);
+	}
+
+	// mode-aware projection for the shared overlays (pings, on-screen checks):
+	// the flat projector once the blend is past halfway, the globe one before.
+	function projectPoint(lon, lat) {
+		if (flatT() >= 0.5) return { x: xFromLon(lon), y: yFromLat(lat), front: true };
+		return project(lon, lat, radius(), sinP(), cosP());
+	}
+
 	// --- drawing ---------------------------------------------------------------
 
+	// orchestrator: cross-fades the globe and the flat street map through the
+	// blend band, then draws the mode-agnostic overlays (pings) on top.
 	function draw() {
 		const c = colors();
+		ctx.clearRect(0, 0, W, H);
+		if (zoom <= FLAT_LO) flatCosLat = null; // fully on the globe again: re-derive the scale match at the next crossing
+		const t = flatT();
+		if (t < 1) {
+			ctx.save();
+			if (t > 0) ctx.globalAlpha = 1 - t;
+			drawGlobe(c);
+			ctx.restore();
+		}
+		if (t > 0) {
+			ctx.save();
+			if (t < 1) ctx.globalAlpha = t;
+			drawFlat(c);
+			ctx.restore();
+		}
+		drawPings(c);
+	}
+
+	function drawGlobe(c) {
 		const R = radius();
 		const sp = sinP(), cp = cosP();
-		ctx.clearRect(0, 0, W, H);
 
 		// sphere disc (subtle fill) + limb
 		ctx.beginPath();
@@ -177,11 +285,164 @@ export function createMap({ canvas, onPick, colors }) {
 		const depth = depthFor(R);
 		drawGeohashGrid(R, sp, cp, depth, c, sunVec);
 
-		// live message ripples ride above everything, so a ping reads even over a
-		// bright, active cell.
-		drawPings(R, sp, cp, c);
-
 		ctx.restore();
+	}
+
+	// --- flat rendering: tiles, veil, grid, attribution --------------------------
+
+	function drawFlat(c) {
+		const wpx = worldPx();
+		drawTiles(wpx);
+		// theme veil: sit the street tiles inside the terminal palette instead of
+		// letting a foreign basemap glare through. also what the grid draws over.
+		ctx.fillStyle = withAlpha(c.bg, 0.22);
+		ctx.fillRect(0, 0, W, H);
+		drawFlatGrid(c, wpx);
+		drawAttribution(c);
+	}
+
+	// fetch-and-cache one tile; a tile that errors just stays blank (the grid-only
+	// view is the graceful offline/blocked fallback, never a broken map).
+	function tileFor(z, xw, y) {
+		const key = `${z}/${xw}/${y}`;
+		let t = tiles.get(key);
+		if (t) return t;
+		const template = tileUrl();
+		if (!template) return null;
+		if (tiles.size >= TILE_CACHE_MAX) tiles.clear(); // crude but bounded; visible tiles refill fast from the http cache
+		t = { img: new Image(), ok: false };
+		t.img.crossOrigin = "anonymous";
+		t.img.onload = () => { t.ok = true; };
+		t.img.onerror = () => {};
+		t.img.src = template
+			.replace("{s}", "abcd"[(xw + y) % 4])
+			.replace("{z}", z)
+			.replace("{x}", xw)
+			.replace("{y}", y);
+		tiles.set(key, t);
+		return t;
+	}
+
+	function drawTiles(wpx) {
+		if (!tileUrl()) return;
+		const z = Math.max(0, Math.min(TILE_MAX_Z, Math.floor(Math.log2(wpx / TILE_SIZE))));
+		const n = 2 ** z;
+		const tpx = wpx / n; // on-screen size of one tile
+		const txC = ((yaw + 180) / 360) * n; // fractional tile coords of the view center
+		const tyC = mercY01(pitch) * n;
+		const tx0 = Math.floor(txC - cx / tpx);
+		const tx1 = Math.ceil(txC + (W - cx) / tpx);
+		const ty0 = Math.max(0, Math.floor(tyC - cy / tpx));
+		const ty1 = Math.min(n - 1, Math.ceil(tyC + (H - cy) / tpx));
+		for (let ty = ty0; ty <= ty1; ty++) {
+			for (let tx = tx0; tx <= tx1; tx++) {
+				const xw = ((tx % n) + n) % n; // wrap across the antimeridian
+				const t = tileFor(z, xw, ty);
+				if (!t || !t.ok) continue;
+				// the +0.5 overdraw hides hairline seams between neighboring tiles
+				ctx.drawImage(t.img, cx + (tx - txC) * tpx, cy + (ty - tyC) * tpx, tpx + 0.5, tpx + 0.5);
+			}
+		}
+	}
+
+	// carto's tile terms require attribution; shown whenever the street layer is.
+	function drawAttribution(c) {
+		if (!tileUrl()) return;
+		ctx.font = "9px ui-monospace, monospace";
+		ctx.textAlign = "right";
+		ctx.textBaseline = "bottom";
+		ctx.fillStyle = withAlpha(c.muted, 0.9);
+		ctx.fillText("© openstreetmap · © carto", W - 6, H - 5);
+	}
+
+	// the same grid the globe draws, enumerated straight from the flat viewport -
+	// which is what finally lifts the old depth-3 ceiling: only visible cells are
+	// walked, so street-level precisions cost the same as continental ones.
+	function drawFlatGrid(c, wpx) {
+		const depth = flatDepthFor(wpx);
+		const { lat: latBits, lon: lonBits } = bitsFor(depth);
+		const latStep = 180 / 2 ** latBits;
+		const lonStep = 360 / 2 ** lonBits;
+
+		// same activity/count rollups the globe grid uses
+		const act = new Map();
+		for (const [gh, inten] of activity) {
+			if (gh.length < depth) continue;
+			const key = gh.slice(0, depth);
+			act.set(key, Math.max(act.get(key) || 0, inten));
+		}
+		const cnt = new Map();
+		for (const [gh, n] of counts) {
+			if (gh.length < depth) continue;
+			const key = gh.slice(0, depth);
+			cnt.set(key, (cnt.get(key) || 0) + n);
+		}
+
+		const label = (wpx * lonStep) / 360 >= 58;
+		const latHi = Math.min(MERC_LAT_MAX, latFromY(0, wpx));
+		const latLo = Math.max(-MERC_LAT_MAX, latFromY(H, wpx));
+		const lonHalfSpan = Math.min(180, (W * 360) / (2 * wpx));
+		const latStart = Math.floor((latLo + 90) / latStep) * latStep - 90;
+		const lonStart = Math.floor((yaw - lonHalfSpan + 180) / lonStep) * lonStep - 180;
+		const lonEnd = yaw + lonHalfSpan;
+		let drawn = 0;
+		for (let lat = latStart; lat <= latHi && lat < 90; lat += latStep) {
+			for (let lon = lonStart; lon < lonEnd; lon += lonStep) {
+				if (drawn++ > 900) return;
+				const clat = lat + latStep / 2;
+				const clon = wrapLon(lon + lonStep / 2);
+				const gh = encodeGeohash(clat, clon, depth);
+				drawFlatCell(gh, c, act.get(gh) || 0, label, cnt.get(gh) || 0, wpx);
+			}
+		}
+	}
+
+	// one grid cell in the flat view: geohash cells are lat/lon-aligned, so in
+	// mercator they're plain axis-aligned rectangles. styling mirrors drawCell
+	// (activity fill, hover, label + accent count); no night dim at street scale.
+	function drawFlatCell(gh, c, intensity, label, count, wpx) {
+		const b = geohashBounds(gh);
+		const x0 = xFromLon(b.lonLo, wpx);
+		const x1 = x0 + ((b.lonHi - b.lonLo) * wpx) / 360; // width, not a second wrap - dodges antimeridian flips
+		const y0 = yFromLat(b.latHi, wpx);
+		const y1 = yFromLat(b.latLo, wpx);
+		if (x1 < 0 || x0 > W || y1 < 0 || y0 > H) return;
+
+		const hovered = gh === hoverGeo;
+		ctx.beginPath();
+		ctx.rect(x0, y0, x1 - x0, y1 - y0);
+		if (intensity > 0) {
+			ctx.fillStyle = withAlpha(c.accent, 0.1 + 0.32 * intensity);
+			ctx.fill();
+		} else if (hovered) {
+			ctx.fillStyle = withAlpha(c.accent, 0.14);
+			ctx.fill();
+		}
+		ctx.lineWidth = hovered ? 1.6 : intensity > 0 ? 1.2 : 0.8;
+		ctx.strokeStyle = withAlpha(c.accent, hovered ? 0.95 : 0.28 + 0.5 * intensity);
+		ctx.stroke();
+
+		if (label || hovered) {
+			const mx = (x0 + x1) / 2;
+			const my = (y0 + y1) / 2;
+			ctx.font = `${hovered ? 13 : 11}px ui-monospace, monospace`;
+			ctx.textAlign = "center";
+			ctx.textBaseline = "middle";
+			ctx.fillStyle = withAlpha(c.fg, hovered ? 1 : 0.8);
+			if (count > 0) {
+				const name = "#" + gh;
+				const suffix = "  " + count;
+				const nameW = ctx.measureText(name).width;
+				const sufW = ctx.measureText(suffix).width;
+				const left = mx - (nameW + sufW) / 2;
+				ctx.textAlign = "left";
+				ctx.fillText(name, left, my);
+				ctx.fillStyle = withAlpha(c.accent, hovered ? 1 : 0.9);
+				ctx.fillText(suffix, left + nameW, my);
+			} else {
+				ctx.fillText("#" + gh, mx, my);
+			}
+		}
 	}
 
 	// --- day/night terminator ----------------------------------------------------
@@ -451,13 +712,15 @@ export function createMap({ canvas, onPick, colors }) {
 	}
 
 	// expanding ripple(s) at each recent ping's cell center, fading over PING_MS.
-	function drawPings(R, sp, cp, c) {
+	// mode-agnostic: drawn after both layers via the blended projector, so a ping
+	// lands on the same spot whether that spot is on the sphere or the street map.
+	function drawPings(c) {
 		if (!pings.length) return;
 		const now = performance.now();
 		for (const p of pings) {
 			const age = (now - p.born) / PING_MS;
 			if (age >= 1) continue;
-			const prj = project(p.lon, p.lat, R, sp, cp);
+			const prj = projectPoint(p.lon, p.lat);
 			if (!prj.front) continue;
 			const ease = 1 - (1 - age) * (1 - age); // ease-out
 			const rad = 3 + ease * 24;
@@ -509,6 +772,10 @@ export function createMap({ canvas, onPick, colors }) {
 	}
 
 	function geoAt(px, py) {
+		if (flatT() >= 0.5) {
+			// flat inversion is exact everywhere in the viewport - no disc to miss
+			return encodeGeohash(latFromY(py), lonFromX(px), flatDepthFor(worldPx()));
+		}
 		const ll = unproject(px, py);
 		if (!ll) return null;
 		return encodeGeohash(ll.lat, ll.lon, depthFor(radius()));
@@ -542,10 +809,17 @@ export function createMap({ canvas, onPick, colors }) {
 			const dx = e.clientX - drag.x;
 			const dy = e.clientY - drag.y;
 			if (Math.abs(dx) + Math.abs(dy) > 3) drag.moved = true;
-			// slower rotation as you zoom in, so deep navigation stays controllable
-			const k = 0.25 / Math.sqrt(zoom);
-			yaw = wrapLon(yaw - dx * k);
-			pitch = Math.max(-89, Math.min(89, pitch + dy * k));
+			if (flatT() > 0) {
+				// flat pan: 1:1 ground tracking - the point under the pointer stays there
+				const wpx = worldPx();
+				yaw = wrapLon(yaw - (dx * 360) / wpx);
+				pitch = Math.max(-84.9, Math.min(84.9, invMercY01(mercY01(pitch) - dy / wpx)));
+			} else {
+				// globe spin: slower as you zoom in, so navigation stays controllable
+				const k = 0.25 / Math.sqrt(zoom);
+				yaw = wrapLon(yaw - dx * k);
+				pitch = Math.max(-89, Math.min(89, pitch + dy * k));
+			}
 			drag.x = e.clientX;
 			drag.y = e.clientY;
 			lastInteract = performance.now();
@@ -579,7 +853,7 @@ export function createMap({ canvas, onPick, colors }) {
 		lastInteract = performance.now();
 	}
 	function setZoom(z) {
-		zoom = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, z));
+		zoom = Math.max(ZOOM_MIN, Math.min(maxZoom(), z));
 	}
 
 	// --- loop ------------------------------------------------------------------
@@ -625,31 +899,37 @@ export function createMap({ canvas, onPick, colors }) {
 		pings.push({ lon: wrapLon((b.lonLo + b.lonHi) / 2), lat: (b.latLo + b.latHi) / 2, born: performance.now() });
 		if (pings.length > 60) pings = pings.slice(-60);
 	}
-	// rotate the globe so `gh`'s cell sits under the center, and zoom in enough to
-	// frame it - used to drop you onto your current channel when the map opens.
+	// center the view on `gh` and zoom so its cells frame at ~90px - used to drop
+	// you onto your current channel when the map opens. broad channels (depth <=3)
+	// frame on the globe; deeper ones land straight in the flat street view, which
+	// is what lifted the old depth-3 ceiling.
 	function focusGeohash(gh) {
 		if (!gh || !/^[0-9a-z]{1,12}$/.test(gh)) return;
 		const b = geohashBounds(gh);
 		yaw = wrapLon((b.lonLo + b.lonHi) / 2);
-		pitch = Math.max(-89, Math.min(89, (b.latLo + b.latHi) / 2));
-		// zoom in so the region reads clearly, but cap the framed depth at 3: past
-		// that the grid gets so fine that enumeration can't reach the center and the
-		// view blanks. so we land on the neighborhood, and you zoom/tap the rest.
-		const depth = Math.min(gh.length, 3);
-		const { lon: lonBits } = bitsFor(depth);
-		const wDeg = 360 / 2 ** lonBits;
+		pitch = Math.max(-84.9, Math.min(84.9, (b.latLo + b.latHi) / 2));
 		const minDim = Math.min(W, H) || 1;
-		setZoom(90 / (minDim * 0.42 * wDeg * DEG)); // ~90px cells at this depth
+		const { lon: lonBits } = bitsFor(gh.length);
+		const wDeg = 360 / 2 ** lonBits;
+		if (gh.length <= 3) {
+			flatCosLat = null;
+			setZoom(90 / (minDim * 0.42 * wDeg * DEG)); // ~90px cells on the globe
+		} else {
+			flatCosLat = Math.cos(pitch * DEG);
+			const targetWorld = (90 * 360) / wDeg; // mercator world size where this depth reads at ~90px
+			zoom = Math.max(FLAT_HI + 1, Math.min(maxZoom(), targetWorld / (minDim * 0.42 * flatCosLat * DEG * 360)));
+		}
 		lastInteract = performance.now();
 	}
 	// is a geohash's cell visible on-screen right now: front-facing (near hemisphere)
 	// AND inside the canvas rect (so a zoomed-in view over asia doesn't count a
 	// front-but-off-frame cell in africa). used to gate the live-chat ticker to
-	// messages whose ping the viewer can actually see fire.
+	// messages whose ping the viewer can actually see fire. mode-aware via the
+	// blended projector, so the rule holds on the street map too.
 	function isOnScreen(gh) {
 		if (!gh || !/^[0-9a-z]{1,12}$/.test(gh)) return false;
 		const b = geohashBounds(gh);
-		const p = project(wrapLon((b.lonLo + b.lonHi) / 2), (b.latLo + b.latHi) / 2, radius(), sinP(), cosP());
+		const p = projectPoint(wrapLon((b.lonLo + b.lonHi) / 2), (b.latLo + b.latHi) / 2);
 		return p.front && p.x >= 0 && p.x <= W && p.y >= 0 && p.y <= H;
 	}
 	function destroy() {
@@ -677,7 +957,14 @@ export function createMap({ canvas, onPick, colors }) {
 	const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(() => resize()) : null;
 	ro?.observe(canvas);
 
-	return { open, close, setActivity, ping, isOnScreen, focusGeohash, destroy, resize };
+	// read-only view snapshot, for debugging/tests (zoom axis, blend factor, and
+	// which projection + grid depth are live right now).
+	function view() {
+		const t = flatT();
+		return { zoom, t, mode: t >= 0.5 ? "flat" : "globe", depth: t >= 0.5 ? flatDepthFor(worldPx()) : depthFor(radius()) };
+	}
+
+	return { open, close, setActivity, ping, isOnScreen, focusGeohash, view, destroy, resize };
 }
 
 // --- helpers -----------------------------------------------------------------
@@ -704,6 +991,15 @@ function angDelta(a0, a1) {
 	while (d > Math.PI) d -= TWO_PI;
 	while (d <= -Math.PI) d += TWO_PI;
 	return d;
+}
+
+// web-mercator y in [0,1] (0 = north edge, y-down) for a latitude, and back.
+function mercY01(lat) {
+	const p = Math.max(-MERC_LAT_MAX, Math.min(MERC_LAT_MAX, lat)) * DEG;
+	return 0.5 - Math.log(Math.tan(Math.PI / 4 + p / 2)) / TWO_PI;
+}
+function invMercY01(y) {
+	return (2 * Math.atan(Math.exp((0.5 - y) * TWO_PI)) - Math.PI / 2) / DEG;
 }
 
 // apply an alpha to a CSS color that may be #rgb/#rrggbb or rgb()/rgba(). falls

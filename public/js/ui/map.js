@@ -604,7 +604,11 @@ export function createMap({ canvas, onPick, onNotesPick, colors }) {
 		for (const g of groups.values()) {
 			const p = projectPoint(wrapLon(g.lon / g.count), g.lat / g.count);
 			if (!p.front || p.x < -24 || p.x > W + 24 || p.y < -24 || p.y > H + 24) continue;
-			out.push({ gh: g.gh, count: g.count, x: p.x, y: p.y, hx: 0, hy: 0, r: 0 });
+			// a note tagged coarser than the depth we're viewing (placed in #9q, but
+			// we've zoomed into #9qh) knows its spot only to that cell - its pin sits
+			// at the cell center but could really be anywhere inside. mark it so the
+			// render grays it: a signal you've zoomed past what the note actually pins.
+			out.push({ gh: g.gh, count: g.count, x: p.x, y: p.y, past: g.gh.length < depth, hx: 0, hy: 0, r: 0 });
 		}
 		return out;
 	}
@@ -626,34 +630,37 @@ export function createMap({ canvas, onPick, onNotesPick, colors }) {
 		cl.hx = cl.x;
 		cl.hy = hy;
 		cl.r = r;
+		// past-scope pins go muted (gray) and a touch fainter; in-scope stay accent
+		const col = cl.past ? c.muted : c.accent;
+		const a = cl.past ? 0.6 : 1;
 		// anchor dot + stem
 		ctx.beginPath();
 		ctx.arc(cl.x, cl.y, 1.6, 0, TWO_PI);
-		ctx.fillStyle = withAlpha(c.accent, 0.9);
+		ctx.fillStyle = withAlpha(col, 0.9 * a);
 		ctx.fill();
 		ctx.beginPath();
 		ctx.moveTo(cl.x, cl.y - 1.5);
 		ctx.lineTo(cl.x, hy + r - 1);
 		ctx.lineWidth = 1.4;
-		ctx.strokeStyle = withAlpha(c.accent, 0.9);
+		ctx.strokeStyle = withAlpha(col, 0.9 * a);
 		ctx.stroke();
-		// head: theme-dark fill so the count reads over tiles, accent ring
+		// head: theme-dark fill so the count reads over tiles, colored ring
 		ctx.beginPath();
 		ctx.arc(cl.hx, hy, r, 0, TWO_PI);
 		ctx.fillStyle = withAlpha(c.bg, 0.88);
 		ctx.fill();
 		ctx.lineWidth = 1.4;
-		ctx.strokeStyle = withAlpha(c.accent, 0.95);
+		ctx.strokeStyle = withAlpha(col, 0.95 * a);
 		ctx.stroke();
 		if (multi) {
 			ctx.textAlign = "center";
 			ctx.textBaseline = "middle";
-			ctx.fillStyle = withAlpha(c.accent, 1);
+			ctx.fillStyle = withAlpha(col, a);
 			ctx.fillText(txt, cl.hx, hy + 0.5);
 		} else {
 			ctx.beginPath();
 			ctx.arc(cl.hx, hy, 2, 0, TWO_PI);
-			ctx.fillStyle = withAlpha(c.accent, 1);
+			ctx.fillStyle = withAlpha(col, a);
 			ctx.fill();
 		}
 	}

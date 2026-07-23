@@ -2044,8 +2044,21 @@ function closeNotes() {
 // us a coordinate we encode to a geohash at the chosen precision, then open the
 // notes sheet on it (composer posts to that exact cell). scopes mirror bitchat's
 // building/city bands: length 7 ~150m up to length 4 ~40km.
+// scope labels carry a localized distance for the band's cell size, using the
+// same mi/km logic (formatDistance/usesImperial) the users list shows for a
+// channel's coverage - built fresh each open so it follows the language + region.
+const NOTE_SCOPE_KEYS = { 7: "notes.scope_precise", 6: "notes.scope_block", 5: "notes.scope_city", 4: "notes.scope_region" };
+function renderNotesMenu() {
+	for (const btn of notesMenu.querySelectorAll("[data-note-scope]")) {
+		const len = parseInt(btn.dataset.noteScope, 10);
+		const span = geohashCell("0".repeat(len)).spanKm;
+		btn.querySelector(".nsLabel").textContent = `${t(NOTE_SCOPE_KEYS[len])} · ${formatDistance(span)}`;
+	}
+}
+
 function toggleNotesMenu(show) {
 	const on = show !== undefined ? show : notesMenu.hidden;
+	if (on) renderNotesMenu();
 	notesMenu.hidden = !on;
 	notesDraft.classList.toggle("active", on);
 }

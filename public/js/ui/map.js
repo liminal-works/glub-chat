@@ -297,8 +297,60 @@ export function createMap({ canvas, onPick, colors }) {
 		// letting a foreign basemap glare through. also what the grid draws over.
 		ctx.fillStyle = withAlpha(c.bg, 0.22);
 		ctx.fillRect(0, 0, W, H);
-		drawFlatGrid(c, wpx);
+		// same day/night pass the globe runs: shade the night side and fade its grid
+		// cells, so the two projections carry an identical terminator through the blend.
+		const sun = subsolarPoint();
+		drawFlatNight(c, wpx, sun);
+		drawFlatGrid(c, wpx, sun);
 		drawAttribution(c);
+	}
+
+	// flat-projection twin of drawNight: sample the terminator latitude across the
+	// visible width, then flood the night side of that curve with the same shade the
+	// globe uses. the per-column termLat = atan(-C/S) stays correct straight through
+	// the equinox (S->0 sends day columns' fill off one screen edge, night columns'
+	// off the other), so no special-casing beyond guarding the divide.
+	function drawFlatNight(c, wpx, sun) {
+		const S = Math.sin(sun.lat * DEG);
+		const Sd = Math.abs(S) < 1e-6 ? (S < 0 ? -1e-6 : 1e-6) : S;
+		const nightUp = S < 0; // subsolar point south -> night pole is north (upper screen)
+		const cosSun = Math.cos(sun.lat * DEG);
+		const pts = [];
+		for (let px = 0; px <= W; px += 6) {
+			const lon = lonFromX(px, wpx);
+			const C = cosSun * Math.cos((lon - sun.lon) * DEG);
+			let termLat = Math.atan(-C / Sd) / DEG;
+			termLat = Math.max(-MERC_LAT_MAX, Math.min(MERC_LAT_MAX, termLat));
+			const y = Math.max(-1, Math.min(H + 1, yFromLat(termLat, wpx)));
+			pts.push([px, y]);
+		}
+		const edgeY = nightUp ? -1 : H + 1;
+		ctx.beginPath();
+		ctx.moveTo(pts[0][0], pts[0][1]);
+		for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
+		ctx.lineTo(W, edgeY);
+		ctx.lineTo(0, edgeY);
+		ctx.closePath();
+		ctx.fillStyle = withAlpha(NIGHT_SHADE, NIGHT_ALPHA);
+		ctx.fill();
+
+		// twilight rim: trace just the terminator so the boundary reads as a lit edge.
+		ctx.beginPath();
+		ctx.moveTo(pts[0][0], pts[0][1]);
+		for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
+		ctx.strokeStyle = withAlpha(c.accent, 0.5);
+		ctx.lineWidth = 1.4;
+		ctx.stroke();
+	}
+
+	// projection-independent twin of nightFactor: 0 in full daylight, 1 in deep
+	// night, with the same TWILIGHT_BAND ramp. d is the sun-elevation cosine at the
+	// point, so it needs no view-space rotation and works for the flat grid.
+	function flatNightFactor(lat, lon, sun) {
+		const la = lat * DEG, lo = lon * DEG;
+		const sla = sun.lat * DEG, slo = sun.lon * DEG;
+		const d = Math.sin(la) * Math.sin(sla) + Math.cos(la) * Math.cos(sla) * Math.cos(lo - slo);
+		return Math.max(0, Math.min(1, 0.5 - d / (2 * TWILIGHT_BAND)));
 	}
 
 	// fetch-and-cache one tile; a tile that errors just stays blank (the grid-only
@@ -358,7 +410,7 @@ export function createMap({ canvas, onPick, colors }) {
 	// the same grid the globe draws, enumerated straight from the flat viewport -
 	// which is what finally lifts the old depth-3 ceiling: only visible cells are
 	// walked, so street-level precisions cost the same as continental ones.
-	function drawFlatGrid(c, wpx) {
+	function drawFlatGrid(c, wpx, sun) {
 		const depth = flatDepthFor(wpx);
 		const { lat: latBits, lon: lonBits } = bitsFor(depth);
 		const latStep = 180 / 2 ** latBits;
@@ -392,15 +444,15 @@ export function createMap({ canvas, onPick, colors }) {
 				const clat = lat + latStep / 2;
 				const clon = wrapLon(lon + lonStep / 2);
 				const gh = encodeGeohash(clat, clon, depth);
-				drawFlatCell(gh, c, act.get(gh) || 0, label, cnt.get(gh) || 0, wpx);
+				drawFlatCell(gh, c, act.get(gh) || 0, label, cnt.get(gh) || 0, wpx, sun);
 			}
 		}
 	}
 
 	// one grid cell in the flat view: geohash cells are lat/lon-aligned, so in
 	// mercator they're plain axis-aligned rectangles. styling mirrors drawCell
-	// (activity fill, hover, label + accent count); no night dim at street scale.
-	function drawFlatCell(gh, c, intensity, label, count, wpx) {
+	// (activity fill, hover, label + accent count), night dim and all.
+	function drawFlatCell(gh, c, intensity, label, count, wpx, sun) {
 		const b = geohashBounds(gh);
 		const x0 = xFromLon(b.lonLo, wpx);
 		const x1 = x0 + ((b.lonHi - b.lonLo) * wpx) / 360; // width, not a second wrap - dodges antimeridian flips
@@ -409,6 +461,10 @@ export function createMap({ canvas, onPick, colors }) {
 		if (x1 < 0 || x0 > W || y1 < 0 || y0 > H) return;
 
 		const hovered = gh === hoverGeo;
+		// night fades only the "structural" cells - active, counted, or hovered cells
+		// stay full strength so talkers and the pointer always read (mirrors drawCell).
+		const night = sun ? flatNightFactor((b.latLo + b.latHi) / 2, (b.lonLo + b.lonHi) / 2, sun) : 0;
+		const dim = hovered || intensity > 0 || count > 0 ? 1 : 1 - NIGHT_GRID_DIM * night;
 		ctx.beginPath();
 		ctx.rect(x0, y0, x1 - x0, y1 - y0);
 		if (intensity > 0) {
@@ -419,7 +475,7 @@ export function createMap({ canvas, onPick, colors }) {
 			ctx.fill();
 		}
 		ctx.lineWidth = hovered ? 1.6 : intensity > 0 ? 1.2 : 0.8;
-		ctx.strokeStyle = withAlpha(c.accent, hovered ? 0.95 : 0.28 + 0.5 * intensity);
+		ctx.strokeStyle = withAlpha(c.accent, (hovered ? 0.95 : 0.28 + 0.5 * intensity) * dim);
 		ctx.stroke();
 
 		if (label || hovered) {
@@ -428,7 +484,7 @@ export function createMap({ canvas, onPick, colors }) {
 			ctx.font = `${hovered ? 13 : 11}px ui-monospace, monospace`;
 			ctx.textAlign = "center";
 			ctx.textBaseline = "middle";
-			ctx.fillStyle = withAlpha(c.fg, hovered ? 1 : 0.8);
+			ctx.fillStyle = withAlpha(c.fg, (hovered ? 1 : 0.8) * dim);
 			if (count > 0) {
 				const name = "#" + gh;
 				const suffix = "  " + count;

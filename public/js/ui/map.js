@@ -29,6 +29,14 @@ const NIGHT_SHADE = "#03060c"; // near-black blue the night side dims toward
 const TWILIGHT_BAND = 0.16; // half-width (in surface-normal dot units) of the soft dawn/dusk falloff
 const NIGHT_GRID_DIM = 0.78; // how much a deep-night cell's outline/label fades (0 = none, 1 = gone)
 
+// --- note preview cards (notes mode) -----------------------------------------
+const PREVIEW_MAX_PINS = 6; // above this many on-screen pins the map's too busy for previews
+const PREVIEW_LINES = 3; // note lines a card shows before collapsing the rest into "+N more"
+const PREVIEW_MAX_W = 190; // card width ceiling; lines clip to fit
+const PREVIEW_PAD = 6;
+const PREVIEW_LH = 15; // line height
+const PREVIEW_FONT = "10.5px ui-monospace, monospace";
+
 // --- globe -> flat street-map handoff ---------------------------------------
 const FLAT_LO = 26; // below this zoom the view is pure globe
 const FLAT_HI = 34; // above it, pure flat map; in between the two cross-fade
@@ -587,7 +595,7 @@ export function createMap({ canvas, onPick, onNotesPick, colors }) {
 		for (const n of noteData) {
 			const key = n.gh.slice(0, Math.min(depth, n.gh.length));
 			let g = groups.get(key);
-			if (!g) groups.set(key, (g = { gh: n.gh, lon: 0, lat: 0, count: 0 }));
+			if (!g) groups.set(key, (g = { gh: n.gh, lon: 0, lat: 0, count: 0, notes: [] }));
 			else {
 				let i = 0;
 				while (i < g.gh.length && i < n.gh.length && g.gh[i] === n.gh[i]) i++;
@@ -596,6 +604,7 @@ export function createMap({ canvas, onPick, onNotesPick, colors }) {
 			g.lon += n.lon;
 			g.lat += n.lat;
 			g.count++;
+			g.notes.push(n);
 		}
 		// anchor each pin at the mean of its members' cell centers (members share a
 		// display cell, so no antimeridian wraparound inside a group), then keep
@@ -608,7 +617,7 @@ export function createMap({ canvas, onPick, onNotesPick, colors }) {
 			// we've zoomed into #9qh) knows its spot only to that cell - its pin sits
 			// at the cell center but could really be anywhere inside. mark it so the
 			// render grays it: a signal you've zoomed past what the note actually pins.
-			out.push({ gh: g.gh, count: g.count, x: p.x, y: p.y, past: g.gh.length < depth, hx: 0, hy: 0, r: 0 });
+			out.push({ gh: g.gh, count: g.count, x: p.x, y: p.y, past: g.gh.length < depth, notes: g.notes, hx: 0, hy: 0, r: 0 });
 		}
 		return out;
 	}
@@ -616,6 +625,86 @@ export function createMap({ canvas, onPick, onNotesPick, colors }) {
 	function drawNotes(c) {
 		noteClusters = buildNoteClusters();
 		for (const cl of noteClusters) drawPin(cl, c);
+		drawNotePreviews(c);
+	}
+
+	// a quick-glance card of the notes at a pin, so you can read what's here
+	// without opening each. gated to keep it from becoming noise: only when few
+	// pins share the screen, never for past-scope pins (their spot is a guess, so
+	// their content shouldn't advertise itself), and skipped wherever a card would
+	// land on one already placed. purely from the notes already in hand - no fetch.
+	function drawNotePreviews(c) {
+		const cands = noteClusters.filter((p) => !p.past && p.notes.length);
+		if (!cands.length || cands.length > PREVIEW_MAX_PINS) return;
+		// bigger clusters win the space when cards would compete for it
+		cands.sort((a, b) => b.count - a.count);
+		const placed = [];
+		for (const p of cands) {
+			const card = layoutPreview(p);
+			if (!card || placed.some((r) => rectsOverlap(r, card))) continue;
+			drawPreviewCard(card, c);
+			placed.push(card);
+			p.card = card; // tapping the card opens the cluster, same as its pin
+		}
+	}
+
+	// size + place a card for one pin: recent notes first, clipped to width, with a
+	// "+N more" tail when the cluster runs deeper. sits to the right of the head,
+	// flipping left near the edge; returns null if neither side has room.
+	function layoutPreview(p) {
+		ctx.font = PREVIEW_FONT;
+		const recent = p.notes.slice().sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+		const shown = recent.slice(0, PREVIEW_LINES);
+		const lines = shown.map((n) => ({ text: clipToWidth(notePreviewText(n), PREVIEW_MAX_W - 2 * PREVIEW_PAD), muted: false }));
+		const more = p.count - shown.length;
+		if (more > 0) lines.push({ text: `+${more} more`, muted: true });
+		let w = 0;
+		for (const ln of lines) w = Math.max(w, ctx.measureText(ln.text).width);
+		const cw = Math.ceil(w) + 2 * PREVIEW_PAD;
+		const ch = lines.length * PREVIEW_LH + 2 * PREVIEW_PAD;
+		let x = p.hx + p.r + 8;
+		if (x + cw > W - 4) x = p.hx - p.r - 8 - cw; // flip to the left of the head
+		if (x < 4 || x + cw > W - 4) return null;
+		const y = Math.max(4, Math.min(H - 4 - ch, p.hy - ch / 2));
+		return { x, y, w: cw, h: ch, lines };
+	}
+
+	function drawPreviewCard(card, c) {
+		ctx.beginPath();
+		ctx.rect(card.x, card.y, card.w, card.h);
+		ctx.fillStyle = withAlpha(c.bg, 0.9);
+		ctx.fill();
+		ctx.lineWidth = 1;
+		ctx.strokeStyle = withAlpha(c.accent, 0.5);
+		ctx.stroke();
+		ctx.font = PREVIEW_FONT;
+		ctx.textAlign = "left";
+		ctx.textBaseline = "middle";
+		for (let i = 0; i < card.lines.length; i++) {
+			const ln = card.lines[i];
+			ctx.fillStyle = withAlpha(ln.muted ? c.muted : c.fg, 0.92);
+			ctx.fillText(ln.text, card.x + PREVIEW_PAD, card.y + PREVIEW_PAD + i * PREVIEW_LH + PREVIEW_LH / 2);
+		}
+	}
+
+	// one preview line: the note's text with URLs stripped and whitespace folded,
+	// falling back to a marker when nothing but a link/image remains.
+	function notePreviewText(n) {
+		const s = String(n.content || "").replace(/https?:\/\/\S+/gi, " ").replace(/\s+/g, " ").trim();
+		return s || "[link]";
+	}
+
+	// truncate to fit maxW at the current ctx.font, with an ellipsis (binary search
+	// so it's exact rather than a guessed character budget).
+	function clipToWidth(s, maxW) {
+		if (ctx.measureText(s).width <= maxW) return s;
+		let lo = 0, hi = s.length;
+		while (lo < hi) {
+			const mid = (lo + hi + 1) >> 1;
+			if (ctx.measureText(s.slice(0, mid) + "…").width <= maxW) lo = mid;
+			else hi = mid - 1;
+		}
+		return s.slice(0, lo).trimEnd() + "…";
 	}
 
 	// one pin: a stem rising from the anchor point to a circular head - count
@@ -1091,14 +1180,22 @@ export function createMap({ canvas, onPick, onNotesPick, colors }) {
 			const px = e.clientX - r.left;
 			const py = e.clientY - r.top;
 			if (overlayMode === "notes") {
-				// pins first (generous halo for touch), else the tapped cell - either
-				// way the tap means "notes here", never "join channel".
-				let best = null, bestD = Infinity;
+				// a tapped preview card opens its cluster, then pins (generous halo for
+				// touch), else the tapped cell - every path means "notes here", never
+				// "join channel".
+				let gh = null;
 				for (const cl of noteClusters) {
-					const d = Math.hypot(px - cl.hx, py - cl.hy) - cl.r;
-					if (d < bestD) { bestD = d; best = cl; }
+					const cd = cl.card;
+					if (cd && px >= cd.x && px <= cd.x + cd.w && py >= cd.y && py <= cd.y + cd.h) { gh = cl.gh; break; }
 				}
-				const gh = best && bestD <= 12 ? best.gh : geoAt(px, py);
+				if (!gh) {
+					let best = null, bestD = Infinity;
+					for (const cl of noteClusters) {
+						const d = Math.hypot(px - cl.hx, py - cl.hy) - cl.r;
+						if (d < bestD) { bestD = d; best = cl; }
+					}
+					gh = best && bestD <= 12 ? best.gh : geoAt(px, py);
+				}
 				if (gh) onNotesPick?.(gh);
 			} else {
 				const gh = geoAt(px, py);
@@ -1170,7 +1267,14 @@ export function createMap({ canvas, onPick, onNotesPick, colors }) {
 				const gh = String(n.geohash || "").toLowerCase();
 				if (!/^[0-9a-z]{1,12}$/.test(gh)) return null;
 				const b = geohashBounds(gh);
-				return { id: n.id, gh, lon: wrapLon((b.lonLo + b.lonHi) / 2), lat: (b.latLo + b.latHi) / 2 };
+				return {
+					id: n.id,
+					gh,
+					lon: wrapLon((b.lonLo + b.lonHi) / 2),
+					lat: (b.latLo + b.latHi) / 2,
+					content: String(n.content || ""),
+					createdAt: n.createdAt || 0,
+				};
 			})
 			.filter(Boolean);
 	}
@@ -1277,6 +1381,11 @@ function wrapLon(lon) {
 	while (x > 180) x -= 360;
 	while (x < -180) x += 360;
 	return x;
+}
+
+// axis-aligned rect overlap, for keeping note preview cards from stacking.
+function rectsOverlap(a, b) {
+	return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
 }
 
 // 3-vector cross product and normalize, for the terminator basis.

@@ -167,12 +167,20 @@ export default {
 		mode_notes: "location notes",
 		opt_night: "day/night shading",
 		opt_tiles: "street tiles",
-		opt_spin: "idle spin",
+		opt_spin: "globe spin",
 	},
 
 	// the location-notes sheet: a persistent per-channel bulletin board (kind-1)
 	notes: {
 		title: "notes",
+		draft: "[DRAFT]",
+		nearby: "nearby notes",
+		scope_precise: "precise · ~150m",
+		scope_block: "block · ~1km",
+		scope_city: "city · ~5km",
+		scope_region: "region · ~40km",
+		locating: "finding where you are…",
+		loc_failed: "location unavailable — check permission and try again",
 		placeholder: "leave a note for this channel…",
 		post: "post",
 		loading: "loading notes…",

@@ -1034,11 +1034,6 @@ textarea {
 	cursor: pointer;
 }
 
-.mapMenuCaret {
-	font-size: 10px;
-	opacity: 0.8;
-}
-
 /* the dropdown itself: floats over the stage's top-left, under the header */
 .mapMenu {
 	position: absolute;
@@ -1087,6 +1082,24 @@ textarea {
 	margin: 4px 2px;
 }
 
+/* the notes [DRAFT] scope picker reuses the map menu's look, anchored to the
+   panel's top-right under the header instead of the stage's top-left */
+.notesMenu {
+	top: 44px;
+	left: auto;
+	right: 10px;
+}
+
+.usersExit.active {
+	color: var(--fg);
+}
+
+/* the "nearby notes" divider between the exact-cell section and the surrounding
+   neighborhood; a hair more inset than the composer edges read comfortably */
+.notesBarrier {
+	margin: 10px 2px 6px;
+}
+
 /* landscape: the globe is height-bound and leaves wide empty bands on either
    side, so give it more room (wider/taller panel, full stage width). the ticker
    stays a bottom-left overlay whose lines spill rightward across the globe rather
@@ -1124,6 +1137,7 @@ textarea {
 }
 
 .notesPanel {
+	position: relative; /* anchors the [DRAFT] scope menu */
 	width: 100%;
 	max-width: 560px;
 	height: 100%;

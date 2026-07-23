@@ -11,7 +11,7 @@ import {
 } from "./nostr/identity.js";
 import { fetchRelayList } from "./nostr/relayList.js";
 import { RelayPool } from "./nostr/relayPool.js";
-import { buildChatEvent, buildPresenceEvent, signEvent, makeProfileEvent, getGeohash, getName, getClient, CHAT_KIND, PRESENCE_KIND, sortRelaysByGeohash, geohashCell, verifyEvent } from "./nostr/protocol.js";
+import { buildChatEvent, buildPresenceEvent, signEvent, makeProfileEvent, getGeohash, getName, getClient, CHAT_KIND, PRESENCE_KIND, sortRelaysByGeohash, geohashCell, encodeGeohash, verifyEvent } from "./nostr/protocol.js";
 import { mineNonceTag, POW_DIFFICULTY, idDifficulty, committedDifficulty } from "./nostr/pow.js";
 import { createMessageRateLimiter, createPresenceRateLimiter } from "./ratelimit.js";
 import { t, formatAgo, setLocale, detectLocale, onLocaleChange, preferredContentLanguage } from "./i18n/index.js";
@@ -146,6 +146,8 @@ const usersNotes = document.getElementById("usersNotes");
 const notesGate = document.getElementById("notesGate");
 const notesTitle = document.getElementById("notesTitle");
 const notesClose = document.getElementById("notesClose");
+const notesDraft = document.getElementById("notesDraft");
+const notesMenu = document.getElementById("notesMenu");
 const notesList = document.getElementById("notesList");
 const notesInput = document.getElementById("notesInput");
 const notesExpiry = document.getElementById("notesExpiry");
@@ -1961,6 +1963,7 @@ function pushMapFeed(ev, geo) {
 // notes are deletable via NIP-09.
 
 let notesClient = null;
+let notesGeo = null; // the exact channel the sheet is open on (splits local vs nearby)
 
 // nearest-first relay urls for a channel - the same source the chat pool uses.
 function geoRelaysFor(geohash) {
@@ -2019,18 +2022,58 @@ function openNotes() {
 function openNotesForGeo(geo) {
 	geo = String(geo || "").toLowerCase();
 	if (!/^[0-9a-z]{1,12}$/.test(geo)) return;
+	notesGeo = geo;
 	ensureNotesClient();
 	notesTitle.innerHTML = `${escapeHtml(t("notes.title"))} <span class="notesTitleGeo">#${escapeHtml(geo)}</span>`;
 	notesInput.value = "";
 	setNotesUploadHint("");
 	updateNotesPostBtn();
+	toggleNotesMenu(false);
 	notesGate.classList.add("show");
 	notesClient.open(geo);
 }
 
 function closeNotes() {
 	notesGate.classList.remove("show");
+	toggleNotesMenu(false);
 	if (notesClient) notesClient.close();
+}
+
+// --- [DRAFT]: pin a note where you actually are ------------------------------
+// rather than guessing your cell on the map, the browser geolocation API gives
+// us a coordinate we encode to a geohash at the chosen precision, then open the
+// notes sheet on it (composer posts to that exact cell). scopes mirror bitchat's
+// building/city bands: length 7 ~150m up to length 4 ~40km.
+function toggleNotesMenu(show) {
+	const on = show !== undefined ? show : notesMenu.hidden;
+	notesMenu.hidden = !on;
+	notesDraft.classList.toggle("active", on);
+}
+
+function draftNoteAtScope(len) {
+	toggleNotesMenu(false);
+	if (!navigator.geolocation) {
+		setNotesUploadHint(t("notes.loc_failed"), true);
+		notesGate.classList.add("show");
+		return;
+	}
+	// show the sheet immediately with a "locating…" status so the tap has feedback
+	notesGate.classList.add("show");
+	notesList.innerHTML = `<div class="notesStatus">${escapeHtml(t("notes.locating"))}</div>`;
+	navigator.geolocation.getCurrentPosition(
+		(pos) => {
+			const gh = encodeGeohash(pos.coords.latitude, pos.coords.longitude, len);
+			openNotesForGeo(gh);
+			notesInput.focus();
+		},
+		() => {
+			// keep whatever cell was open; surface the failure in the composer hint
+			if (notesGeo) openNotesForGeo(notesGeo);
+			else notesList.innerHTML = `<div class="notesStatus">${escapeHtml(t("notes.loc_failed"))}</div>`;
+			setNotesUploadHint(t("notes.loc_failed"), true);
+		},
+		{ enableHighAccuracy: true, timeout: 12000, maximumAge: 60000 },
+	);
 }
 
 // compact "fades in 23h / 2d" for a NIP-40 expiry (epoch secs).
@@ -2129,7 +2172,19 @@ function renderNotes(snapshot) {
 		const live = new Set(notes.map((n) => n.id));
 		for (const id of expandedNotes) if (!live.has(id)) expandedNotes.delete(id);
 	}
-	notesList.innerHTML = notes.map(noteRowHtml).join("");
+	// two sections, each newest-first (the client already hands us reverse-chron):
+	// notes pinned to THIS exact cell up top, then everything from the surrounding
+	// neighborhood (neighbors + deeper-nested + broader-scoped) under a divider.
+	const local = [];
+	const nearby = [];
+	for (const n of notes) (n.geohash === notesGeo ? local : nearby).push(n);
+	let html = local.map(noteRowHtml).join("");
+	if (nearby.length) {
+		html +=
+			`<div class="usersBarrier notesBarrier">${escapeHtml(t("notes.nearby"))}</div>` +
+			nearby.map(noteRowHtml).join("");
+	}
+	notesList.innerHTML = html;
 }
 
 // find a note by id in the current snapshot (for the action popup + translate)
@@ -3206,6 +3261,20 @@ document.addEventListener("click", (e) => {
 });
 usersNotes.addEventListener("click", openNotes);
 notesClose.addEventListener("click", closeNotes);
+notesDraft.addEventListener("click", (e) => {
+	e.stopPropagation();
+	toggleNotesMenu();
+});
+notesMenu.addEventListener("click", (e) => {
+	const item = e.target.closest("[data-note-scope]");
+	if (!item) return;
+	e.stopPropagation();
+	draftNoteAtScope(parseInt(item.dataset.noteScope, 10));
+});
+// a tap anywhere outside the open scope menu dismisses it
+document.addEventListener("click", (e) => {
+	if (!notesMenu.hidden && !notesMenu.contains(e.target) && !notesDraft.contains(e.target)) toggleNotesMenu(false);
+});
 notesGate.addEventListener("click", (e) => {
 	if (e.target === notesGate) closeNotes();
 });

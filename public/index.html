@@ -194,7 +194,7 @@
 					<div class="usersHeader">
 						<!-- the title doubles as the map menu trigger: overlay mode + display toggles -->
 						<button id="mapMenuBtn" class="mapMenuBtn" type="button" aria-haspopup="menu">
-							<span id="mapTitle" data-i18n="map.title">geohash map</span><span class="mapMenuCaret">▾</span>
+							<span id="mapTitle" data-i18n="map.title">geohash map</span>
 						</button>
 						<strong id="mapClose" class="usersExit" data-i18n="users.exit">[EXIT]</strong>
 					</div>
@@ -209,7 +209,7 @@
 							<div class="mapMenuSep"></div>
 							<button type="button" class="mapMenuItem" data-map-opt="night"><span class="mmMark">[x]</span><span data-i18n="map.opt_night">day/night shading</span></button>
 							<button type="button" class="mapMenuItem" data-map-opt="tiles"><span class="mmMark">[x]</span><span data-i18n="map.opt_tiles">street tiles</span></button>
-							<button type="button" class="mapMenuItem" data-map-opt="spin"><span class="mmMark">[x]</span><span data-i18n="map.opt_spin">idle spin</span></button>
+							<button type="button" class="mapMenuItem" data-map-opt="spin"><span class="mmMark">[x]</span><span data-i18n="map.opt_spin">globe spin</span></button>
 						</div>
 					</div>
 					<div id="mapHint" class="mapHint" data-i18n="map.hint">drag to spin · zoom to explore · select a cell to join</div>
@@ -220,7 +220,18 @@
 				<div class="notesPanel">
 					<div class="usersHeader">
 						<span id="notesTitle" data-i18n="notes.title">location notes</span>
-						<strong id="notesClose" class="usersExit" data-i18n="users.exit">[EXIT]</strong>
+						<span class="usersHeaderBtns">
+							<strong id="notesDraft" class="usersExit" data-i18n="notes.draft">[DRAFT]</strong>
+							<strong id="notesClose" class="usersExit" data-i18n="users.exit">[EXIT]</strong>
+						</span>
+					</div>
+					<!-- [DRAFT]: pick how precisely to pin a note, then geolocate and open
+					     the sheet for the geohash you're actually standing in -->
+					<div id="notesMenu" class="mapMenu notesMenu" hidden>
+						<button type="button" class="mapMenuItem" data-note-scope="7"><span class="mmMark">◉</span><span data-i18n="notes.scope_precise">precise · ~150m</span></button>
+						<button type="button" class="mapMenuItem" data-note-scope="6"><span class="mmMark">◎</span><span data-i18n="notes.scope_block">block · ~1km</span></button>
+						<button type="button" class="mapMenuItem" data-note-scope="5"><span class="mmMark">○</span><span data-i18n="notes.scope_city">city · ~5km</span></button>
+						<button type="button" class="mapMenuItem" data-note-scope="4"><span class="mmMark">◌</span><span data-i18n="notes.scope_region">region · ~40km</span></button>
 					</div>
 					<div id="notesList" class="notesList"></div>
 					<div class="notesComposer">

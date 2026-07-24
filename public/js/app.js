@@ -104,6 +104,7 @@ const clientToggle = document.getElementById("clientToggle");
 const localToggle = document.getElementById("localToggle");
 const blurToggle = document.getElementById("blurToggle");
 const censorToggle = document.getElementById("censorToggle");
+const presenceToggle = document.getElementById("presenceToggle");
 const powSelect = document.getElementById("powSelect");
 const profilesRow = document.getElementById("profilesRow");
 const profileEditSection = document.getElementById("profileEditSection");
@@ -182,6 +183,7 @@ const actionGate = document.getElementById("actionGate");
 const actionTitle = document.getElementById("actionTitle");
 const actionPreview = document.getElementById("actionPreview");
 const actionDm = document.getElementById("actionDm");
+const actionJoinGeo = document.getElementById("actionJoinGeo");
 const actionGrid = document.getElementById("actionGrid");
 const actionMention = document.getElementById("actionMention");
 const actionCopyNpub = document.getElementById("actionCopyNpub");
@@ -282,6 +284,19 @@ function setLocalTagEnabled(on) {
 // whether outgoing chat/presence carry the teleport tag (local tag on => omit it)
 function outgoingTeleport() {
 	return !getLocalTagEnabled();
+}
+
+// whether we announce our own presence (kind-20001) in the channel we're viewing.
+// on by default. off = you browse invisibly - others don't see you in their user
+// list or "here" counts, and you still receive everyone else's presence + chat.
+const STORAGE_PRESENCE_KEY = "glub_presence";
+
+function getPresenceEnabled() {
+	return localStorage.getItem(STORAGE_PRESENCE_KEY) !== "false";
+}
+
+function setPresenceEnabled(on) {
+	localStorage.setItem(STORAGE_PRESENCE_KEY, on ? "true" : "false");
 }
 
 const STORAGE_RETRO_KEY = "glub_retro";
@@ -1312,6 +1327,7 @@ function openSettings() {
 	localToggle.checked = getLocalTagEnabled();
 	blurToggle.checked = mediaSettings.censorImages;
 	censorToggle.checked = censorMessages;
+	presenceToggle.checked = getPresenceEnabled();
 	powSelect.value = String(getPowFilter());
 	syncProfilesRow();
 	syncProfileEditVisibility();
@@ -2244,6 +2260,11 @@ function openNoteActionPopup(note) {
 	actionHug.hidden = true;
 	actionSlap.hidden = true;
 	actionGrid.classList.add("solo"); // only one action remains - let it span full width
+	// join the note's origin channel - the whole point of the sheet is to read a
+	// place's notes, so jumping into its live chat is a natural next step
+	const originGeo = (note.geohash || "").toLowerCase();
+	actionJoinGeo.hidden = !/^[0-9a-z]{1,12}$/.test(originGeo);
+	if (!actionJoinGeo.hidden) actionJoinGeo.textContent = t("actions.join", { geo: originGeo });
 	actionTranslate.hidden = liveSource !== "assist" || !note.content.trim();
 	const tr = noteTranslations.get(note.id);
 	actionTranslate.textContent = tr && tr.text ? t("actions.untranslate") : t("actions.translate");
@@ -2751,6 +2772,7 @@ function openActionPopup(pubkey, entry) {
 	actionSlap.hidden = false;
 	actionMention.hidden = false;
 	actionCopyNpub.hidden = true; // notes-only action
+	actionJoinGeo.hidden = true; // notes-only action
 	actionGrid.classList.remove("solo"); // full 2x2 quick-actions grid
 	// translation runs through the assist api; hide it when the api isn't live, or
 	// when there's no real message text / no stored entry to attach the result to.
@@ -3133,6 +3155,15 @@ actionDm.addEventListener("click", () => {
 });
 actionMention.addEventListener("click", startMention);
 actionCopyNpub.addEventListener("click", copyTappedNpub);
+actionJoinGeo.addEventListener("click", () => {
+	const geo = actionContext && actionContext.geo;
+	closeActionPopup();
+	if (!geo || !/^[0-9a-z]{1,12}$/.test(geo)) return;
+	closeNotes();
+	closeUsers();
+	closeMap();
+	focusChannel(geo);
+});
 actionReply.addEventListener("click", startReply);
 actionTranslate.addEventListener("click", () => {
 	// same button, two subjects: a tapped note translates via the notes path, a
@@ -3212,6 +3243,12 @@ clientToggle.addEventListener("change", () => {
 
 localToggle.addEventListener("change", () => {
 	setLocalTagEnabled(localToggle.checked); // on => next events omit the teleport tag
+});
+
+presenceToggle.addEventListener("change", () => {
+	// takes effect on the next heartbeat tick; the timer keeps running so re-enabling
+	// resumes announcing without a restart. off makes you a lurker immediately.
+	setPresenceEnabled(presenceToggle.checked);
 });
 
 blurToggle.addEventListener("change", () => {
@@ -3504,6 +3541,7 @@ function deliver(event) {
 // fires. in the global view there's no channel to announce, so we stay quiet.
 async function broadcastPresence() {
 	if (!focusedGeo) return;
+	if (!getPresenceEnabled()) return; // invisible mode: never announce ourselves
 	const geo = focusedGeo;
 	// mined like chat messages (see transmit) so PoW-filtering peers list us
 	const unsigned = buildPresenceEvent({

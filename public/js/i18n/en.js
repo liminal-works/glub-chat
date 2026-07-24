@@ -28,6 +28,8 @@ export default {
 			"stamps a 'client' tag reading glub.chat onto your signed events, so other nostr apps can show where you posted from. off omits the tag entirely.",
 		local_description:
 			"drops the teleport tag so your events read as local rather than teleported in. off keeps teleport — the honest state of a location-free web client.",
+		presence_description:
+			"periodically announces you're in the channel you're viewing, so others see you in their user list and \"here\" counts. off = you browse invisibly, and still see everyone else.",
 		retro_description:
 			"a heavier CRT terminal look: scanlines, phosphor glow, flicker. purely cosmetic — nothing about the protocol or your messages changes.",
 		pow_description:
@@ -45,6 +47,7 @@ export default {
 		retro_label: "retro terminal",
 		client_label: "client tag",
 		local_label: "local tag",
+		presence_label: "announce presence",
 		blur_label: "media blur",
 		censor_label: "text censor",
 		pow_label: "proof of work",
@@ -104,6 +107,7 @@ export default {
 		reply_banner: "replying to @{name}",
 		pow_badge: "pow {n}",
 		client_badge: "via {name}",
+		join: "join #{geo}",
 	},
 
 	// the translated-message block + its status/error lines

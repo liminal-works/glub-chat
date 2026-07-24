@@ -92,6 +92,12 @@
 							<span class="toggleVisual" aria-hidden="true"></span>
 						</label>
 
+						<label class="settingRow" data-desc="settings.presence_description" for="presenceToggle">
+							<span data-i18n="settings.presence_label">announce presence</span>
+							<input id="presenceToggle" type="checkbox" class="assistCheck" />
+							<span class="toggleVisual" aria-hidden="true"></span>
+						</label>
+
 						<div class="usersBarrier" data-i18n="settings.cat_visual">visual</div>
 
 						<label class="settingRow" data-desc="settings.retro_description" for="retroToggle">
@@ -274,6 +280,7 @@
 					<div id="actionTitle" class="actionTitle"></div>
 					<div id="actionPreview" class="actionPreview" hidden></div>
 					<div class="actionList">
+						<button id="actionJoinGeo" class="actionBtn" type="button" hidden></button>
 						<button id="actionDm" class="actionBtn" type="button" data-i18n="actions.dm">direct message</button>
 						<div id="actionGrid" class="actionGrid">
 							<button id="actionMention" class="actionBtn" type="button" data-i18n="actions.mention">mention</button>

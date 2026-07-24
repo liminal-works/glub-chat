@@ -1055,38 +1055,58 @@ function hsbToRgb(h, s, v) {
 	return { r: Math.round(r * 255), g: Math.round(g * 255), b: Math.round(b * 255) };
 }
 
-// bitchat's exact per-user color (Color+Peer.swift, geohash/Nostr path):
-// DJB2 of "nostr:" + lowercased pubkey hex, hue from the hash with orange
-// steered away, and saturation/brightness also pulled from other bit-slices of
-// the same hash. We render dark-mode only, so the isDark=true constants apply.
-// the per-key color derived purely from the hash - the color everyone (yourself
-// included) is seen as by others. self-agnostic on purpose.
+// native bitchat's per-user color palette (MinimalDistancePalette.swift, nostr
+// config): the hue wheel is quantized into 36 evenly-spaced slots with the
+// "orange" band (reserved for "you") removed, leaving 33. a key's slot is
+// djb2("nostr:"+hex) % 33; saturation and brightness are FIXED dark-mode
+// constants (0.80 / 0.75), NOT jittered from the hash. This is why a key looks
+// the same to every viewer and identical to native - our old build derived the
+// hue continuously from the hash (h%1000/1000), landing on a completely
+// different color for the same key.
 //
-// themes can constrain this: when the active theme defines a color band, the
-// same hash instead picks a hue inside the theme's range (with the same
-// per-user sat/brightness jitter), so every name sits in the theme's palette.
+// native additionally nudges two visible keys off a shared slot to keep them
+// distinguishable, but that resolution is per-viewer (each client excludes
+// itself and sees a slightly different crowd), so it can't agree across clients
+// anyway. the slot color is the part everyone agrees on, so that's what we
+// reproduce - exact in the (overwhelmingly common) no-collision case.
+const COLOR_SLOT_COUNT = 36; // uiPeerPaletteSlots
+const COLOR_AVOID_CENTER = 30 / 360; // orange, reserved for self
+const COLOR_AVOID_DELTA = 0.05; // uiColorHueAvoidanceDelta
+let _colorSlots = null;
+function colorSlots() {
+	if (_colorSlots) return _colorSlots;
+	const out = [];
+	for (let i = 0; i < COLOR_SLOT_COUNT; i++) {
+		const hue = i / COLOR_SLOT_COUNT;
+		if (Math.abs(hue - COLOR_AVOID_CENTER) < COLOR_AVOID_DELTA) continue; // skip the orange band
+		out.push(hue);
+	}
+	if (out.length === 0) for (let i = 0; i < COLOR_SLOT_COUNT; i++) out.push(i / COLOR_SLOT_COUNT);
+	return (_colorSlots = out);
+}
+
+// the per-key color everyone (yourself included) is seen as. themes can constrain
+// it: when the active theme defines a color band, the same hash instead picks a
+// hue inside the theme's range (with per-user sat/brightness jitter) so every
+// name sits in the theme's palette - that's a glub feature, intentionally not
+// native. with no band (the default bitchat look) it's native's exact slot color.
 function peerRgb(pubkey) {
 	const h = djb2("nostr:" + pubkey.toLowerCase());
-	const hueRand = Number(h % 1000n) / 1000;
-	const sRand = Number((h >> 17n) & 0x3ffn) / 1023;
-	const bRand = Number((h >> 27n) & 0x3ffn) / 1023;
 
 	const band = activeTheme().band;
 	if (band) {
+		const hueRand = Number(h % 1000n) / 1000;
+		const sRand = Number((h >> 17n) & 0x3ffn) / 1023;
+		const bRand = Number((h >> 27n) & 0x3ffn) / 1023;
 		const hue = (((band.hue + (hueRand - 0.5) * band.spread) % 360) + 360) % 360;
 		const saturation = Math.min(1, Math.max(0, band.sat / 100 + (sRand - 0.5) * 0.12));
 		const brightness = Math.min(1, Math.max(0.3, band.bri / 100 + (bRand - 0.5) * 0.14));
 		return hsbToRgb(hue / 360, saturation, brightness);
 	}
 
-	let hue = hueRand;
-	const orange = 30 / 360;
-	if (Math.abs(hue - orange) < 0.05) hue = (hue + 0.12) % 1.0; // avoid orange (reserved for "you")
-
-	const saturation = Math.min(1, Math.max(0.5, 0.8 + (sRand - 0.5) * 0.2));
-	const brightness = Math.min(1, Math.max(0.35, 0.75 + (bRand - 0.5) * 0.16));
-
-	return hsbToRgb(hue, saturation, brightness);
+	const slots = colorSlots();
+	const hue = slots[Number(h % BigInt(slots.length))];
+	return hsbToRgb(hue, 0.8, 0.75); // fixed dark-mode saturation / brightness
 }
 
 function pubkeyRgb(pubkey) {

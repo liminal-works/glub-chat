@@ -24,9 +24,14 @@ const PORT = process.env.API_PORT || 3001;
 const DB_PATH = process.env.API_DB || path.join(__dirname, "glub-history.db");
 const DEFAULT_LIMIT = 200;
 const HEARTBEAT_MS = 25_000; // SSE keep-alive comment, under common proxy idle timeouts
-// rolling buffer size the client mirrors; events are tiny, so the default is
-// generous enough that busy channels don't crowd out quiet ones. Tune via env.
-const BUFFER_MAX = Number(process.env.API_BUFFER_MAX) || 2000;
+// history buffer bounds. instead of one global newest-N (which let a busy
+// channel evict quiet ones), the prune is two-tier: each channel keeps its
+// newest PER_CHANNEL_MAX events (fair depth), and only the MAX_CHANNELS
+// most-recently-active geohashes are retained (bounded breadth). total rows are
+// capped at PER_CHANNEL_MAX * MAX_CHANNELS - events are tiny, so ~120k rows is a
+// few tens of MB on disk. Tune via env.
+const PER_CHANNEL_MAX = Number(process.env.API_PER_CHANNEL_MAX) || 120;
+const MAX_CHANNELS = Number(process.env.API_MAX_CHANNELS) || 1000;
 const PRUNE_INTERVAL_MS = 60_000;
 // ephemeral media uploads: size + item caps (anti-flood), 24h TTL in media.mjs.
 const MEDIA_MAX_BYTES = Number(process.env.API_MEDIA_MAX_BYTES) || 10 * 1024 * 1024;
@@ -38,9 +43,10 @@ const PUBLIC_ORIGIN = (process.env.API_PUBLIC_ORIGIN || "").replace(/\/+$/, "");
 
 const store = openStore(DB_PATH);
 
-// keep the buffer bounded: trim to the most-recent BUFFER_MAX events periodically
-store.prune(BUFFER_MAX);
-setInterval(() => store.prune(BUFFER_MAX), PRUNE_INTERVAL_MS).unref();
+// keep the buffer fairly bounded (per-channel depth + channel-count breadth)
+const pruneHistory = () => store.prune({ perChannelMax: PER_CHANNEL_MAX, maxChannels: MAX_CHANNELS });
+pruneHistory();
+setInterval(pruneHistory, PRUNE_INTERVAL_MS).unref();
 
 // live SSE subscribers; each may scope to a single geohash
 const subscribers = new Set(); // { res, geo }

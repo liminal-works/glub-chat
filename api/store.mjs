@@ -1,10 +1,12 @@
 import { DatabaseSync } from "node:sqlite";
 
-// SQLite-backed event store for the (optional) history API. It's a bounded
-// rolling buffer (pruned to a max, oldest-first) that the client mirrors: we
-// keep only signed kind-20000 chat events that carry a geohash, stored verbatim
-// so we can hand them back unchanged for the client to re-verify. SQLite (rather
-// than an in-memory array) just so the buffer survives an api restart.
+// SQLite-backed event store for the (optional) history API. The chat buffer is
+// bounded fairly (see prune(): a per-channel depth cap so busy channels can't
+// starve quiet ones, plus a channel-count cap so unlimited geohashes stay
+// bounded). We keep only signed kind-20000 chat events that carry a geohash,
+// stored verbatim so we can hand them back unchanged for the client to
+// re-verify. SQLite (rather than an in-memory array) just so it survives a
+// restart.
 const MAX_HISTORY = 5000; // hard ceiling on a single history response
 const MAX_NOTES = 20_000; // rolling ceiling on cached location notes
 const MAX_NOTES_RESPONSE = 500; // hard ceiling on a single /api/notes response
@@ -44,9 +46,29 @@ export function openStore(dbPath) {
 	);
 	const countStmt = db.prepare(`SELECT COUNT(*) AS n FROM events`);
 	const oldestStmt = db.prepare(`SELECT MIN(created_at) AS t FROM events`);
-	// delete everything except the most-recent `max` events (the rolling buffer)
-	const pruneStmt = db.prepare(
-		`DELETE FROM events WHERE id NOT IN (SELECT id FROM events ORDER BY created_at DESC LIMIT ?)`
+	const channelCountStmt = db.prepare(`SELECT COUNT(DISTINCT geohash) AS n FROM events`);
+	// two-tier prune (see prune()). tier 1 keeps only the newest perChannelMax
+	// events within each geohash, so a busy channel can't hoard depth at a quiet
+	// one's expense. the (created_at DESC, id) ordering breaks timestamp ties
+	// deterministically so the same rows survive each sweep.
+	const prunePerChannelStmt = db.prepare(
+		`DELETE FROM events WHERE id IN (
+			SELECT id FROM (
+				SELECT id, ROW_NUMBER() OVER (PARTITION BY geohash ORDER BY created_at DESC, id DESC) AS rn
+				FROM events
+			) WHERE rn > ?
+		)`
+	);
+	// tier 2 keeps only the maxChannels most-recently-active geohashes (ranked by
+	// their newest event), dropping the rest wholesale - geohashes are effectively
+	// unlimited, so we retain the freshest and let long-silent channels fall off.
+	const pruneChannelsStmt = db.prepare(
+		`DELETE FROM events WHERE geohash IN (
+			SELECT geohash FROM (
+				SELECT geohash, ROW_NUMBER() OVER (ORDER BY MAX(created_at) DESC, geohash DESC) AS rn
+				FROM events GROUP BY geohash
+			) WHERE rn > ?
+		)`
 	);
 
 	const insertNoteStmt = db.prepare(
@@ -78,10 +100,17 @@ export function openStore(dbPath) {
 			return info.changes > 0;
 		},
 
-		// trim the buffer down to its most-recent `max` events; returns how many
-		// were pruned.
-		prune(max) {
-			return pruneStmt.run(Math.max(1, max | 0)).changes;
+		// fair two-tier trim of the chat buffer. tier 1 caps each channel's depth
+		// (newest perChannelMax per geohash) so no channel dominates; tier 2 caps
+		// breadth (the maxChannels most-recently-active geohashes) so ~unlimited
+		// geohashes can't grow the store without bound. total rows are bounded by
+		// perChannelMax * maxChannels. returns how many rows were deleted.
+		prune({ perChannelMax, maxChannels }) {
+			const per = Math.max(1, perChannelMax | 0);
+			const chan = Math.max(1, maxChannels | 0);
+			const trimmed = prunePerChannelStmt.run(per).changes; // depth cap first (cheaper tier-2 scan)
+			const dropped = pruneChannelsStmt.run(chan).changes; // then breadth cap
+			return trimmed + dropped;
 		},
 
 		// newest-first page of stored events, optionally scoped to one geohash and
@@ -137,7 +166,12 @@ export function openStore(dbPath) {
 		},
 
 		stats() {
-			return { events: countStmt.get().n, oldest: oldestStmt.get().t ?? null, notes: notesCountStmt.get().n };
+			return {
+				events: countStmt.get().n,
+				channels: channelCountStmt.get().n,
+				oldest: oldestStmt.get().t ?? null,
+				notes: notesCountStmt.get().n,
+			};
 		},
 	};
 }

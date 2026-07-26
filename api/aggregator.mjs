@@ -40,6 +40,15 @@ const PRESENCE_REPLAY_LIMIT = 200;
 const NOTES_SINCE_SECS = 180 * 24 * 60 * 60; // ignore notes older than ~6 months
 const NOTES_REPLAY_LIMIT = 500; // per-relay backlog cap on connect
 const NOTES_PRUNE_MS = 5 * 60_000; // sweep expired/overflow notes this often
+// chat (kind 20000) is *ephemeral* and shouldn't be replayed at all, but some
+// relays store + replay it anyway. left unbounded, that backlog gets re-dumped
+// and fully signature-verified on every (re)connect across hundreds of relays -
+// the single biggest way to peg the event loop. Scope it like presence/notes:
+// a short recency window + per-relay cap. Live events (post-EOSE) are unaffected,
+// so the store still accrues deep history from live traffic over time.
+const CHAT_SINCE_SECS = 6 * 60 * 60; // only backfill the last ~6h of chat on connect
+const CHAT_REPLAY_LIMIT = 500; // per-relay chat backlog cap on connect
+const METRICS_LOG_MS = 30_000; // how often to log the ingest/verify profile
 
 // The relay aggregator: subscribes to every relay it can, signature-verifies
 // events, and stores geohash chat events. Unlike the browser client (which caps
@@ -57,8 +66,35 @@ export function createAggregator(store, { onStored, onChat } = {}) {
 	const managed = new Set(); // every url we're keeping connected (incl. mid-backoff)
 	const relayCoords = new Map(); // url -> { lat, lon } from the relay list (bot fan-out targeting)
 	const presence = new Map(); // geo -> Map<pubkey, { name, teleport, lastSeen }>
-	const seenIds = new Set(); // event ids already processed from relays - skip re-verifying duplicates
-	const SEEN_MAX = 50_000; // bound the dedup set; cleared wholesale when it grows past this
+	// event-id dedup across relays so a duplicate is never re-verified. two
+	// generations rotate: when the young set fills, it ages into `seenOld` and a
+	// fresh young set starts. a lookup checks both, so nothing seen within the last
+	// SEEN_MAX distinct ids is ever re-verified - unlike a wholesale clear(), which
+	// forgot everything at once and re-verified the ongoing duplicate stream.
+	const SEEN_MAX = 100_000; // ids per generation (~64 bytes each; a few MB total)
+	let seenYoung = new Set();
+	let seenOld = new Set();
+	function markSeen(id) {
+		if (seenYoung.has(id) || seenOld.has(id)) return false; // recently seen
+		seenYoung.add(id);
+		if (seenYoung.size >= SEEN_MAX) {
+			seenOld = seenYoung;
+			seenYoung = new Set();
+		}
+		return true;
+	}
+
+	// ingest/verify profiling (logged every METRICS_LOG_MS, deltas since last log).
+	// verifyMs / interval tells you what fraction of a core signature-checking eats;
+	// byKind shows whether chat (20000), presence (20001), or notes (1) dominates.
+	const metrics = { received: 0, duplicates: 0, verifyCount: 0, verifyMs: 0, stored: 0, byKind: Object.create(null) };
+	function verifyCounted(ev) {
+		const t = process.hrtime.bigint();
+		const ok = verifyEvent(ev);
+		metrics.verifyMs += Number(process.hrtime.bigint() - t) / 1e6;
+		metrics.verifyCount++;
+		return ok;
+	}
 
 	// live-traffic rate buckets (same module + constants the client runs; see
 	// public/js/ratelimit.js). the store is a rolling most-recent-N buffer, so an
@@ -79,7 +115,7 @@ export function createAggregator(store, { onStored, onChat } = {}) {
 		if (ev.created_at > Math.floor(Date.now() / 1000) + MAX_FUTURE_SECS) return "";
 		const geo = getGeohash(ev);
 		if (!geo || geo.length > MAX_GEOHASH_LEN) return "";
-		if (!verifyEvent(ev)) return "";
+		if (!verifyCounted(ev)) return "";
 		return geo;
 	}
 
@@ -95,6 +131,7 @@ export function createAggregator(store, { onStored, onChat } = {}) {
 			return false;
 		}
 		const inserted = store.insert(ev, geo);
+		if (inserted) metrics.stored++;
 		if (inserted && onStored) onStored(ev, geo);
 		// feed the global bot every fresh live chat event (activity/language/commands).
 		// only on first insert + live, so backlog replays and cross-relay duplicates
@@ -113,7 +150,7 @@ export function createAggregator(store, { onStored, onChat } = {}) {
 		if (ev.created_at > Math.floor(Date.now() / 1000) + MAX_FUTURE_SECS) return false;
 		const geo = getGeohash(ev);
 		if (!geo || geo.length > MAX_GEOHASH_LEN) return false;
-		if (!verifyEvent(ev)) return false;
+		if (!verifyCounted(ev)) return false;
 		// bucket only after the signature proves the sender: a forged heartbeat
 		// must never be able to drain a real user's bucket and mute their presence
 		if (live && !presenceLimiter.allow("nostr:" + ev.pubkey.toLowerCase())) {
@@ -167,7 +204,7 @@ export function createAggregator(store, { onStored, onChat } = {}) {
 		if (!geo || geo.length > MAX_GEOHASH_LEN) return false; // not a geohash note - ignore
 		const expiresAt = noteExpiration(ev);
 		if (expiresAt != null && expiresAt <= Math.floor(Date.now() / 1000)) return false; // already expired
-		if (!verifyEvent(ev)) return false;
+		if (!verifyCounted(ev)) return false;
 		if (live && !noteLimiter.allow("nostr:" + ev.pubkey.toLowerCase(), ev.content)) {
 			spamDrops.note++;
 			return false;
@@ -182,7 +219,7 @@ export function createAggregator(store, { onStored, onChat } = {}) {
 		if (typeof ev.pubkey !== "string") return false;
 		const targets = deletionTargets(ev);
 		if (targets.length === 0) return false;
-		if (!verifyEvent(ev)) return false;
+		if (!verifyCounted(ev)) return false;
 		let removed = 0;
 		for (const id of targets) removed += store.deleteNote(id, ev.pubkey);
 		return removed > 0;
@@ -200,7 +237,7 @@ export function createAggregator(store, { onStored, onChat } = {}) {
 		if (ev.kind === CHAT_KIND || ev.kind === PRESENCE_KIND) {
 			const geo = getGeohash(ev);
 			if (!geo || geo.length > MAX_GEOHASH_LEN) return -1;
-			if (!verifyEvent(ev)) return -1;
+			if (!verifyCounted(ev)) return -1;
 			if (ev.kind === CHAT_KIND) {
 				const inserted = store.insert(ev, geo); // idempotent
 				if (inserted && onStored) onStored(ev, geo);
@@ -216,12 +253,12 @@ export function createAggregator(store, { onStored, onChat } = {}) {
 			if (!geo || geo.length > MAX_GEOHASH_LEN) return -1;
 			const expiresAt = noteExpiration(ev);
 			if (expiresAt != null && expiresAt <= Math.floor(Date.now() / 1000)) return -1;
-			if (!verifyEvent(ev)) return -1;
+			if (!verifyCounted(ev)) return -1;
 			store.insertNote(ev, geo.toLowerCase(), expiresAt); // idempotent
 		} else if (ev.kind === DELETE_KIND) {
 			const targets = deletionTargets(ev);
 			if (targets.length === 0) return -1;
-			if (!verifyEvent(ev)) return -1;
+			if (!verifyCounted(ev)) return -1;
 			for (const id of targets) store.deleteNote(id, ev.pubkey); // NIP-09, author-scoped
 		} else {
 			return -1;
@@ -301,11 +338,15 @@ export function createAggregator(store, { onStored, onChat } = {}) {
 		const ev = frame[2];
 		if (!ev || typeof ev.id !== "string") return;
 
+		metrics.received++;
+		metrics.byKind[ev.kind] = (metrics.byKind[ev.kind] || 0) + 1;
+
 		// the same event is relayed by many relays; verify it only on first sight.
 		// (publish() takes its own path, so client re-sends still re-confirm.)
-		if (seenIds.has(ev.id)) return;
-		if (seenIds.size >= SEEN_MAX) seenIds.clear();
-		seenIds.add(ev.id);
+		if (!markSeen(ev.id)) {
+			metrics.duplicates++;
+			return;
+		}
 
 		if (ev.kind === PRESENCE_KIND) trackPresence(ev, conn.eosed);
 		else if (ev.kind === NOTE_KIND) ingestNote(ev, conn.eosed);
@@ -343,7 +384,9 @@ export function createAggregator(store, { onStored, onChat } = {}) {
 				JSON.stringify([
 					"REQ",
 					SUB_ID,
-					{ kinds: [CHAT_KIND] },
+					// chat scoped to a recent window + cap, so a relay that (wrongly)
+					// stores this ephemeral kind can't dump an unbounded verify backlog
+					{ kinds: [CHAT_KIND], since: now - CHAT_SINCE_SECS, limit: CHAT_REPLAY_LIMIT },
 					{ kinds: [PRESENCE_KIND], since, limit: PRESENCE_REPLAY_LIMIT },
 					// location notes + their NIP-09 deletions, bounded history
 					{ kinds: [NOTE_KIND, DELETE_KIND], since: now - NOTES_SINCE_SECS, limit: NOTES_REPLAY_LIMIT },
@@ -393,12 +436,36 @@ export function createAggregator(store, { onStored, onChat } = {}) {
 		}, delay).unref();
 	}
 
+	// log the ingest/verify profile each interval and reset the deltas. this is the
+	// "what's eating CPU" readout: verifyMs vs the interval is the fraction of a
+	// core spent signature-checking; byKind shows which kind dominates the firehose.
+	function logMetrics() {
+		const m = metrics;
+		const secs = METRICS_LOG_MS / 1000;
+		const kinds = Object.entries(m.byKind)
+			.sort((a, b) => b[1] - a[1])
+			.map(([k, n]) => `${k}=${n}`)
+			.join(" ");
+		console.log(
+			`[aggregator] ${secs}s: recv=${m.received} dup=${m.duplicates} ` +
+				`verify=${m.verifyCount} (${m.verifyMs.toFixed(0)}ms, ${((m.verifyMs / METRICS_LOG_MS) * 100).toFixed(0)}% of a core) ` +
+				`stored=${m.stored} · kinds[${kinds}]`,
+		);
+		m.received = 0;
+		m.duplicates = 0;
+		m.verifyCount = 0;
+		m.verifyMs = 0;
+		m.stored = 0;
+		for (const k in m.byKind) delete m.byKind[k];
+	}
+
 	async function start() {
 		await loadAndConnect();
 		scheduleRefresh();
 		setInterval(prunePresence, PRESENCE_PRUNE_MS).unref();
 		store.pruneNotes(); // sweep any expired notes carried across a restart
 		setInterval(() => store.pruneNotes(), NOTES_PRUNE_MS).unref();
+		setInterval(logMetrics, METRICS_LOG_MS).unref();
 	}
 
 	function stats() {
@@ -406,7 +473,22 @@ export function createAggregator(store, { onStored, onChat } = {}) {
 		for (const ws of sockets.values()) {
 			if (ws.readyState === WebSocket.OPEN) connected++;
 		}
-		return { monitored: managed.size, connected, spamDrops: { ...spamDrops } };
+		return {
+			monitored: managed.size,
+			connected,
+			spamDrops: { ...spamDrops },
+			// live-ish ingest profile (resets each METRICS_LOG_MS log); dedup shows the
+			// generations, so you can see how much re-verification is being avoided
+			ingest: {
+				received: metrics.received,
+				duplicates: metrics.duplicates,
+				verifyCount: metrics.verifyCount,
+				verifyMs: Math.round(metrics.verifyMs),
+				stored: metrics.stored,
+				byKind: { ...metrics.byKind },
+				dedupTracked: seenYoung.size + seenOld.size,
+			},
+		};
 	}
 
 	return { start, stats, ingest, ingestNote, handleDeletion, publish, broadcast, handleFrame, trackPresence, presenceFor };

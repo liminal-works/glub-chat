@@ -345,6 +345,49 @@ textarea {
 	color: var(--fg);
 }
 
+/* Minecraft "&"-code animated formatting (see format.js). &g rainbow: a hue
+   gradient clipped to the text that flows sideways. background-clip:text needs
+   transparent fill; the gradient repeats so the scroll loops seamlessly. */
+.fmtRainbow {
+	background-image: repeating-linear-gradient(
+		90deg,
+		#ff5555 0%,
+		#ffcc00 8%,
+		#55ff55 16%,
+		#55ffff 24%,
+		#5b8dff 32%,
+		#c74ddb 40%,
+		#ff5555 48%
+	);
+	background-size: 200% 100%;
+	-webkit-background-clip: text;
+	background-clip: text;
+	-webkit-text-fill-color: transparent;
+	color: transparent;
+	animation: fmtRainbow 6s linear infinite;
+	/* keep an underline/strike visible even though the glyph fill is transparent */
+	text-decoration-color: #ff8fb0;
+}
+@keyframes fmtRainbow {
+	to {
+		background-position: 200% 0;
+	}
+}
+
+/* &k obfuscated: app.js scrambles the glyphs on a timer; the class is just the
+   hook it queries. A faint dim marks it as noise even between frames. */
+.fmtObf {
+	opacity: 0.92;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	/* freeze the rainbow to a static (still colorful) gradient; app.js likewise
+	   scrambles obfuscated text only once instead of animating it. */
+	.fmtRainbow {
+		animation: none;
+	}
+}
+
 /* the whole message line is a tap target for the per-user action popup */
 .msgTap {
 	cursor: pointer;

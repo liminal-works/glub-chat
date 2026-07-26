@@ -4003,6 +4003,31 @@ setInterval(() => {
 	if (usersGate.classList.contains("show")) openUsers();
 }, PRESENCE_TICK_MS);
 
+// --- "&k" obfuscated text animation --------------------------------------------
+// One shared timer scrambles the glyphs of every on-screen .fmtObf run (the
+// hook renderFormat leaves for us). The run's real characters live in the wire
+// plaintext and stay copyable - this only churns the *display*. Whitespace is
+// preserved so word shape/length hold steady. Under reduced-motion we garble
+// each run once and leave it (a static illegible smear, no flicker).
+const OBF_POOL = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789#$%&?@";
+const OBF_INTERVAL_MS = 70;
+function scrambleGlyphs(text) {
+	let out = "";
+	for (const ch of text) out += /\s/.test(ch) ? ch : OBF_POOL[(Math.random() * OBF_POOL.length) | 0];
+	return out;
+}
+setInterval(() => {
+	if (document.hidden) return; // don't churn while backgrounded
+	const els = terminal.querySelectorAll(".fmtObf");
+	if (!els.length) return;
+	const still = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+	for (const el of els) {
+		if (still && el.dataset.obfStatic) continue; // reduced motion: garble once, then leave it
+		el.textContent = scrambleGlyphs(el.textContent);
+		if (still) el.dataset.obfStatic = "1";
+	}
+}, OBF_INTERVAL_MS);
+
 // start our own presence heartbeat (announces only while viewing a channel)
 schedulePresence();
 

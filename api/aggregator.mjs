@@ -49,6 +49,14 @@ const NOTES_PRUNE_MS = 5 * 60_000; // sweep expired/overflow notes this often
 const CHAT_SINCE_SECS = 6 * 60 * 60; // only backfill the last ~6h of chat on connect
 const CHAT_REPLAY_LIMIT = 500; // per-relay chat backlog cap on connect
 const METRICS_LOG_MS = 30_000; // how often to log the ingest/verify profile
+// presence (kind 20001) is ~85% of the firehose and its signature check was ~85%
+// of the api's CPU. presence is NOT stored - it only drives an in-memory roster
+// (name + count, 5-min window) - and verifying it buys little: a spammer signs
+// fakes with throwaway keys anyway (so it never stopped fake crowds), it only
+// blocked impersonating one specific existing pubkey's heartbeat. So default to
+// NOT verifying presence; set GLUB_VERIFY_PRESENCE=1 to restore strict checking.
+const VERIFY_PRESENCE = process.env.GLUB_VERIFY_PRESENCE === "1";
+const MAX_PRESENCE_PER_CHANNEL = 2000; // roster memory backstop (unverified presence is cheap to spam)
 
 // The relay aggregator: subscribes to every relay it can, signature-verifies
 // events, and stores geohash chat events. Unlike the browser client (which caps
@@ -150,9 +158,10 @@ export function createAggregator(store, { onStored, onChat } = {}) {
 		if (ev.created_at > Math.floor(Date.now() / 1000) + MAX_FUTURE_SECS) return false;
 		const geo = getGeohash(ev);
 		if (!geo || geo.length > MAX_GEOHASH_LEN) return false;
-		if (!verifyCounted(ev)) return false;
-		// bucket only after the signature proves the sender: a forged heartbeat
-		// must never be able to drain a real user's bucket and mute their presence
+		// presence is unverified by default (see VERIFY_PRESENCE) - it's the bulk of
+		// the verify CPU and buys little for an ephemeral roster count.
+		if (VERIFY_PRESENCE && !verifyCounted(ev)) return false;
+		// rate-limit on the claimed pubkey (bounds how fast one key churns the roster)
 		if (live && !presenceLimiter.allow("nostr:" + ev.pubkey.toLowerCase())) {
 			spamDrops.presence++;
 			return false;
@@ -160,6 +169,9 @@ export function createAggregator(store, { onStored, onChat } = {}) {
 
 		let chan = presence.get(geo);
 		if (!chan) presence.set(geo, (chan = new Map()));
+		// memory backstop: a full channel stops admitting NEW pubkeys until prune
+		// frees stale slots; existing pubkeys keep updating (so real users refresh).
+		if (!chan.has(ev.pubkey) && chan.size >= MAX_PRESENCE_PER_CHANNEL) return false;
 		const teleport = Array.isArray(ev.tags) && ev.tags.some((t) => t[0] === "t" && t[1] === "teleport");
 		// lastSeen (receipt time) drives freshness/pruning; createdAt (the event's
 		// own timestamp) is what the client renders as "x ago".
@@ -219,6 +231,9 @@ export function createAggregator(store, { onStored, onChat } = {}) {
 		if (typeof ev.pubkey !== "string") return false;
 		const targets = deletionTargets(ev);
 		if (targets.length === 0) return false;
+		// the vast majority of relayed deletions target events we don't cache; skip
+		// the (expensive) signature check unless we actually hold one of the notes.
+		if (!targets.some((id) => store.hasNote(id))) return false;
 		if (!verifyCounted(ev)) return false;
 		let removed = 0;
 		for (const id of targets) removed += store.deleteNote(id, ev.pubkey);

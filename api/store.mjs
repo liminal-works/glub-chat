@@ -83,6 +83,9 @@ export function openStore(dbPath) {
 		   AND (expires_at IS NULL OR expires_at > ?)
 		 ORDER BY created_at DESC LIMIT ?`
 	);
+	// cheap existence probe: lets the aggregator skip verifying a kind-5 deletion
+	// whose targets we don't even cache (the overwhelming majority of the firehose).
+	const hasNoteStmt = db.prepare(`SELECT 1 FROM notes WHERE id = ? LIMIT 1`);
 	// NIP-09: only the author may delete their own note.
 	const deleteNoteStmt = db.prepare(`DELETE FROM notes WHERE id = ? AND pubkey = ?`);
 	const pruneExpiredStmt = db.prepare(`DELETE FROM notes WHERE expires_at IS NOT NULL AND expires_at <= ?`);
@@ -150,6 +153,11 @@ export function openStore(dbPath) {
 			const now = Math.floor(Date.now() / 1000);
 			const rows = notesByPrefixStmt.all(p, p + "\x7f", now, lim);
 			return rows.map((r) => JSON.parse(r.json));
+		},
+
+		// whether we currently cache a note with this id (any author).
+		hasNote(id) {
+			return !!hasNoteStmt.get(id);
 		},
 
 		// NIP-09 delete: drop the note only if it belongs to `pubkey`. Returns count.

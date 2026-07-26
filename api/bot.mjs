@@ -746,6 +746,31 @@ export function createBot({ broadcast, store, botName = process.env.GLUB_BOT_NAM
 		reply(lines.join("\n"), geo);
 	}
 
+	// a relay source url for display: drop the ws(s):// scheme + trailing slash so
+	// it reads as a bare host. "api:publish" (an event that came in via our own
+	// publish endpoint, not a relay socket) and unknowns get a friendly label.
+	function prettyRelay(source) {
+		const s = String(source || "").trim();
+		if (!s || s === "?") return "unknown";
+		if (s === "api:publish") return "api (direct publish)";
+		return s.replace(/^wss?:\/\//i, "").replace(/\/+$/, "");
+	}
+
+	// a compact delay label: sub-second in ms, otherwise seconds with one decimal.
+	function formatDelay(ms) {
+		return ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(1)}s`;
+	}
+
+	// !ping: a liveness/latency check. Reports how long the command took to reach
+	// the bot (receipt wall-clock minus the message's created_at) and which relay
+	// carried it here. created_at is second-resolution, so the delay is an estimate
+	// (and clamps at 0 when a sender's clock runs slightly ahead), but it's a real
+	// one-way propagation figure and the relay is exactly the socket it arrived on.
+	function cmdPing(c) {
+		const ageMs = Math.max(0, c.recvMs - c.ev.created_at * 1000);
+		reply(`pong:\n\ndelay ${formatDelay(ageMs)}\nrelay ${prettyRelay(c.source)}`, c.geo);
+	}
+
 	// !help: generated from the registry, so a new command shows up here for free.
 	// Kept SHORT (terse one-liners) so it doesn't wrap on mobile; the per-command
 	// !help <command> page carries the usage + optional params.
@@ -794,6 +819,7 @@ export function createBot({ broadcast, store, botName = process.env.GLUB_BOT_NAM
 			usage: "!nostr · !nostr <text> · !nostr #<tag> · !nostr <npub>",
 			run: (c) => cmdNostr(c.geo, c.args),
 		},
+		{ name: "ping", desc: "delay + delivering relay", usage: "!ping", run: (c) => cmdPing(c) },
 		{ name: "help", aliases: ["h", "commands"], desc: "list commands", usage: "!help · !help <command>", run: (c) => cmdHelp(c.geo, c.args[0]) },
 	];
 
@@ -824,11 +850,13 @@ export function createBot({ broadcast, store, botName = process.env.GLUB_BOT_NAM
 		return true;
 	}
 
-	// run a resolved command; tolerates sync + async handlers.
-	function dispatch(parsed, geo) {
+	// run a resolved command; tolerates sync + async handlers. `meta` carries the
+	// per-event bits a command may want (the delivering relay + receipt time for
+	// !ping); most commands ignore it.
+	function dispatch(parsed, geo, meta = {}) {
 		const c = parsed.command;
 		if (!c) return false;
-		Promise.resolve(c.run({ geo, args: parsed.args })).catch((e) => console.error(`[bot] !${c.name} failed:`, e.message));
+		Promise.resolve(c.run({ geo, args: parsed.args, ...meta })).catch((e) => console.error(`[bot] !${c.name} failed:`, e.message));
 		return true;
 	}
 
@@ -838,6 +866,7 @@ export function createBot({ broadcast, store, botName = process.env.GLUB_BOT_NAM
 	// (live=false) are never passed here, so the bot never answers stale history or
 	// double-counts a relay's stored backlog.
 	function observe(ev, geo, source) {
+		const recvMs = Date.now(); // wall-clock receipt, captured first so !ping's delay excludes our own processing
 		if (!ev || ev.kind !== CHAT_KIND || !geo) return;
 		if (botPubkeys.has(ev.pubkey)) return; // never react to / count our own replies (incl. just-rotated keys)
 
@@ -883,7 +912,7 @@ export function createBot({ broadcast, store, botName = process.env.GLUB_BOT_NAM
 				console.log(`[bot] !${parsed.name} dropped (global cooldown)`);
 				return; // global budget spent
 			}
-			dispatch(parsed, geo);
+			dispatch(parsed, geo, { source, ev, recvMs });
 			return; // a command isn't itself "channel activity"
 		}
 

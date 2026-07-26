@@ -227,13 +227,14 @@ function setAssistEnabled(on) {
 	localStorage.setItem(STORAGE_ASSIST_KEY, on ? "true" : "false");
 }
 
-// nostr profiles (avatars + bios) are an opt-in extra that relies entirely on the
-// api, so they're only ever enabled when server assist is too - and only actually
-// usable once the api is reachable. off by default.
+// nostr profiles (avatars + bios) rely entirely on the api, so they're only ever
+// enabled when server assist is too - and only actually usable once the api is
+// reachable. On by default (like assist), so a plain load shows avatars/bios;
+// only an explicit "false" opts out.
 const STORAGE_PROFILES_KEY = "glub_profiles";
 
 function getProfilesEnabled() {
-	return getAssistEnabled() && localStorage.getItem(STORAGE_PROFILES_KEY) === "true";
+	return getAssistEnabled() && localStorage.getItem(STORAGE_PROFILES_KEY) !== "false";
 }
 
 function setProfilesEnabled(on) {

@@ -24,6 +24,7 @@ import { fetchProfileMetadata, publishProfileMetadata } from "./nostr/profileEdi
 import { isProfane } from "./censor.js";
 import { fetchConditions, wmoDescribe, geocodePlace, parseLatLon } from "./weather.js";
 import { THEMES, themeNames, activeTheme, applyTheme, persistTheme, initTheme, hexToRgb } from "./themes.js";
+import { stripFormat, hasFormat, renderFormat } from "./format.js";
 
 // re-apply the persisted theme before anything renders (module scripts run
 // before first paint, so a saved theme doesn't flash bitchat green first).
@@ -714,16 +715,21 @@ function messageInnerHtml(entry) {
 	// clipping it would just show a truncated blob + a "more" toggle, defeating that,
 	// so a message carrying one renders in full (the chip does the shortening).
 	const hasPayment = !entry.action && paymentTokens(entry.text).length > 0;
+	// a "&"-formatted message renders from its raw coded text via renderFormat;
+	// it's only honored in the plain (non-action, non-reply) path, and shows in
+	// full (formatted lines are short, already bounded by the rich-tag length cap)
+	// so it skips clipping and the more/less toggle.
+	const isRich = !entry.action && !entry.reply && !!entry.rich;
 	// walls (ascii art / link dumps / tall multiline blocks) collapse much harder
 	// than the plain over-length case - a taste of the content, then the toggle.
 	const clipLen = entry.wall ? WALL_CLIP_LEN : MAX_MSG_LEN;
-	const text = expanded || hasPayment ? entry.text : clipWithEllipsis(entry.text, clipLen);
+	const text = expanded || hasPayment || isRich ? entry.text : clipWithEllipsis(entry.text, clipLen);
 	// your own color depends on the live profiles state (orange vs. real per-key
 	// color), so recompute it each render; peers' colors never change (baked).
 	const color = entry.mine ? pubkeyColor(entry.pubkey) : entry.color;
 
 	let body;
-	let needsToggle = !hasPayment && entry.text.length > clipLen;
+	let needsToggle = !hasPayment && !isRich && entry.text.length > clipLen;
 
 	if (entry.action) {
 		// emote: the whole "* ... *" rendered muted like a timestamp, no username
@@ -762,7 +768,7 @@ function messageInnerHtml(entry) {
 			`<span class="user" style="color:${color}">@${escapeHtml(who)}</span>` +
 			`<span class="tag" style="color:${color}">#${escapeHtml(entry.tag)}</span>` +
 			`<span class="bracket" style="color:${color}">&gt;</span> ` +
-			`<span class="msg" style="color:${color}">${richBody(text)}</span>` +
+			`<span class="msg" style="color:${color}">${isRich ? renderFormat(entry.rich, richBody) : richBody(text)}</span>` +
 			`</span>`;
 	}
 
@@ -1155,6 +1161,13 @@ function renderEvent(ev) {
 	// native bitchat client physically present omits it = "local")
 	const teleport = Array.isArray(ev.tags) && ev.tags.some((t) => t[0] === "t" && t[1] === "teleport");
 
+	// glub/rich: the sender's raw "&"-coded message (see format.js). Honor it
+	// ONLY if its stripped plaintext matches the visible content - so a tampered
+	// or oversized tag can never render something other than what native shows.
+	const richTag = Array.isArray(ev.tags) && ev.tags.find((t) => t[0] === "glub" && t[1] === "rich");
+	const richRaw = richTag && typeof richTag[2] === "string" ? richTag[2] : null;
+	const rich = richRaw && richRaw.length <= HARD_MAX_MSG_LEN && stripFormat(richRaw) === text ? richRaw : null;
+
 	const entry = {
 		ts: ev.created_at,
 		geo,
@@ -1169,6 +1182,7 @@ function renderEvent(ev) {
 		mention,
 		mentionTint,
 		teleport,
+		rich, // raw "&"-coded text (glub/rich tag), or null - renders formatted in the plain-message path
 		mine: ev.pubkey.toLowerCase() === identity.pk.toLowerCase(), // bitchat bolds your own messages
 		pendingAck: pending.has(ev.id), // a message we just sent, awaiting echo-back confirmation
 		action: isActionMessage(text),
@@ -4112,7 +4126,13 @@ async function transmit(content, geo, displayName = name) {
 	// off-thread) before signing. android's default inbound filter drops events
 	// without one, so this is as much interop as spam defense. mining failure
 	// falls back to an unmined send - spam defense never blocks a message.
-	const unsigned = buildChatEvent({ content, geohash: geo, name: displayName, pk: identity.pk, client: outgoingClient(), teleport: outgoingTeleport() });
+	// "&"-code formatting: send the stripped plaintext as `content` (what native
+	// bitchat renders) and carry the raw coded text in a glub/rich tag glub
+	// prioritizes. Only when codes are actually present, so normal messages -
+	// and bare ampersands like "fish & chips" - go out untouched with no tag.
+	const rich = hasFormat(content) ? content : undefined;
+	const plain = rich ? stripFormat(content) : content;
+	const unsigned = buildChatEvent({ content: plain, geohash: geo, name: displayName, pk: identity.pk, client: outgoingClient(), teleport: outgoingTeleport(), rich });
 	const nonceTag = await mineNonceTag(unsigned, POW_DIFFICULTY);
 	if (nonceTag) {
 		unsigned.tags.push(nonceTag);

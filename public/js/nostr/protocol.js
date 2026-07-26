@@ -35,11 +35,16 @@ function geoTags(geohash, name, client, teleport = true) {
 // NIP-13 mining appends a nonce tag to the UNSIGNED event (the nonce changes
 // the id, so it must be settled before signing). created_at is stamped at
 // build time and must not change afterwards for the same reason.
-export function buildChatEvent({ content, geohash, name, pk, client, teleport = true }) {
+// `rich` (optional) is glub's client-specific metadata: the raw "&"-coded
+// message text. It rides in a ["glub","rich",…] tag that native clients ignore
+// (they render the plaintext `content`) and glub prioritizes. See format.js.
+export function buildChatEvent({ content, geohash, name, pk, client, teleport = true, rich }) {
+	const tags = geoTags(geohash, name, client, teleport);
+	if (rich) tags.push(["glub", "rich", rich]);
 	return {
 		kind: CHAT_KIND,
 		created_at: Math.floor(Date.now() / 1000),
-		tags: geoTags(geohash, name, client, teleport),
+		tags,
 		content,
 		pubkey: pk,
 	};

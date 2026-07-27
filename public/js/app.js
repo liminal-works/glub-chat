@@ -4029,17 +4029,20 @@ setInterval(() => {
 // Minecraft "magic text", ported from the prototype: mostly the real message,
 // with a fraction of the glyphs flickering to random look-alikes each frame.
 // A glyph only rotates within its own class - digit->digit, lower->lower,
-// upper->upper, symbol->symbol - so the text keeps its shape and length while
-// churning; whitespace and anything outside those classes (emoji, other unicode)
-// are never swapped. The real characters live in the wire plaintext (copyable)
-// and are stashed in data-obf-text so every frame rebuilds from them - only the
-// display churns. One shared timer drives every on-screen .fmtObf run (the hook
+// upper->upper, and punctuation stays punctuation while other symbols stay
+// symbols (so a "." or ";" flickers to another small mark like ",:;!?", never to
+// "@" or "#") - so the text keeps its shape and length while churning;
+// whitespace and anything outside these classes (emoji, other unicode) are never
+// swapped. The real characters live in the wire plaintext (copyable) and are
+// stashed in data-obf-text so every frame rebuilds from them - only the display
+// churns. One shared timer drives every on-screen .fmtObf run (the hook
 // renderFormat leaves for us), across the terminal AND the notes sheet.
 const OBF_BUCKETS = [
 	"0123456789",
 	"abcdefghijklmnopqrstuvwxyz",
 	"ABCDEFGHIJKLMNOPQRSTUVWXYZ",
-	"!@#$%^&*()_+-=[]{}<>/\\|;:,.?~",
+	".,;:!?'\"`", // small punctuation - its own bucket so "." / ";" only rotate among these
+	"@#$%^&*()_+-=[]{}<>/\\|~", // the wider symbols
 ];
 const OBF_INTERVAL_MS = 70;
 const OBF_SWAP_RATE = 0.15; // per glyph, per frame: 15% flicker to an alternate, 85% stay real

@@ -111,6 +111,16 @@ const MAX_PAST_SEC = Number(process.env.GLUB_BOT_MAX_PAST_SEC) || 300;
 const BOT_REQUIRE_POW = process.env.GLUB_BOT_REQUIRE_POW === "1";
 const BOT_MIN_POW = Number(process.env.GLUB_BOT_MIN_POW) || 0; // extra floor on the committed difficulty when PoW is required
 
+// glub.chat promo: on this fraction of command replies to NON-glub clients (native
+// bitchat users who may not know the web client exists), tack a small nudge onto
+// the reply. Fully reversible via env - GLUB_BOT_PROMO_RATE=0 turns it off; the
+// value is clamped to [0,1], default 0.25.
+const PROMO_RATE = (() => {
+	const n = Number(process.env.GLUB_BOT_PROMO_RATE);
+	return Number.isFinite(n) ? Math.min(1, Math.max(0, n)) : 0.25;
+})();
+const PROMO_TEXT = "\n\ntry https://glub.chat/";
+
 // --- NIP-13 proof-of-work (ported from the client's pow.js) ------------------
 // leading-zero *bits* of a hex event id.
 function idDifficulty(idHex) {
@@ -499,11 +509,33 @@ export function createBot({ broadcast, store, botName = process.env.GLUB_BOT_NAM
 		);
 	}
 
+	// the promo suffix for the CURRENT command's reply, chosen once per dispatch
+	// from the triggering event (see dispatch). reply() appends it and clears it,
+	// so only the command's first posted line carries the nudge. Best-effort under
+	// rare async interleaving of two commands - it's a cosmetic promo, worst case a
+	// reply gets a different 25% draw than intended.
+	let promoForReply = "";
+	// the lower-cased "client" tag value on an event ("" if none).
+	function clientOf(ev) {
+		const tags = Array.isArray(ev?.tags) ? ev.tags : [];
+		const tag = tags.find((t) => Array.isArray(t) && t[0] === "client");
+		return tag && typeof tag[1] === "string" ? tag[1].toLowerCase() : "";
+	}
+	// pick the promo for a triggering event: nothing if disabled, the sender is
+	// already on glub.chat (don't sell them what they're using), or the dice miss.
+	function pickPromo(ev) {
+		if (!PROMO_RATE || !ev) return "";
+		if (clientOf(ev) === "glub.chat") return "";
+		return Math.random() < PROMO_RATE ? PROMO_TEXT : "";
+	}
+
 	function reply(content, geohash) {
 		if (!content || !geohash) return;
-		const ev = makeBotChatMessage(content, geohash);
+		const promo = promoForReply;
+		promoForReply = ""; // consume: only the first reply of a command carries it
+		const ev = makeBotChatMessage(content + promo, geohash);
 		const sent = broadcast?.(ev, geohash);
-		console.log(`[bot] reply -> #${geohash} (${sent ?? 0} relays)`);
+		console.log(`[bot] reply -> #${geohash} (${sent ?? 0} relays)${promo ? " +promo" : ""}`);
 	}
 
 	// --- commands ------------------------------------------------------------
@@ -856,6 +888,7 @@ export function createBot({ broadcast, store, botName = process.env.GLUB_BOT_NAM
 	function dispatch(parsed, geo, meta = {}) {
 		const c = parsed.command;
 		if (!c) return false;
+		promoForReply = pickPromo(meta.ev); // decided once per command, from the triggering event's client tag
 		Promise.resolve(c.run({ geo, args: parsed.args, ...meta })).catch((e) => console.error(`[bot] !${c.name} failed:`, e.message));
 		return true;
 	}

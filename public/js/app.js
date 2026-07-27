@@ -2208,9 +2208,13 @@ function noteRowHtml(n) {
 	const raw = String(n.content || "").slice(0, HARD_MAX_MSG_LEN);
 	const expanded = expandedNotes.has(n.id);
 	const shown = expanded ? raw : clipWithEllipsis(raw, MAX_MSG_LEN);
-	const toggle = raw.length > MAX_MSG_LEN
+	// a "&"-formatted note renders from its raw coded text (guarded at ingest);
+	// like chat it shows in full and skips the more/less toggle.
+	const isRich = n.rich && n.rich.length <= HARD_MAX_MSG_LEN && stripFormat(n.rich) === String(n.content || "");
+	const toggle = !isRich && raw.length > MAX_MSG_LEN
 		? `<span class="toggleMore" data-note-toggle="${escapeHtml(n.id)}">${escapeHtml(t(expanded ? "message.less" : "message.more"))}</span>`
 		: "";
+	const bodyHtml = isRich ? renderFormat(n.rich, (s) => linkify(escapeHtml(s))) : linkify(escapeHtml(shown));
 	// the row is tappable (data-note-id + data-pubkey) to open the action popup -
 	// translate/copy/mention/dm/block - just like tapping a chat message.
 	return (
@@ -2222,7 +2226,7 @@ function noteRowHtml(n) {
 		expiry +
 		del +
 		`</div>` +
-		`<div class="noteBody">${linkify(escapeHtml(shown))}${toggle}</div>` +
+		`<div class="noteBody">${bodyHtml}${toggle}</div>` +
 		// image previews, same blurred tap-to-reveal treatment as chat (renderImage-
 		// Previews reads .id + .images, so a lightweight shim is all it needs)
 		renderImagePreviews({ id: n.id, images: extractImageUrls(n.content) }) +
@@ -4019,7 +4023,9 @@ function scrambleGlyphs(text) {
 }
 setInterval(() => {
 	if (document.hidden) return; // don't churn while backgrounded
-	const els = terminal.querySelectorAll(".fmtObf");
+	// scan the whole document, not just the terminal: formatted notes live in the
+	// notes sheet too (early-returns cheaply when nothing is obfuscated).
+	const els = document.querySelectorAll(".fmtObf");
 	if (!els.length) return;
 	const still = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 	for (const el of els) {

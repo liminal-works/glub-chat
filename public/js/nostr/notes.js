@@ -36,7 +36,9 @@
 //   onChange({ state, notes, geohash }) fires on every state/notes change
 
 import { verifyEvent, NOTE_KIND, makeNote, makeDeleteEvent, noteExpiration, getName, getClient, geohashNeighbors } from "./protocol.js";
+import { hasFormat, stripFormat } from "../format.js";
 
+const RICH_MAX = 8000; // ignore a glub/rich tag longer than this (matches chat's HARD_MAX_MSG_LEN)
 const MAX_NOTES = 100; // hard cap on notes we hold/show; we cut off past this
 const CELLS_LIMIT = 200; // the neighborhood #g request's limit (native parity)
 const SAMPLE_LIMIT = 300; // recent kind-1 events the broad filter samples per relay
@@ -182,10 +184,18 @@ export function createNotesClient({ getIdentity, getRelays, onChange, assist } =
 		}
 		if (!ok) return;
 		const mine = ev.pubkey.toLowerCase() === getIdentity().pk.toLowerCase();
+		const content = ev.content || "";
+		// glub/rich: the sender's "&"-coded raw text. Honor it only when its stripped
+		// plaintext matches the visible content (and within the cap), so a tampered or
+		// oversized tag can never render something other than what native shows.
+		const richTag = (ev.tags || []).find((t) => Array.isArray(t) && t[0] === "glub" && t[1] === "rich");
+		const richRaw = richTag && typeof richTag[2] === "string" ? richTag[2] : null;
+		const rich = richRaw && richRaw.length <= RICH_MAX && stripFormat(richRaw) === content ? richRaw : null;
 		const rec = {
 			id: ev.id,
 			pubkey: ev.pubkey,
-			content: ev.content || "",
+			content,
+			rich, // raw "&"-coded text, or null - renders formatted in noteRowHtml
 			createdAt: ev.created_at,
 			name: getName(ev) || "",
 			client: getClient(ev), // ["client",…] tag if the sender stamped one
@@ -425,9 +435,14 @@ export function createNotesClient({ getIdentity, getRelays, onChange, assist } =
 		if (!geohash) return { ok: false, relays: 0 };
 		const { sk, pk } = getIdentity();
 		const expiresAt = expiresInSecs ? nowSecs() + expiresInSecs : null;
+		// "&"-code formatting: ship the stripped plaintext as `content` (what native
+		// renders) and the raw coded text in a glub/rich tag glub prioritizes. Only
+		// when codes are present, so a plain note - or a bare "&" - goes out untouched.
+		const rich = hasFormat(content) ? content : undefined;
+		const plain = rich ? stripFormat(content) : content;
 		let event;
 		try {
-			event = makeNote({ content, geohash, name, expiresAt, sk, pk, client });
+			event = makeNote({ content: plain, geohash, name, expiresAt, sk, pk, client, rich });
 		} catch {
 			return { ok: false, relays: 0 };
 		}
@@ -440,7 +455,8 @@ export function createNotesClient({ getIdentity, getRelays, onChange, assist } =
 		const rec = {
 			id: event.id,
 			pubkey: pk,
-			content,
+			content: plain,
+			rich: rich || null,
 			createdAt: event.created_at,
 			name: name || "",
 			client: client || "",

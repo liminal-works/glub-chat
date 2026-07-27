@@ -71,12 +71,15 @@ export const NOTE_KIND = 1;
 export const DELETE_KIND = 5;
 
 // build an unsigned location note. expiresAt is a unix-seconds number or null
-// (null = never expires). name goes in an `n` tag like chat.
-export function buildNoteEvent({ content, geohash, name, pk, expiresAt = null, client }) {
+// (null = never expires). name goes in an `n` tag like chat. `rich` (optional)
+// is glub's "&"-code raw text, carried in a ["glub","rich",…] tag native ignores
+// and glub prioritizes over the plaintext `content` - same scheme as chat.
+export function buildNoteEvent({ content, geohash, name, pk, expiresAt = null, client, rich }) {
 	const tags = [["g", geohash]];
 	if (name) tags.push(["n", name]);
 	if (expiresAt) tags.push(["expiration", String(Math.floor(expiresAt))]);
 	if (client) tags.push(["client", client]);
+	if (rich) tags.push(["glub", "rich", rich]);
 	return {
 		kind: NOTE_KIND,
 		created_at: Math.floor(Date.now() / 1000),
@@ -86,8 +89,8 @@ export function buildNoteEvent({ content, geohash, name, pk, expiresAt = null, c
 	};
 }
 
-export function makeNote({ content, geohash, name, expiresAt, sk, pk, client }) {
-	return signEvent(buildNoteEvent({ content, geohash, name, pk, expiresAt, client }), sk);
+export function makeNote({ content, geohash, name, expiresAt, sk, pk, client, rich }) {
+	return signEvent(buildNoteEvent({ content, geohash, name, pk, expiresAt, client, rich }), sk);
 }
 
 // a NIP-09 deletion request for one of your own notes (relays that honor it drop

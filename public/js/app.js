@@ -412,6 +412,7 @@ const API_BASE = (typeof window !== "undefined" && window.GLUB_API_BASE ? String
 const BUFFER_FETCH = 600; // how much of the api buffer the client mirrors on connect
 const ASSIST_FALLBACK_MS = 12_000; // grace period before a dead stream falls back to relays
 const ASSIST_MAINTAIN_MS = 30_000; // health re-check cadence (status freshness + recovery)
+const ASSIST_HEALTH_TIMEOUT_MS = 8_000; // a health probe must resolve so it can't hang init/the count
 const ACK_TIMEOUT_MS = 15_000; // wait this long for an echo before rebroadcasting
 const MAX_SEND_ATTEMPTS = 3; // initial broadcast + up to 2 quick automatic rebroadcasts
 const UNVERIFIED_RETRY_MIN_MS = 10_000; // once the quick attempts are spent, keep rechecking on a slower cadence
@@ -3830,7 +3831,10 @@ async function checkApiHealth() {
 		return false;
 	}
 	try {
-		const res = await fetch(`${API_BASE}/api/health`, { cache: "no-store" });
+		// a hard timeout: without it a hung request never resolves, which would both
+		// stall init (the awaited probe gates startAssistMaintain) and freeze the
+		// assist relay count (the maintain tick awaits this before re-rendering).
+		const res = await fetch(`${API_BASE}/api/health`, { cache: "no-store", signal: AbortSignal.timeout(ASSIST_HEALTH_TIMEOUT_MS) });
 		if (!res.ok) {
 			apiAvailable = false;
 			return false;
@@ -3980,8 +3984,21 @@ function enterRelayMode() {
 // into assist mode once the api is reachable again after a fallback.
 function startAssistMaintain() {
 	setInterval(async () => {
-		if (!getAssistEnabled()) return;
+		if (!getAssistEnabled()) {
+			// assist is off. If a race (see below) or anything else ever left us still
+			// streaming from the api, correct it here so a manual disable always sticks.
+			if (liveSource === "assist") enterRelayMode();
+			return;
+		}
 		await checkApiHealth();
+		// re-check after the await: the user may have toggled assist off while the
+		// health probe was in flight. Without this, the next line would happily flip
+		// an intentionally-disabled client back into assist (and then, being disabled,
+		// this loop would early-return forever and freeze the relay count).
+		if (!getAssistEnabled()) {
+			if (liveSource === "assist") enterRelayMode();
+			return;
+		}
 		if (apiAvailable && liveSource === "relays") enterAssistMode();
 		else renderTopbar();
 	}, ASSIST_MAINTAIN_MS);

@@ -4834,6 +4834,41 @@ const COMMANDS = [
 		},
 	},
 	{
+		name: "colors",
+		// a local reference card for the "&"-code chat formatting: every code with a
+		// live preview (the &k/&g rows actually animate, driven by the shared loops).
+		run() {
+			const esc = escapeHtml;
+			const code = (c) => `<span class="ts">&amp;${esc(c)}</span>`; // dim literal "&x" label
+			const preview = (raw) => renderFormat(raw, (s) => esc(s)); // rendered through the real formatter
+			// color code -> Minecraft name; the name is previewed IN its own color.
+			const COLOR_NAMES = {
+				"0": "black", "1": "dark blue", "2": "dark green", "3": "dark aqua",
+				"4": "dark red", "5": "dark purple", "6": "gold", "7": "gray",
+				"8": "dark gray", "9": "blue", a: "green", b: "aqua", c: "red",
+				d: "light purple", e: "yellow", f: "white",
+			};
+			const colorRows = Object.entries(COLOR_NAMES).map(([c, name]) => `${code(c)}  ${preview(`&${c}${name}`)}`);
+			const styleRows = [
+				`${code("l")}  ${preview("&lbold")}`,
+				`${code("o")}  ${preview("&oitalic")}`,
+				`${code("n")}  ${preview("&nunderline")}`,
+				`${code("m")}  ${preview("&mstrikethrough")}`,
+				`${code("k")}  ${preview("&kobfuscated")}`,
+				`${code("g")}  ${preview("&grainbow")}`,
+				`${code("r")}  <span class="ts">${esc(t("colors.reset"))}</span>`,
+			];
+			const html =
+				`<span class="ts">${esc(t("colors.header"))}</span>\n\n` +
+				colorRows.join("\n") + "\n\n" +
+				styleRows.join("\n") + "\n\n" +
+				`<span class="ts">${esc(t("colors.stack"))}</span>\n` +
+				`${code("4")}${code("c")}${code("6")}${code("e")}${code("a")}${code("9")}${code("d")}  ${preview("&4r&ca&6i&en&ab&9o&dw")}\n\n` +
+				`<span class="ts">${esc(t("colors.escape"))}</span>`;
+			pushSystem(html, SYSTEM_TTL_LONG_MS);
+		},
+	},
+	{
 		name: "help",
 		run() {
 			// generated from the command list, alphabetical: one "/cmd - description"

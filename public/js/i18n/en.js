@@ -269,6 +269,14 @@ export default {
 		rotate: "new keypair (optional hex vanity suffix)",
 		theme: "switch color theme (blank = list themes)",
 		help: "list commands",
+		colors: "show chat formatting codes",
+	},
+
+	colors: {
+		header: "chat formatting  ·  &code",
+		reset: "reset (back to normal)",
+		stack: "codes stack, even mid-word:",
+		escape: "&& = a literal &",
 	},
 
 	system: {

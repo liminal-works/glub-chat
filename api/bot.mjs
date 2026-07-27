@@ -819,7 +819,7 @@ export function createBot({ broadcast, store, botName = process.env.GLUB_BOT_NAM
 			usage: "!nostr · !nostr <text> · !nostr #<tag> · !nostr <npub>",
 			run: (c) => cmdNostr(c.geo, c.args),
 		},
-		{ name: "ping", desc: "delay + delivering relay", usage: "!ping", run: (c) => cmdPing(c) },
+		{ name: "ping", aliases: ["p"], desc: "delay + delivering relay", usage: "!ping", run: (c) => cmdPing(c) },
 		{ name: "help", aliases: ["h", "commands"], desc: "list commands", usage: "!help · !help <command>", run: (c) => cmdHelp(c.geo, c.args[0]) },
 	];
 

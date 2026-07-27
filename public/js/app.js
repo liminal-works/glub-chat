@@ -4026,16 +4026,32 @@ setInterval(() => {
 }, PRESENCE_TICK_MS);
 
 // --- "&k" obfuscated text animation --------------------------------------------
-// One shared timer scrambles the glyphs of every on-screen .fmtObf run (the
-// hook renderFormat leaves for us). The run's real characters live in the wire
-// plaintext and stay copyable - this only churns the *display*. Whitespace is
-// preserved so word shape/length hold steady. Under reduced-motion we garble
-// each run once and leave it (a static illegible smear, no flicker).
-const OBF_POOL = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789#$%&?@";
+// Minecraft "magic text", ported from the prototype: mostly the real message,
+// with a fraction of the glyphs flickering to random look-alikes each frame.
+// A glyph only rotates within its own class - digit->digit, lower->lower,
+// upper->upper, symbol->symbol - so the text keeps its shape and length while
+// churning; whitespace and anything outside those classes (emoji, other unicode)
+// are never swapped. The real characters live in the wire plaintext (copyable)
+// and are stashed in data-obf-text so every frame rebuilds from them - only the
+// display churns. One shared timer drives every on-screen .fmtObf run (the hook
+// renderFormat leaves for us), across the terminal AND the notes sheet.
+const OBF_BUCKETS = [
+	"0123456789",
+	"abcdefghijklmnopqrstuvwxyz",
+	"ABCDEFGHIJKLMNOPQRSTUVWXYZ",
+	"!@#$%^&*()_+-=[]{}<>/\\|;:,.?~",
+];
 const OBF_INTERVAL_MS = 70;
-function scrambleGlyphs(text) {
+const OBF_SWAP_RATE = 0.15; // per glyph, per frame: 15% flicker to an alternate, 85% stay real
+function obfGlyph(ch) {
+	for (const bucket of OBF_BUCKETS) if (bucket.includes(ch)) return bucket[(Math.random() * bucket.length) | 0];
+	return ch; // whitespace / emoji / other unicode: left alone
+}
+// rebuild `real`, swapping each glyph to a same-class alternate with probability
+// `rate` (rate 1 = fully garbled, used for the static reduced-motion frame).
+function obfuscateText(real, rate) {
 	let out = "";
-	for (const ch of text) out += /\s/.test(ch) ? ch : OBF_POOL[(Math.random() * OBF_POOL.length) | 0];
+	for (const ch of real) out += Math.random() < rate ? obfGlyph(ch) : ch;
 	return out;
 }
 setInterval(() => {
@@ -4046,9 +4062,17 @@ setInterval(() => {
 	if (!els.length) return;
 	const still = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 	for (const el of els) {
-		if (still && el.dataset.obfStatic) continue; // reduced motion: garble once, then leave it
-		el.textContent = scrambleGlyphs(el.textContent);
-		if (still) el.dataset.obfStatic = "1";
+		// capture the real text once (renderFormat rendered it in), reuse every frame
+		if (el.dataset.obfText == null) el.dataset.obfText = el.textContent;
+		if (still) {
+			// reduced motion: a single static fully-garbled frame, then leave it (no flicker)
+			if (!el.dataset.obfStatic) {
+				el.textContent = obfuscateText(el.dataset.obfText, 1);
+				el.dataset.obfStatic = "1";
+			}
+			continue;
+		}
+		el.textContent = obfuscateText(el.dataset.obfText, OBF_SWAP_RATE);
 	}
 }, OBF_INTERVAL_MS);
 

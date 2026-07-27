@@ -62,16 +62,17 @@ function isCodeChar(ch) {
 // Single-pass tokenizer shared by stripFormat + renderFormat so the two can
 // never disagree about what's a code. Yields {t:"text",v} | {t:"code",c}.
 //
-// "&&" is a literal ampersand. Otherwise "&X" is a code ONLY when the "&" sits
-// at a real boundary: string start, right after whitespace, or right after
-// another code (so chains like "&c&lTEXT" work). A "&" wedged between other
-// characters is literal - this is what keeps "Q&A", "R&B", "M&M", "black&decker"
-// from being mangled into color codes.
+// Minecraft-faithful: ANY "&x" where x is a code char is a code, anywhere in the
+// string - no boundary rule - so codes stack/chain freely mid-word, e.g. the
+// per-letter rainbow "&4r&ca&6i&en&ab&9o&dw". "&&" is a literal ampersand (our
+// one escape - type it to keep a real "&code", e.g. "black&&decker"). Codes are
+// lowercase only, so uppercase acronyms ("Q&A", "R&B", "M&M", "AT&T") are never
+// touched; a lowercase "&code" run mid-word ("q&a", "black&decker") does format,
+// matching how Minecraft/EssentialsX behave.
 function tokenize(raw) {
 	const s = String(raw || "");
 	const tokens = [];
 	let text = "";
-	let afterCode = false;
 	const flush = () => {
 		if (text) {
 			tokens.push({ t: "text", v: text });
@@ -86,21 +87,17 @@ function tokenize(raw) {
 			if (next === "&") {
 				text += "&"; // "&&" -> literal "&"
 				i += 2;
-				afterCode = false;
 				continue;
 			}
-			const atBoundary = i === 0 || /\s/.test(s[i - 1]) || afterCode;
-			if (atBoundary && isCodeChar(next)) {
+			if (isCodeChar(next)) {
 				flush();
 				tokens.push({ t: "code", c: next });
 				i += 2;
-				afterCode = true;
 				continue;
 			}
 		}
 		text += ch;
 		i++;
-		afterCode = false;
 	}
 	flush();
 	return tokens;

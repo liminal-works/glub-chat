@@ -345,8 +345,23 @@
 					<input id="mediaFile" type="file" accept="image/*" hidden />
 					<span class="prompt" aria-hidden="true">&gt;</span>
 					<input id="chatInput" type="text" enterkeyhint="send" spellcheck="true" autocorrect="on" autocapitalize="sentences" autocomplete="off" placeholder="#channel message..." data-i18n-placeholder="composer.placeholder_global" />
-					<button id="mediaBtn" type="button" hidden>+</button>
+					<button id="mediaBtn" type="button" aria-haspopup="menu" hidden>+</button>
 					<button id="sendBtn" type="button" data-i18n="composer.send">send</button>
+				</div>
+
+				<!-- the "+" menu: photo (file picker) or voice (mic recording) -->
+				<div id="mediaMenu" class="mapMenu mediaMenu" hidden>
+					<button type="button" class="mapMenuItem" data-media="photo"><span class="mmMark">&#9635;</span><span data-i18n="composer.media_photo">photo</span></button>
+					<button type="button" class="mapMenuItem" data-media="voice"><span class="mmMark">&#9673;</span><span data-i18n="composer.media_voice">voice note</span></button>
+				</div>
+
+				<!-- voice recording bar: replaces the input row while recording -->
+				<div id="recordBar" hidden>
+					<span class="recDot" aria-hidden="true"></span>
+					<span id="recTime" class="recTime">0:00</span>
+					<span class="recHint" data-i18n="composer.rec_hint">recording voice note</span>
+					<button id="recCancel" type="button" class="recBtn" data-i18n="composer.rec_cancel">cancel</button>
+					<button id="recStop" type="button" class="recBtn recStop" data-i18n="composer.rec_send">send</button>
 				</div>
 			</div>
 		</div>

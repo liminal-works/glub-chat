@@ -204,6 +204,11 @@ export default {
 		placeholder_reply: "@{name} को जवाब…",
 		send: "भेजें",
 		join: "जाएँ",
+		media_photo: "फ़ोटो",
+		media_voice: "वॉइस नोट",
+		rec_hint: "वॉइस नोट रिकॉर्ड हो रहा है",
+		rec_cancel: "रद्द करें",
+		rec_send: "भेजें",
 	},
 
 	suggest: {
@@ -299,6 +304,8 @@ export default {
 		wordle_first_try: "पहली बार में · अविश्वसनीय",
 		upload_too_large: "फ़ाइल बहुत बड़ी है (अधिकतम {max}mb)",
 		upload_failed: "अपलोड विफल",
+		voice_unsupported: "इस ब्राउज़र में वॉइस रिकॉर्डिंग समर्थित नहीं है",
+		voice_denied: "माइक्रोफ़ोन एक्सेस अस्वीकृत",
 		rotated: "नई पहचान बनी (#{tag})",
 		rotate_badhex: "प्रत्यय 1-4 hex अक्षर (0-9, a-f)",
 		rotate_searching: "#{suffix} पहचान खोज रहे हैं... (समय लग सकता है)",

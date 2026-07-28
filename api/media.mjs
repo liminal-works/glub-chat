@@ -60,11 +60,12 @@ export function createMediaStore({ dir, maxItems = 50 }) {
 
 	// resolve a stored filename to { path, mime }, or null (unknown/expired).
 	function get(file) {
-		if (!/^[0-9a-f]{16}\.(jpg|png|gif)$/.test(file)) return null;
+		const m = /^[0-9a-f]{16}\.([a-z0-9]+)$/.exec(file);
+		if (!m) return null;
+		const mime = MIME_BY_EXT[m[1]];
+		if (!mime) return null;
 		const item = items.find((i) => i.file === file);
 		if (!item || item.at < Date.now() - TTL_MS) return null;
-		const ext = file.split(".")[1];
-		const mime = ext === "jpg" ? "image/jpeg" : ext === "png" ? "image/png" : "image/gif";
 		return { path: path.join(dir, file), mime };
 	}
 
@@ -81,7 +82,47 @@ const FORMATS = {
 	"image/jpeg": { ext: "jpg", rebuild: rebuildJpeg },
 	"image/png": { ext: "png", rebuild: rebuildPng },
 	"image/gif": { ext: "gif", rebuild: rebuildGif },
+	// Voice notes. Unlike images, audio isn't container-rebuilt here: glub only
+	// ever *records* voice (MediaRecorder), so the bytes are generated fresh from
+	// the mic with no EXIF/GPS/personal metadata to strip - the same reason the
+	// image path trusts its canvas re-encode. What we do server-side is validate
+	// the container magic (so the public endpoint can't be fed arbitrary bytes)
+	// and lean on the existing size + item-count + 24h TTL caps. A full metadata
+	// rebuild (esp. rewriting MP4 chunk-offset tables) would be the next step if
+	// we ever accept *uploaded* audio files, which can carry geotags.
+	"audio/webm": { ext: "webm", rebuild: (b) => validateMagic(b, "webm") },
+	"audio/ogg": { ext: "ogg", rebuild: (b) => validateMagic(b, "ogg") },
+	"audio/mp4": { ext: "m4a", rebuild: (b) => validateMagic(b, "mp4") },
 };
+
+// filename extension -> content-type, for serving stored media back.
+const MIME_BY_EXT = {
+	jpg: "image/jpeg",
+	png: "image/png",
+	gif: "image/gif",
+	webm: "audio/webm",
+	ogg: "audio/ogg",
+	m4a: "audio/mp4",
+};
+
+// confirm a buffer really is the declared audio container (magic-byte check),
+// returning it unchanged when valid or null to reject. Not a metadata rebuild -
+// see the FORMATS note above for why recorded audio doesn't need one.
+function validateMagic(buf, kind) {
+	if (!Buffer.isBuffer(buf) || buf.length < 12) return null;
+	if (kind === "webm") {
+		// Matroska/WebM EBML header magic
+		return buf[0] === 0x1a && buf[1] === 0x45 && buf[2] === 0xdf && buf[3] === 0xa3 ? buf : null;
+	}
+	if (kind === "ogg") {
+		return buf.subarray(0, 4).toString("latin1") === "OggS" ? buf : null;
+	}
+	if (kind === "mp4") {
+		// ISO-BMFF: a 'ftyp' box at the top (size at [0..4), type at [4..8))
+		return buf.subarray(4, 8).toString("latin1") === "ftyp" ? buf : null;
+	}
+	return null;
+}
 
 // JPEG: copy only the structural segments. All APPn (EXIF/JFIF/XMP/etc) and COM
 // segments are dropped; from SOS onward is entropy-coded image data, copied as-is.

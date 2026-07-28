@@ -214,6 +214,11 @@ export default {
 		placeholder_reply: "ответ @{name}…",
 		send: "отправить",
 		join: "войти",
+		media_photo: "фото",
+		media_voice: "голосовое",
+		rec_hint: "запись голосового",
+		rec_cancel: "отмена",
+		rec_send: "отправить",
 	},
 
 	suggest: {
@@ -314,6 +319,8 @@ export default {
 		wordle_first_try: "с первой попытки · невероятно",
 		upload_too_large: "файл слишком большой (макс. {max}мб)",
 		upload_failed: "не удалось загрузить",
+		voice_unsupported: "запись голоса не поддерживается в этом браузере",
+		voice_denied: "доступ к микрофону запрещён",
 		rotated: "новая идентичность создана (#{tag})",
 		rotate_badhex: "суффикс: 1-4 hex-символа (0-9, a-f)",
 		rotate_searching: "ищу идентичность #{suffix}... (может занять время)",

@@ -226,13 +226,13 @@ async function serveProfileImage(req, res, field) {
 app.get("/api/avatar", (req, res) => serveProfileImage(req, res, "picture"));
 app.get("/api/banner", (req, res) => serveProfileImage(req, res, "banner"));
 
-// upload an image for ephemeral hosting (~24h, capped item count). The payload
-// is rebuilt from scratch (see media.mjs) so no EXIF/GPS/metadata survives, then
-// hosted at a plain extension-suffixed url the client drops into chat as
-// "[image] {url}" (the marker native bitchat clients recognize).
+// upload media for ephemeral hosting (~24h, capped item count). Images are
+// rebuilt from scratch (see media.mjs) so no EXIF/GPS/metadata survives; recorded
+// voice notes are validated + hosted as-is (they carry no such metadata). The
+// client drops the resulting url into chat as "[image] {url}" or "[voice] {url}".
 app.post(
 	"/api/media",
-	express.raw({ type: ["image/jpeg", "image/png", "image/gif"], limit: MEDIA_MAX_BYTES }),
+	express.raw({ type: ["image/jpeg", "image/png", "image/gif", "audio/webm", "audio/ogg", "audio/mp4"], limit: MEDIA_MAX_BYTES }),
 	(req, res) => {
 		if (!Buffer.isBuffer(req.body) || req.body.length === 0) {
 			res.status(415).json({ ok: false, error: "unsupported media type" });
@@ -240,7 +240,7 @@ app.post(
 		}
 		const file = media.put(req.body, (req.headers["content-type"] || "").split(";")[0]);
 		if (!file) {
-			res.status(415).json({ ok: false, error: "not a valid image" });
+			res.status(415).json({ ok: false, error: "not a valid media file" });
 			return;
 		}
 		// return a relative path by default and let the client absolutize it against

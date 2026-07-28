@@ -177,6 +177,12 @@ const chatInput = document.getElementById("chatInput");
 const sendBtn = document.getElementById("sendBtn");
 const mediaBtn = document.getElementById("mediaBtn");
 const mediaFile = document.getElementById("mediaFile");
+const mediaMenu = document.getElementById("mediaMenu");
+const inputbar = document.getElementById("inputbar");
+const recordBar = document.getElementById("recordBar");
+const recTime = document.getElementById("recTime");
+const recStop = document.getElementById("recStop");
+const recCancel = document.getElementById("recCancel");
 const newMessagesBar = document.getElementById("newMessagesBar");
 const suggestBox = document.getElementById("suggestBox");
 const dmPill = document.getElementById("dmPill");
@@ -506,6 +512,18 @@ function extractImageUrls(text) {
 	return extractUrls(text).filter(isDirectImageUrl).slice(0, MAX_IMAGES_PER_MESSAGE);
 }
 
+function isDirectAudioUrl(url) {
+	const clean = String(url).split("?")[0].split("#")[0].toLowerCase();
+	return /\.(webm|ogg|m4a|mp3|wav|aac|opus)$/.test(clean);
+}
+
+// direct audio links (voice notes) in a message's content, same spam cap. Any
+// audio-extension url renders a player, so "[voice] {url}" just works; native
+// bitchat, which doesn't know the marker, still shows the plain text + link.
+function extractAudioUrls(text) {
+	return extractUrls(text).filter(isDirectAudioUrl).slice(0, MAX_IMAGES_PER_MESSAGE);
+}
+
 // screen-wall heuristics: content that eats vertical space without saying much
 // gets collapsed by default (never deleted - the more/less toggle reveals it).
 // three shapes: tall multiline blocks, ascii art (long + mostly non-letters,
@@ -781,6 +799,7 @@ function messageInnerHtml(entry) {
 	// a collapsed wall stays collapsed: a link-dump's image previews rendering
 	// anyway would defeat the whole point
 	if (!entry.wall || expanded) body += renderImagePreviews(entry);
+	body += renderAudioPreviews(entry); // a short "[voice]" line is never a wall, so always show the player
 	body += renderTranslation(entry);
 
 	return body + timeTag(entry.ts) + ackTag(entry);
@@ -870,6 +889,15 @@ function renderImagePreviews(entry) {
 				`<div class="mediaCensorOverlay">${escapeHtml(t("message.reveal"))}</div></div>`
 			);
 		})
+		.join("");
+}
+
+// one inline <audio> player per voice-note url in a message. preload="none" so a
+// backlog of voice notes doesn't fetch every clip until the user hits play.
+function renderAudioPreviews(entry) {
+	if (!entry.audio || !entry.audio.length) return "";
+	return entry.audio
+		.map((url) => `<div class="voicePreview"><audio controls preload="none" src="${escapeHtml(url)}"></audio></div>`)
 		.join("");
 }
 
@@ -1194,6 +1222,7 @@ function renderEvent(ev) {
 		client: getClient(ev), // ["client",…] tag if the sender stamped one ("" if not)
 		wall: looksLikeWall(text), // screen-eating content starts hard-collapsed
 		images: extractImageUrls(text),
+		audio: extractAudioUrls(text), // voice-note urls -> inline <audio> players
 		profane: isProfane(text), // flagged once; the text-censor setting gates display live
 		sig: messageSignature(text), // "" unless long enough to judge as broadcast spam
 
@@ -3359,6 +3388,7 @@ mapMenu.addEventListener("click", (e) => {
 // any click outside the open menu dismisses it (canvas taps included)
 document.addEventListener("click", (e) => {
 	if (!mapMenu.hidden && !mapMenu.contains(e.target) && !mapMenuBtn.contains(e.target)) toggleMapMenu(false);
+	if (!mediaMenu.hidden && !mediaMenu.contains(e.target) && !mediaBtn.contains(e.target)) toggleMediaMenu(false);
 });
 usersNotes.addEventListener("click", openNotes);
 notesClose.addEventListener("click", closeNotes);
@@ -4234,6 +4264,7 @@ async function transmit(content, geo, displayName = name) {
 // hidden and the feature effectively doesn't exist.
 function syncMediaBtn() {
 	mediaBtn.hidden = liveSource !== "assist" || !focusedGeo;
+	if (mediaBtn.hidden) toggleMediaMenu(false); // don't leave the "+" menu orphaned when the button goes away
 }
 
 // clean-slate a static image client-side: repaint onto a canvas and export fresh
@@ -4255,49 +4286,186 @@ async function cleanEncodeImage(file) {
 	return blob;
 }
 
+// POST a media blob to the api and drop the resulting "[marker] {url}" into chat.
+// Shared by image uploads and voice notes. `targetGeo` is bound by the caller at
+// start time, so the result lands in the channel it was begun in even if the user
+// has since hopped channels; a start from the global view (no target) drops the
+// marker into the composer so the user can aim it at a #channel.
+async function uploadAndQueue(blob, marker, targetGeo) {
+	const res = await fetch(`${API_BASE}/api/media`, {
+		method: "POST",
+		// strip any codec params ("audio/webm;codecs=opus" -> "audio/webm") so the
+		// api's content-type match + format table see the bare container type.
+		headers: { "Content-Type": String(blob.type || "").split(";")[0] },
+		body: blob,
+	});
+	if (!res.ok) throw new Error(`http ${res.status}`);
+	const data = await res.json();
+	if (!data.ok || !data.url) throw new Error("bad response");
+	// absolutize the (usually relative) media path against our own origin - the
+	// browser knows the real scheme (https), so shared links are never http and
+	// won't get mixed-content-blocked. resolves against the api's origin when it's
+	// separately hosted; leaves an already-absolute url (PUBLIC_ORIGIN) as is.
+	const url = new URL(data.url, API_BASE || location.href).href;
+	const content = `${marker} ${url}`;
+	if (targetGeo) {
+		transmit(content, targetGeo);
+	} else {
+		chatInput.value = chatInput.value ? `${chatInput.value} ${content}` : content;
+		chatInput.focus();
+	}
+}
+
 async function uploadMedia(file) {
 	if (file.size > MEDIA_MAX_MB * 1024 * 1024) {
 		appendSystem(t("system.upload_too_large", { max: MEDIA_MAX_MB }));
 		return;
 	}
-	// bind the destination NOW: the upload auto-sends to the channel it was
-	// started in, even if the user hops channels or exits to global before it
-	// finishes. Uploads are fire-and-forget - several can run concurrently, the
-	// button never blocks.
+	// bind the destination NOW (see uploadAndQueue). Uploads are fire-and-forget -
+	// several can run concurrently, the button never blocks.
 	const targetGeo = focusedGeo;
 	try {
 		const blob = await cleanEncodeImage(file);
-		const res = await fetch(`${API_BASE}/api/media`, {
-			method: "POST",
-			headers: { "Content-Type": blob.type },
-			body: blob,
-		});
-		if (!res.ok) throw new Error(`http ${res.status}`);
-		const data = await res.json();
-		if (!data.ok || !data.url) throw new Error("bad response");
-
-		// absolutize the (usually relative) media path against our own origin - the
-		// browser knows the real scheme (https), so shared links are never http and
-		// won't get mixed-content-blocked. resolves against the api's origin when
-		// it's separately hosted; leaves an already-absolute url (PUBLIC_ORIGIN) as is.
-		const url = new URL(data.url, API_BASE || location.href).href;
-
-		// "[image] {url}" is the marker native bitchat clients recognize. Started
-		// in a channel -> send there; started in global view (no target) -> drop
-		// it in the composer so the user can aim it at a #channel.
-		const content = `[image] ${url}`;
-		if (targetGeo) {
-			transmit(content, targetGeo);
-		} else {
-			chatInput.value = chatInput.value ? `${chatInput.value} ${content}` : content;
-			chatInput.focus();
-		}
+		await uploadAndQueue(blob, "[image]", targetGeo); // native bitchat's image marker
 	} catch {
 		appendSystem(t("system.upload_failed"));
 	}
 }
 
-mediaBtn.addEventListener("click", () => mediaFile.click());
+// --- voice notes (assist-only, recorded in-browser) --------------------------
+// One recording at a time. Audio is captured fresh from the mic (MediaRecorder),
+// so unlike an uploaded file it carries no EXIF/GPS/metadata - which is why the
+// api hosts it as-is (see media.mjs). The finished blob uploads like an image and
+// queues "[voice] {url}", rendered as an inline <audio> player by other glub
+// clients (native bitchat just sees the "[voice]" text + link).
+let mediaRecorder = null;
+let recStream = null;
+let recChunks = [];
+let recTimer = null;
+let recStartMs = 0;
+let recTargetGeo = null;
+let recSend = false; // stopVoiceRecording() sets this so onstop knows upload vs discard
+const REC_MAX_MS = 5 * 60_000; // hard cap so a forgotten recording can't run forever
+
+// the most broadly-playable recording type the browser supports: mp4/aac plays on
+// the widest set of recipients (incl. safari), webm/opus is the chrome/firefox
+// fallback. null = MediaRecorder missing entirely; "" = supported, use its default.
+function pickRecordMime() {
+	if (typeof MediaRecorder === "undefined") return null;
+	for (const m of ["audio/mp4", "audio/webm;codecs=opus", "audio/webm", "audio/ogg;codecs=opus"]) {
+		try {
+			if (MediaRecorder.isTypeSupported(m)) return m;
+		} catch {}
+	}
+	return "";
+}
+
+function fmtRecTime(ms) {
+	const s = Math.floor(ms / 1000);
+	return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+}
+
+// swap the compose row for the recording row (and back)
+function showRecordBar(on) {
+	recordBar.hidden = !on;
+	inputbar.hidden = on;
+}
+
+async function startVoiceRecording() {
+	const mime = pickRecordMime();
+	if (mime === null || !navigator.mediaDevices?.getUserMedia) {
+		appendSystem(t("system.voice_unsupported"));
+		return;
+	}
+	try {
+		recStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+	} catch {
+		appendSystem(t("system.voice_denied"));
+		return;
+	}
+	recTargetGeo = focusedGeo; // bind destination at start (see uploadAndQueue)
+	recChunks = [];
+	recSend = false;
+	try {
+		mediaRecorder = mime ? new MediaRecorder(recStream, { mimeType: mime }) : new MediaRecorder(recStream);
+	} catch {
+		stopRecStream();
+		appendSystem(t("system.voice_unsupported"));
+		return;
+	}
+	mediaRecorder.ondataavailable = (e) => {
+		if (e.data && e.data.size) recChunks.push(e.data);
+	};
+	mediaRecorder.onstop = onRecordingStop;
+	mediaRecorder.start();
+	recStartMs = Date.now();
+	recTime.textContent = "0:00";
+	showRecordBar(true);
+	recTimer = setInterval(() => {
+		const elapsed = Date.now() - recStartMs;
+		recTime.textContent = fmtRecTime(elapsed);
+		if (elapsed >= REC_MAX_MS) stopVoiceRecording(true); // auto-send at the cap
+	}, 250);
+}
+
+// stop the recorder; `send` tells onstop whether to upload or discard.
+function stopVoiceRecording(send) {
+	if (!mediaRecorder) return;
+	recSend = send;
+	clearInterval(recTimer);
+	recTimer = null;
+	showRecordBar(false);
+	try {
+		mediaRecorder.stop();
+	} catch {
+		onRecordingStop();
+	}
+}
+
+function onRecordingStop() {
+	const type = String((mediaRecorder && mediaRecorder.mimeType) || (recChunks[0] && recChunks[0].type) || "audio/webm").split(";")[0];
+	const chunks = recChunks;
+	const send = recSend;
+	const targetGeo = recTargetGeo;
+	// tear down before the async upload so a new recording can start immediately
+	stopRecStream();
+	mediaRecorder = null;
+	recChunks = [];
+	if (!send || !chunks.length) return; // cancelled, or nothing captured
+	const blob = new Blob(chunks, { type });
+	if (blob.size > MEDIA_MAX_MB * 1024 * 1024) {
+		appendSystem(t("system.upload_too_large", { max: MEDIA_MAX_MB }));
+		return;
+	}
+	uploadAndQueue(blob, "[voice]", targetGeo).catch(() => appendSystem(t("system.upload_failed")));
+}
+
+function stopRecStream() {
+	if (recStream) {
+		for (const tr of recStream.getTracks()) tr.stop(); // releases the mic (drops the OS indicator)
+		recStream = null;
+	}
+}
+
+// the "+" opens a small photo / voice-note menu (reusing the map-menu look).
+function toggleMediaMenu(show) {
+	const on = show !== undefined ? show : mediaMenu.hidden;
+	mediaMenu.hidden = !on;
+}
+
+mediaBtn.addEventListener("click", (e) => {
+	e.stopPropagation(); // don't let the document handler immediately re-close it
+	toggleMediaMenu();
+});
+mediaMenu.addEventListener("click", (e) => {
+	const btn = e.target.closest("[data-media]");
+	if (!btn) return;
+	toggleMediaMenu(false);
+	if (btn.dataset.media === "photo") mediaFile.click();
+	else if (btn.dataset.media === "voice") startVoiceRecording();
+});
+recStop.addEventListener("click", () => stopVoiceRecording(true));
+recCancel.addEventListener("click", () => stopVoiceRecording(false));
 mediaFile.addEventListener("change", () => {
 	const file = mediaFile.files && mediaFile.files[0];
 	mediaFile.value = ""; // allow re-picking the same file

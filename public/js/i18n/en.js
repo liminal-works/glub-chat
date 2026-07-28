@@ -214,6 +214,11 @@ export default {
 		placeholder_reply: "reply to @{name}…",
 		send: "send",
 		join: "join",
+		media_photo: "photo",
+		media_voice: "voice note",
+		rec_hint: "recording voice note",
+		rec_cancel: "cancel",
+		rec_send: "send",
 	},
 
 	// the composer's channel-picker suggestions (global mode)
@@ -314,6 +319,8 @@ export default {
 		wordle_first_try: "first try · incredible",
 		upload_too_large: "file too large (max {max}mb)",
 		upload_failed: "upload failed",
+		voice_unsupported: "voice recording isn't supported on this browser",
+		voice_denied: "microphone access denied",
 		rotated: "new identity minted (#{tag})",
 		rotate_badhex: "vanity suffix must be 1-4 hex chars (0-9, a-f)",
 		rotate_searching: "searching for a #{suffix} identity... (may take a bit)",

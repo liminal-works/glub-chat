@@ -1125,6 +1125,86 @@ textarea {
 	margin: 4px 2px;
 }
 
+/* the "+" menu (photo / voice) pops up above the compose row, anchored to the
+   right where the + button sits, rather than the map menu's top-left. */
+.mediaMenu {
+	top: auto;
+	left: auto;
+	bottom: calc(100% - 4px);
+	right: 14px;
+	min-width: 150px;
+}
+
+/* voice recording bar: mirrors #inputbar's box so swapping them doesn't jump */
+#recordBar {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	padding: 6px 14px calc(6px + var(--inset-b));
+	background: var(--chrome-bg);
+	border-top: 1px solid var(--chrome-border);
+}
+#recordBar[hidden] {
+	display: none;
+}
+.recDot {
+	width: 10px;
+	height: 10px;
+	border-radius: 50%;
+	background: #ff4d4d;
+	flex: none;
+	animation: recPulse 1.1s ease-in-out infinite;
+}
+@keyframes recPulse {
+	0%,
+	100% {
+		opacity: 1;
+	}
+	50% {
+		opacity: 0.25;
+	}
+}
+.recTime {
+	font-variant-numeric: tabular-nums;
+	color: var(--fg);
+}
+.recHint {
+	color: var(--fg-dim);
+	flex: 1;
+	overflow: hidden;
+	white-space: nowrap;
+	text-overflow: ellipsis;
+}
+.recBtn {
+	background: none;
+	border: 1px solid var(--chrome-border-strong);
+	color: var(--fg);
+	font: inherit;
+	padding: 5px 12px;
+	cursor: pointer;
+}
+.recBtn.recStop {
+	border-color: var(--accent);
+	color: var(--accent);
+}
+
+/* inline voice-note player under a "[voice]" message */
+.voicePreview {
+	margin-top: 6px;
+}
+.voicePreview audio {
+	width: 100%;
+	max-width: 320px;
+	height: 36px;
+	display: block;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.recDot {
+		animation: none;
+	}
+}
+
 /* the notes [DRAFT] scope picker reuses the map menu's look, anchored to the
    panel's top-right under the header instead of the stage's top-left */
 .notesMenu {

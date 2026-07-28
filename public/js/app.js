@@ -4720,6 +4720,16 @@ function wordlePrint(text) {
 	transmit(text, focusedGeo, botName());
 }
 
+const WHO_MAX = 25; // cap the /who roster so a busy channel can't post a wall
+
+// a channel-roster line's display name, defanged for a broadcast: whitespace
+// collapsed, length-capped, and "&" doubled so a username carrying "&"-format
+// codes can't recolor/obfuscate the rest of the roster (transmit turns "&&" back
+// into a literal "&" for the plaintext native sees).
+function whoSafeName(name) {
+	return clipText(String(name || "anon").replace(/\s+/g, " ").trim() || "anon", 22).replace(/&/g, "&&");
+}
+
 const COMMANDS = [
 	{
 		name: "clear",
@@ -4766,6 +4776,33 @@ const COMMANDS = [
 			const msg = arg.trim();
 			if (!msg) return;
 			transmit(msg, focusedGeo, botName());
+		},
+	},
+	{
+		name: "who",
+		// broadcast (as your ".bot") the roster of who's actually TALKED in this
+		// channel - the same "present" set the users panel shows (real messages, not
+		// kind-20001 presence ghosts), most-recent first - each tagged "local" or
+		// "not from #geo" (teleport). needs a focused channel to have a roster + target.
+		run() {
+			if (!focusedGeo) {
+				appendSystem(t("system.needs_channel"));
+				return;
+			}
+			const geo = focusedGeo;
+			// identical source + order to openUsers()'s "talking" list
+			const present = [...talkers(geo).values()].filter((u) => !isBlocked(u.pubkey)).sort((a, b) => b.ts - a.ts);
+			if (!present.length) {
+				transmit(t("who.empty", { geo }), geo, botName());
+				return;
+			}
+			const shown = present.slice(0, WHO_MAX);
+			const lines = shown.map((u) => {
+				const origin = u.teleport ? t("who.not_local", { geo }) : t("who.local");
+				return `@${whoSafeName(u.who)}#${u.tag} · ${origin}`;
+			});
+			const more = present.length > shown.length ? `\n+${present.length - shown.length} ${t("who.more")}` : "";
+			transmit(`${t("who.header", { geo })}:\n\n${lines.join("\n")}\n\n${t("who.count", { count: present.length })}${more}`, geo, botName());
 		},
 	},
 	{

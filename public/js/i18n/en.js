@@ -263,6 +263,7 @@ export default {
 		join: "join any channel (spaces & case ok)",
 		unclear: "restore cleared messages",
 		echo: "echo a message via your bot",
+		who: "post who's talked here via your bot",
 		weather: "post weather (here or a place) via your bot",
 		time: "post local time (here or a place) via your bot",
 		roll: "roll dice via your bot (e.g. /roll 2d6)",
@@ -275,6 +276,15 @@ export default {
 		theme: "switch color theme (blank = list themes)",
 		help: "list commands",
 		colors: "show chat formatting codes",
+	},
+
+	who: {
+		header: "present in #{geo}",
+		local: "local",
+		not_local: "not from #{geo}",
+		count: "{count} present",
+		more: "more",
+		empty: "no one's talked in #{geo} yet",
 	},
 
 	colors: {

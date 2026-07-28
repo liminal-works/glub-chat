@@ -4272,17 +4272,24 @@ function syncMediaBtn() {
 // drop the animation) - the api rebuilds their container instead.
 async function cleanEncodeImage(file) {
 	if (file.type === "image/gif") return file;
-	const bitmap = await createImageBitmap(file);
+	const bitmap = await createImageBitmap(file); // throws on formats the browser can't decode (e.g. heic off-safari)
 	const scale = Math.min(1, MEDIA_MAX_DIMENSION / Math.max(bitmap.width, bitmap.height));
 	const canvas = document.createElement("canvas");
 	canvas.width = Math.max(1, Math.round(bitmap.width * scale));
 	canvas.height = Math.max(1, Math.round(bitmap.height * scale));
 	canvas.getContext("2d").drawImage(bitmap, 0, 0, canvas.width, canvas.height);
 	bitmap.close();
+	const toBlob = (type) => new Promise((resolve) => canvas.toBlob(resolve, type, 0.9));
 	// png stays png (screenshots/text stay crisp); everything else becomes jpeg
-	const type = file.type === "image/png" ? "image/png" : "image/jpeg";
-	const blob = await new Promise((resolve) => canvas.toBlob(resolve, type, 0.9));
-	if (!blob) throw new Error("encode failed");
+	let blob = await toBlob(file.type === "image/png" ? "image/png" : "image/jpeg");
+	if (!blob) throw new Error("canvas encode failed");
+	// a *photographic* png re-encodes lossless and can blow past the host's size
+	// cap - fall back to jpeg (dramatically smaller for photos) instead of letting
+	// the upload fail. screenshots/line art usually stay comfortably under the cap.
+	if (blob.type === "image/png" && blob.size > MEDIA_MAX_MB * 1024 * 1024) {
+		const jpeg = await toBlob("image/jpeg");
+		if (jpeg) blob = jpeg;
+	}
 	return blob;
 }
 
@@ -4299,7 +4306,18 @@ async function uploadAndQueue(blob, marker, targetGeo) {
 		headers: { "Content-Type": String(blob.type || "").split(";")[0] },
 		body: blob,
 	});
-	if (!res.ok) throw new Error(`http ${res.status}`);
+	if (!res.ok) {
+		// surface the api's own reason (415 "not a valid media file" / 413 too large /
+		// …) so the console + a caller can tell size from format from server error.
+		let detail = `http ${res.status}`;
+		try {
+			const j = await res.json();
+			if (j && j.error) detail += ` (${j.error})`;
+		} catch {}
+		const err = new Error(detail);
+		err.status = res.status;
+		throw err;
+	}
 	const data = await res.json();
 	if (!data.ok || !data.url) throw new Error("bad response");
 	// absolutize the (usually relative) media path against our own origin - the
@@ -4326,9 +4344,19 @@ async function uploadMedia(file) {
 	const targetGeo = focusedGeo;
 	try {
 		const blob = await cleanEncodeImage(file);
+		// the re-encode can still exceed the host cap (a big lossless png that even the
+		// jpeg fallback couldn't shrink enough) - catch it here with a clear message
+		// instead of a mystery server rejection.
+		if (blob.size > MEDIA_MAX_MB * 1024 * 1024) {
+			console.warn(`[media] encoded image ${(blob.size / 1048576).toFixed(1)}mb exceeds ${MEDIA_MAX_MB}mb cap`);
+			appendSystem(t("system.upload_too_large", { max: MEDIA_MAX_MB }));
+			return;
+		}
 		await uploadAndQueue(blob, "[image]", targetGeo); // native bitchat's image marker
-	} catch {
-		appendSystem(t("system.upload_failed"));
+	} catch (err) {
+		console.error("[media] image upload failed:", err);
+		// a payload-too-large from the api reads clearer as the size message
+		appendSystem(err && err.status === 413 ? t("system.upload_too_large", { max: MEDIA_MAX_MB }) : t("system.upload_failed"));
 	}
 }
 
@@ -4437,7 +4465,10 @@ function onRecordingStop() {
 		appendSystem(t("system.upload_too_large", { max: MEDIA_MAX_MB }));
 		return;
 	}
-	uploadAndQueue(blob, "[voice]", targetGeo).catch(() => appendSystem(t("system.upload_failed")));
+	uploadAndQueue(blob, "[voice]", targetGeo).catch((err) => {
+		console.error("[media] voice upload failed:", err);
+		appendSystem(err && err.status === 413 ? t("system.upload_too_large", { max: MEDIA_MAX_MB }) : t("system.upload_failed"));
+	});
 }
 
 function stopRecStream() {

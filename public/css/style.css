@@ -388,6 +388,202 @@ textarea {
 	}
 }
 
+/* --- line flair: preset ambient effects (see flair.js) ----------------------
+   Drawn entirely by keyframes on pseudo-elements: no images, no canvas, and no
+   per-frame JavaScript. Each effect animates only opacity/transform, which the
+   browser keeps on the compositor, so a screenful of flaired lines costs almost
+   nothing on the main thread. Particle fields are ONE 2px dot cloned by
+   box-shadow into a dozen sparks - a whole ember shower in a single layer.
+   `isolation` opens a stacking context so the z-index:-1 decoration paints behind
+   the text yet stays inside the row; `overflow:hidden` stops particles spilling
+   onto neighbouring lines. */
+.flair {
+	position: relative;
+	isolation: isolate;
+	overflow: hidden;
+}
+
+.flair::before,
+.flair::after {
+	content: "";
+	position: absolute;
+	pointer-events: none;
+	z-index: -1;
+}
+
+/* a flaired row gets breathing room for the effect, pulled back by negative
+   margins so its text stays aligned with plain lines. */
+.line.flair {
+	padding: 3px 6px;
+	margin: 0 -6px 4px;
+	border-radius: 4px;
+}
+
+/* the live-animated swatches /flair prints */
+.flairChip {
+	display: inline-block;
+	padding: 3px 10px;
+	border-radius: 4px;
+	margin-right: 4px;
+}
+
+/* fire: a warm updraft glow with embers rising off the row */
+.flair-fire::before {
+	inset: 0;
+	background: linear-gradient(to top, rgba(255, 96, 0, 0.22), rgba(255, 150, 40, 0.06) 55%, transparent);
+	animation: flairFireGlow 2.4s ease-in-out infinite;
+}
+
+.flair-fire::after {
+	left: 4px;
+	top: 100%;
+	width: 2px;
+	height: 2px;
+	border-radius: 50%;
+	background: #ffb057;
+	box-shadow: 18px 0 #ff7a18, 47px 0 #ffd08a, 83px 0 #ff9d3d, 126px 0 #ff7a18, 170px 0 #ffc46b,
+		219px 0 #ff8c2b, 262px 0 #ffb057, 311px 0 #ff7a18, 355px 0 #ffd08a;
+	animation: flairEmbers 3.2s linear infinite;
+}
+
+@keyframes flairFireGlow {
+	0%,
+	100% {
+		opacity: 0.6;
+	}
+	50% {
+		opacity: 1;
+	}
+}
+
+@keyframes flairEmbers {
+	0% {
+		transform: translate3d(0, 0, 0);
+		opacity: 0;
+	}
+	20% {
+		opacity: 0.95;
+	}
+	100% {
+		transform: translate3d(9px, -1.9em, 0);
+		opacity: 0;
+	}
+}
+
+/* lightning: a cool electric wash that flickers, plus a bolt sweeping the row on
+   a long cycle - most of the timeline is deliberately idle so it reads as an
+   occasional strike rather than a loop. */
+.flair-lightning::before {
+	inset: 0;
+	background: linear-gradient(90deg, rgba(90, 150, 255, 0.18), rgba(150, 200, 255, 0.05) 60%, transparent);
+	animation: flairBoltFlicker 5.5s ease-in-out infinite;
+}
+
+.flair-lightning::after {
+	inset: 0;
+	background: linear-gradient(100deg, transparent 42%, rgba(205, 232, 255, 0.9) 50%, transparent 58%);
+	transform: translate3d(-100%, 0, 0);
+	animation: flairBoltSweep 5.5s ease-in-out infinite;
+}
+
+@keyframes flairBoltFlicker {
+	0%,
+	74%,
+	100% {
+		opacity: 0.5;
+	}
+	78% {
+		opacity: 1;
+	}
+	81% {
+		opacity: 0.55;
+	}
+	84% {
+		opacity: 1;
+	}
+	88% {
+		opacity: 0.6;
+	}
+}
+
+@keyframes flairBoltSweep {
+	0%,
+	74% {
+		transform: translate3d(-100%, 0, 0);
+		opacity: 0;
+	}
+	78% {
+		opacity: 1;
+	}
+	100% {
+		transform: translate3d(100%, 0, 0);
+		opacity: 0;
+	}
+}
+
+/* stars: two dot fields twinkling out of phase (opacity only) */
+.flair-stars::before {
+	left: 8px;
+	top: 32%;
+	width: 2px;
+	height: 2px;
+	border-radius: 50%;
+	background: #ffffff;
+	box-shadow: 34px -5px #cfe6ff, 79px 9px #ffffff, 124px -11px #a8ccff, 181px 5px #ffffff,
+		238px -8px #dbe9ff, 296px 7px #ffffff, 351px -4px #bcd8ff;
+	animation: flairTwinkleA 2.6s ease-in-out infinite;
+}
+
+.flair-stars::after {
+	right: 10px;
+	top: 62%;
+	width: 2px;
+	height: 2px;
+	border-radius: 50%;
+	background: #e9f2ff;
+	box-shadow: -47px -12px #ffffff, -99px 6px #b9d5ff, -152px -7px #ffffff, -214px 10px #d6e7ff,
+		-271px -10px #ffffff;
+	animation: flairTwinkleB 3.4s ease-in-out infinite;
+}
+
+@keyframes flairTwinkleA {
+	0%,
+	100% {
+		opacity: 0.25;
+	}
+	50% {
+		opacity: 1;
+	}
+}
+
+@keyframes flairTwinkleB {
+	0%,
+	100% {
+		opacity: 1;
+	}
+	45% {
+		opacity: 0.2;
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	/* keep each flair's ambient tint (so a flaired line still reads as flaired)
+	   but stop the motion, parking the moving parts out of sight rather than
+	   freezing them mid-sweep. */
+	.flair::before,
+	.flair::after {
+		animation: none;
+	}
+	.flair-fire::after,
+	.flair-lightning::after {
+		opacity: 0;
+	}
+	.flair-stars::before,
+	.flair-stars::after {
+		opacity: 0.55;
+	}
+}
+
 /* the whole message line is a tap target for the per-user action popup */
 .msgTap {
 	cursor: pointer;

@@ -25,6 +25,7 @@ import { isProfane } from "./censor.js";
 import { fetchConditions, wmoDescribe, geocodePlace, parseLatLon } from "./weather.js";
 import { THEMES, themeNames, activeTheme, applyTheme, persistTheme, initTheme, hexToRgb } from "./themes.js";
 import { stripFormat, hasFormat, renderFormat } from "./format.js";
+import { FLAIRS, flairName, flairClass } from "./flair.js";
 
 // re-apply the persisted theme before anything renders (module scripts run
 // before first paint, so a saved theme doesn't flash bitchat green first).
@@ -416,6 +417,27 @@ function renderFormatLine(tpl, parts) {
 // the default <@name#tag> layout has, without overriding the author's color choice.
 function formatTagHtml(tag) {
 	return `<span class="tag">#${escapeHtml(tag)}</span>`;
+}
+
+// --- line flair (/flair) -----------------------------------------------------
+// A preset ambient effect for your whole message row (see flair.js), carried in a
+// ["glub","flair",...] tag. Independent of /format: that owns text color/style,
+// this owns motion around the line, and they compose. Persisted like /format.
+const STORAGE_FLAIR_KEY = "glub_flair";
+
+function getFlair() {
+	try {
+		return flairName(localStorage.getItem(STORAGE_FLAIR_KEY) || "");
+	} catch {
+		return "";
+	}
+}
+
+function setFlair(v) {
+	try {
+		if (v) localStorage.setItem(STORAGE_FLAIR_KEY, v);
+		else localStorage.removeItem(STORAGE_FLAIR_KEY);
+	} catch {}
 }
 
 // the difficulty we mine OUTBOUND events to: the interop baseline (POW_DIFFICULTY),
@@ -1068,6 +1090,8 @@ function renderEntryDom(entry, animate = false) {
 	// normal peer (bolding stays tied to the same signal as the orange color).
 	if (entry.mine && !profilesActive()) div.className += " mine";
 	if (entry.system) div.className += " system";
+	// the sender's flair themes the whole row (pure-CSS ambient effect, see flair.js)
+	if (entry.flair && !entry.system) div.className += ` ${flairClass(entry.flair)}`;
 	if (entry.mentionTint) div.style.background = entry.mentionTint;
 	// the #geo prefix is redundant in a focused channel (every line is that
 	// channel), so only prepend it in global view. messageHtml also handles the
@@ -1366,6 +1390,11 @@ function renderEvent(ev) {
 	const fmtTag = Array.isArray(ev.tags) && ev.tags.find((t) => t[0] === "glub" && t[1] === "fmt");
 	const fmt = fmtTag && typeof fmtTag[2] === "string" ? sanitizeFormatTemplate(fmtTag[2]) : "";
 
+	// glub/flair: a preset ambient line effect. Resolved against flair.js's
+	// whitelist - the value becomes a CSS class, so an unknown name yields "".
+	const flairTag = Array.isArray(ev.tags) && ev.tags.find((t) => t[0] === "glub" && t[1] === "flair");
+	const flair = flairTag ? flairName(flairTag[2]) : "";
+
 	const entry = {
 		ts: ev.created_at,
 		geo,
@@ -1383,6 +1412,7 @@ function renderEvent(ev) {
 		flooded, // channel was under a burner-key flood when this arrived -> hidden from the global feed
 		rich, // raw "&"-coded text (glub/rich tag), or null - renders formatted in the plain-message path
 		fmt, // sender's line template (glub/fmt tag), or "" - wraps the line in the plain-message path
+		flair, // sender's ambient line effect (glub/flair tag), or "" - a class on the row
 		mine: ev.pubkey.toLowerCase() === identity.pk.toLowerCase(), // bitchat bolds your own messages
 		pendingAck: pending.has(ev.id), // a message we just sent, awaiting echo-back confirmation
 		action: isActionMessage(text),
@@ -4413,7 +4443,8 @@ async function transmit(content, geo, displayName = name) {
 	// under a different display name and lays out its own multi-line replies, so
 	// wrapping it in a personal template would just mangle it.
 	const fmt = displayName === name ? getFormatTemplate() : "";
-	const unsigned = buildChatEvent({ content: plain, geohash: geo, name: displayName, pk: identity.pk, client: outgoingClient(), teleport: outgoingTeleport(), rich, fmt: fmt || undefined });
+	const flair = displayName === name ? getFlair() : "";
+	const unsigned = buildChatEvent({ content: plain, geohash: geo, name: displayName, pk: identity.pk, client: outgoingClient(), teleport: outgoingTeleport(), rich, fmt: fmt || undefined, flair: flair || undefined });
 	const nonceTag = await mineNonceTag(unsigned, outgoingPow());
 	if (nonceTag) {
 		unsigned.tags.push(nonceTag);
@@ -5245,6 +5276,49 @@ const COMMANDS = [
 			persistTheme(name);
 			refreshThemedColors();
 			appendSystem(t("system.theme_set", { name }));
+		},
+	},
+	{
+		name: "flair",
+		// pick a preset ambient effect for your line. Bare "/flair" lists them as
+		// live-animated chips so you can see each one before choosing.
+		run(arg) {
+			const raw = arg.trim().toLowerCase();
+			const esc = escapeHtml;
+			if (!raw) {
+				const current = getFlair();
+				const chips = FLAIRS.map((f) => `<span class="${flairClass(f)} flairChip">${esc(f)}</span>`).join(" ");
+				pushSystem(
+					[
+						`<span class="ts">${esc(t("flair.header"))}</span>`,
+						"",
+						chips,
+						"",
+						current
+							? `<span class="ts">${esc(t("flair.current", { flair: current }))}</span>`
+							: `<span class="ts">${esc(t("flair.none"))}</span>`,
+						`<span class="ts">${esc(t("flair.usage"))}</span>`,
+					].join("\n"),
+					SYSTEM_TTL_LONG_MS,
+				);
+				return;
+			}
+			if (/^(off|clear|none|reset)$/.test(raw)) {
+				setFlair("");
+				appendSystem(t("flair.cleared"));
+				return;
+			}
+			const f = flairName(raw);
+			if (!f) {
+				appendSystem(t("flair.unknown", { list: FLAIRS.join(", ") }));
+				return;
+			}
+			setFlair(f);
+			pushSystem(
+				`<span class="ts">${esc(t("flair.saved", { flair: f }))}</span>\n` +
+					`<span class="${flairClass(f)} flairChip">${esc(t("flair.sample"))}</span>`,
+				SYSTEM_TTL_LONG_MS,
+			);
 		},
 	},
 	{

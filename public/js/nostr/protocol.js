@@ -43,10 +43,14 @@ function geoTags(geohash, name, client, teleport = true) {
 // kept separate from `rich` on purpose: `rich` still has to strip exactly to
 // `content` (so it can never show something native doesn't), while the template
 // is pure decoration glub substitutes the guarded body into at render time.
-export function buildChatEvent({ content, geohash, name, pk, client, teleport = true, rich, fmt }) {
+// `flair` (optional) names a preset ambient line effect (see flair.js) in a
+// ["glub","flair",...] tag - a third sibling under the same client-metadata
+// namespace, so readers pick up styling, layout and motion independently.
+export function buildChatEvent({ content, geohash, name, pk, client, teleport = true, rich, fmt, flair }) {
 	const tags = geoTags(geohash, name, client, teleport);
 	if (rich) tags.push(["glub", "rich", rich]);
 	if (fmt) tags.push(["glub", "fmt", fmt]);
+	if (flair) tags.push(["glub", "flair", flair]);
 	return {
 		kind: CHAT_KIND,
 		created_at: Math.floor(Date.now() / 1000),

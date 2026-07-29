@@ -277,6 +277,18 @@ export default {
 		help: "list commands",
 		colors: "show chat formatting codes",
 		format: "style your own chat line (blank = help)",
+		flair: "preset effect for your line (blank = list)",
+	},
+
+	flair: {
+		header: "line flair  ·  /flair <name>",
+		sample: "your line looks like this",
+		current: "current: {flair}",
+		none: "no flair set",
+		usage: "/flair off to clear",
+		saved: "flair set to {flair}",
+		cleared: "flair cleared",
+		unknown: "unknown flair - try: {list}",
 	},
 
 	format: {

@@ -269,6 +269,14 @@ textarea {
 }
 
 .line {
+	/* #terminal is a flex column, so lines are flex items and would shrink to fit
+	   an over-full view (the global feed) instead of letting it scroll. Plain lines
+	   survive that visually - a flex item's automatic minimum size floors them at
+	   their text height - but that floor only applies while overflow is VISIBLE, so
+	   a decorated line that clips (see .flair) collapses to its padding and its text
+	   disappears. Pin every line to its natural height: correct for a scrolling log,
+	   and it keeps any future clipping decoration safe. */
+	flex: none;
 	margin: 0 0 4px 0;
 }
 

@@ -71,11 +71,32 @@ const FLOOD_NOTIFY_COOLDOWN_MS = 10 * 60_000; // at most one "hid a flood in #ge
 const seen = new Set();
 const entries = []; // [{ ts, geo, system, pubkey, html, el }], ascending by ts - all received messages
 
-// client-only, session-only block list (lowercased pubkeys). deliberately not
-// persisted: nearly everyone here is on a burner key, so a Set that dies with
-// the tab beats spending localStorage on it. blocked = their messages are
-// filtered out of the feed + roster locally; nothing is sent, they aren't told.
-const blockedPubkeys = new Set();
+// client-only block list (lowercased pubkeys), persisted to localStorage so a
+// block survives a reload - having to re-block the same account every visit was
+// worse than the cost of storing it. blocked = their messages are filtered out of
+// the feed + roster locally; nothing is sent, they aren't told. Bounded, and the
+// stored list is validated on load so hand-edited junk can't poison the filter.
+const STORAGE_BLOCKS_KEY = "glub_blocks";
+const BLOCKS_MAX = 500;
+
+function loadBlocks() {
+	try {
+		const raw = JSON.parse(localStorage.getItem(STORAGE_BLOCKS_KEY) || "[]");
+		if (!Array.isArray(raw)) return [];
+		return raw.filter((p) => typeof p === "string" && /^[0-9a-f]{64}$/.test(p)).slice(0, BLOCKS_MAX);
+	} catch {
+		return [];
+	}
+}
+
+const blockedPubkeys = new Set(loadBlocks());
+
+function saveBlocks() {
+	try {
+		localStorage.setItem(STORAGE_BLOCKS_KEY, JSON.stringify([...blockedPubkeys].slice(0, BLOCKS_MAX)));
+	} catch {} // quota/private-mode: the in-memory set still works for this session
+}
+
 function isBlocked(pubkey) {
 	return !!pubkey && blockedPubkeys.has(pubkey.toLowerCase());
 }
@@ -883,7 +904,7 @@ setInterval(() => {
 function entryVisible(entry) {
 	if (entry.ts < clearedBefore) return false; // hidden by /clear (local view filter)
 	if (entry.system) return true;
-	if (isBlocked(entry.pubkey)) return false; // blocked author (session-only, local)
+	if (isBlocked(entry.pubkey)) return false; // blocked author (local, persisted)
 	if (!entryPassesPow(entry)) return false; // below the proof-of-work bar (live view filter)
 	if (focusedGeo) return entry.geo === focusedGeo; // focused: this channel, everything shown (spam included - you opened it on purpose)
 	if (isGlobalSpam(entry)) return false; // global feed: omit broadcast-spam clusters (still visible in-channel)
@@ -3143,14 +3164,15 @@ function cancelReply() {
 	updatePlaceholder();
 }
 
-// block the tapped user for this session: their messages vanish from the feed
-// and roster immediately. purely local - nothing is broadcast. reversible in-
-// session with /unblock.
+// block the tapped user: their messages vanish from the feed and roster
+// immediately, and stay gone across reloads (see STORAGE_BLOCKS_KEY). purely
+// local - nothing is broadcast. reversible any time with /unblock.
 function blockUser() {
 	const ctx = actionContext;
 	closeActionPopup();
 	if (!ctx || ctx.pubkey.toLowerCase() === identity.pk.toLowerCase()) return;
 	blockedPubkeys.add(ctx.pubkey.toLowerCase());
+	saveBlocks();
 	rerenderTerminal();
 	if (usersGate.classList.contains("show")) openUsers();
 	if (notesGate.classList.contains("show")) renderNotes(); // blocked authors' notes vanish too
@@ -5275,6 +5297,7 @@ const COMMANDS = [
 			}
 			if (raw === "all") {
 				blockedPubkeys.clear();
+				saveBlocks();
 				rerenderTerminal();
 				if (usersGate.classList.contains("show")) openUsers();
 				appendSystem(t("system.unblocked_all"));
@@ -5288,6 +5311,7 @@ const COMMANDS = [
 				return;
 			}
 			blockedPubkeys.delete(pk);
+			saveBlocks();
 			rerenderTerminal();
 			if (usersGate.classList.contains("show")) openUsers();
 			appendSystem(t("system.unblocked", { tag: pk.slice(-4) }));

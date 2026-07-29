@@ -316,6 +316,7 @@ export default {
 		upload_failed: "अपलोड विफल",
 		voice_unsupported: "इस ब्राउज़र में वॉइस रिकॉर्डिंग समर्थित नहीं है",
 		voice_denied: "माइक्रोफ़ोन एक्सेस अस्वीकृत",
+		flood_hidden: "#{geo} में संदेश बाढ़ छिपाई जा रही है",
 		rotated: "नई पहचान बनी (#{tag})",
 		rotate_badhex: "प्रत्यय 1-4 hex अक्षर (0-9, a-f)",
 		rotate_searching: "#{suffix} पहचान खोज रहे हैं... (समय लग सकता है)",

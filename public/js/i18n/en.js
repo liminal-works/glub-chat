@@ -331,6 +331,7 @@ export default {
 		upload_failed: "upload failed",
 		voice_unsupported: "voice recording isn't supported on this browser",
 		voice_denied: "microphone access denied",
+		flood_hidden: "hiding a message flood in #{geo}",
 		rotated: "new identity minted (#{tag})",
 		rotate_badhex: "vanity suffix must be 1-4 hex chars (0-9, a-f)",
 		rotate_searching: "searching for a #{suffix} identity... (may take a bit)",

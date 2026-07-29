@@ -51,6 +51,22 @@ const SPAM_FLOOD_PER_KEY = 4; // one key sending the same signature this many ti
 const SPAM_SPRAY_TOTAL = 5; // the same signature across keys this many times = spray
 const SPAM_SPRAY_MIN_SIG = 24; // ...but the spray rule only fires on messages this long, so common short lines said by many people aren't caught
 const SPAM_SIG_MIN = 3; // ignore signatures shorter than this entirely (bare reactions / "gm" / punctuation)
+
+// burner-key flood detection: the spam pattern isGlobalSpam CAN'T catch - hundreds
+// of one-shot keys posting unique (often random) content into a single channel, a
+// fresh keypair per message so no signature repeats and no single key floods. We
+// detect the *mechanic* instead: an abnormal rate of messages from an abnormal
+// number of DISTINCT keys in one channel over a short window (nearly one new key
+// per message is the burner tell), then quarantine that channel from the GLOBAL
+// feed. It stays fully visible if you open it on purpose, and un-quarantines on its
+// own once the burst ages out. Windowed by message created_at, not arrival time, so
+// a legit backlog spread over hours can't trip it on load.
+const FLOOD_WINDOW_SEC = 30; // rolling detection window
+const FLOOD_MIN_MSGS = 40; // ...need at least this many messages in it...
+const FLOOD_MIN_KEYS = 30; // ...from at least this many distinct keys...
+const FLOOD_KEY_RATIO = 0.8; // ...with nearly one new key per message (the burner-key signature)
+const FLOOD_CAP = 500; // cap samples held per channel (past the threshold, more add nothing)
+const FLOOD_NOTIFY_COOLDOWN_MS = 10 * 60_000; // at most one "hid a flood in #geo" notice per channel per this
 const seen = new Set();
 const entries = []; // [{ ts, geo, system, pubkey, html, el }], ascending by ts - all received messages
 
@@ -716,6 +732,58 @@ function isGlobalSpam(entry) {
 	return total >= SPAM_SPRAY_TOTAL && entry.sig.length >= SPAM_SPRAY_MIN_SIG; // distinctive line across many keys
 }
 
+// --- burner-key flood detection (see FLOOD_* constants) ----------------------
+const floodLog = new Map(); // geo -> [{ t: createdAtSec, pk }] within the window
+const floodNotifiedAt = new Map(); // geo -> ms of the last "hid a flood" notice (debounce)
+
+// record a chat message for its channel's flood window (skips missing/"?" geos and
+// stale backlog, whose old created_at falls outside the window).
+function recordFloodSample(geo, pubkey, tsSec) {
+	if (!geo || geo === "?") return;
+	const cutoff = Math.floor(Date.now() / 1000) - FLOOD_WINDOW_SEC;
+	if (tsSec < cutoff) return;
+	let arr = floodLog.get(geo);
+	if (!arr) floodLog.set(geo, (arr = []));
+	arr.push({ t: tsSec, pk: pubkey });
+	if (arr.length > FLOOD_CAP) floodLog.set(geo, arr.filter((s) => s.t >= cutoff).slice(-FLOOD_CAP));
+}
+
+// is this channel under a burner-key flood right now? high message velocity AND
+// nearly one distinct key per message over the window - what content/signature
+// filters miss because every message is unique and every key sends just once.
+function channelFlooded(geo) {
+	const arr = floodLog.get(geo);
+	if (!arr || arr.length < FLOOD_MIN_MSGS) return false;
+	const cutoff = Math.floor(Date.now() / 1000) - FLOOD_WINDOW_SEC;
+	let msgs = 0;
+	const keys = new Set();
+	for (const s of arr) {
+		if (s.t < cutoff) continue;
+		msgs++;
+		keys.add(s.pk);
+	}
+	return msgs >= FLOOD_MIN_MSGS && keys.size >= FLOOD_MIN_KEYS && keys.size / msgs >= FLOOD_KEY_RATIO;
+}
+
+// one debounced notice (global view only) so a flood vanishing from the feed reads
+// as protection working, not messages silently disappearing.
+function maybeNotifyFlood(geo) {
+	const now = Date.now();
+	if (now - (floodNotifiedAt.get(geo) || 0) < FLOOD_NOTIFY_COOLDOWN_MS) return;
+	floodNotifiedAt.set(geo, now);
+	appendSystem(t("system.flood_hidden", { geo: clipText(geo, 12) }));
+}
+
+// drop stale samples + idle channels so floodLog can't grow across a long session.
+setInterval(() => {
+	const cutoff = Math.floor(Date.now() / 1000) - FLOOD_WINDOW_SEC;
+	for (const [g, arr] of floodLog) {
+		const kept = arr.filter((s) => s.t >= cutoff);
+		if (kept.length) floodLog.set(g, kept);
+		else floodLog.delete(g);
+	}
+}, FLOOD_WINDOW_SEC * 1000);
+
 function entryVisible(entry) {
 	if (entry.ts < clearedBefore) return false; // hidden by /clear (local view filter)
 	if (entry.system) return true;
@@ -723,6 +791,7 @@ function entryVisible(entry) {
 	if (!entryPassesPow(entry)) return false; // below the proof-of-work bar (live view filter)
 	if (focusedGeo) return entry.geo === focusedGeo; // focused: this channel, everything shown (spam included - you opened it on purpose)
 	if (isGlobalSpam(entry)) return false; // global feed: omit broadcast-spam clusters (still visible in-channel)
+	if (entry.flooded) return false; // global feed: quarantine a channel that was under a burner-key flood when this arrived
 	return !mutedChannels.has(entry.geo); // global feed: drop muted channels
 }
 
@@ -1191,6 +1260,13 @@ function renderEvent(ev) {
 	// native bitchat client physically present omits it = "local")
 	const teleport = Array.isArray(ev.tags) && ev.tags.some((t) => t[0] === "t" && t[1] === "teleport");
 
+	// burner-key flood: log this message, then check whether its channel is being
+	// flooded. Baked onto the entry so entryVisible can quarantine the flood from the
+	// global feed (a legit backlog spread over time can't trip it - see FLOOD_*).
+	recordFloodSample(geo, ev.pubkey, ev.created_at);
+	const flooded = channelFlooded(geo);
+	if (flooded && !focusedGeo) maybeNotifyFlood(geo);
+
 	// glub/rich: the sender's raw "&"-coded message (see format.js). Honor it
 	// ONLY if its stripped plaintext matches the visible content - so a tampered
 	// or oversized tag can never render something other than what native shows.
@@ -1212,6 +1288,7 @@ function renderEvent(ev) {
 		mention,
 		mentionTint,
 		teleport,
+		flooded, // channel was under a burner-key flood when this arrived -> hidden from the global feed
 		rich, // raw "&"-coded text (glub/rich tag), or null - renders formatted in the plain-message path
 		mine: ev.pubkey.toLowerCase() === identity.pk.toLowerCase(), // bitchat bolds your own messages
 		pendingAck: pending.has(ev.id), // a message we just sent, awaiting echo-back confirmation
@@ -1289,6 +1366,7 @@ function activeChannels(limit = 12) {
 	}
 
 	return [...byGeo]
+		.filter(([geo]) => !channelFlooded(geo)) // don't advertise a channel that's currently being flooded
 		.map(([geo, e]) => ({ geo, count: e.people.size, freshest: e.freshest }))
 		.sort((a, b) => b.count - a.count || b.freshest - a.freshest)
 		.slice(0, limit);

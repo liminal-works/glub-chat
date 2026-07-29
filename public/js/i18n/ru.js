@@ -331,6 +331,7 @@ export default {
 		upload_failed: "не удалось загрузить",
 		voice_unsupported: "запись голоса не поддерживается в этом браузере",
 		voice_denied: "доступ к микрофону запрещён",
+		flood_hidden: "скрываю поток спама в #{geo}",
 		rotated: "новая идентичность создана (#{tag})",
 		rotate_badhex: "суффикс: 1-4 hex-символа (0-9, a-f)",
 		rotate_searching: "ищу идентичность #{suffix}... (может занять время)",

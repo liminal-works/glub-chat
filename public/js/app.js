@@ -25,7 +25,7 @@ import { isProfane } from "./censor.js";
 import { fetchConditions, wmoDescribe, geocodePlace, parseLatLon } from "./weather.js";
 import { THEMES, themeNames, activeTheme, applyTheme, persistTheme, initTheme, hexToRgb } from "./themes.js";
 import { stripFormat, hasFormat, renderFormat } from "./format.js";
-import { FLAIRS, flairName, flairClass } from "./flair.js";
+import { FLAIRS, flairName, flairClass, flairVars, flairHasFx } from "./flair.js";
 
 // re-apply the persisted theme before anything renders (module scripts run
 // before first paint, so a saved theme doesn't flash bitchat green first).
@@ -997,7 +997,11 @@ function messageHtml(entry) {
 		return `<span class="ts censoredMsg" data-censor-reveal="${escapeHtml(entry.id)}">${escapeHtml(t("system.censored"))}</span>`;
 	}
 	const body = entry.system ? entry.html : messageInnerHtml(entry);
-	return (focusedGeo ? "" : entry.geoPrefix || "") + body;
+	// flairs with a one-shot layer (stars' shooting star) carry an empty absolutely-
+	// positioned span the ticker animates. Emitted here rather than in renderEntryDom
+	// so it survives every in-place rerender (translation, ack, avatar, expand).
+	const fx = !entry.system && flairHasFx(entry.flair) ? `<span class="flairFx" aria-hidden="true"></span>` : "";
+	return (focusedGeo ? "" : entry.geoPrefix || "") + body + fx;
 }
 
 // the translation block shown beneath a message once you've translated it (or
@@ -1091,7 +1095,13 @@ function renderEntryDom(entry, animate = false) {
 	if (entry.mine && !profilesActive()) div.className += " mine";
 	if (entry.system) div.className += " system";
 	// the sender's flair themes the whole row (pure-CSS ambient effect, see flair.js)
-	if (entry.flair && !entry.system) div.className += ` ${flairClass(entry.flair)}`;
+	if (entry.flair && !entry.system) {
+		div.className += ` ${flairClass(entry.flair)}`;
+		// randomize the effect's inputs for THIS line (star field, periods, phases)
+		// so no two messages animate alike - see flairVars. Set once at build time;
+		// the animations themselves stay pure CSS.
+		for (const [k, v] of Object.entries(flairVars(entry.flair))) div.style.setProperty(k, v);
+	}
 	if (entry.mentionTint) div.style.background = entry.mentionTint;
 	// the #geo prefix is redundant in a focused channel (every line is that
 	// channel), so only prepend it in global view. messageHtml also handles the
@@ -4309,6 +4319,54 @@ setInterval(() => {
 		el.textContent = obfuscateText(el.dataset.obfText, OBF_SWAP_RATE);
 	}
 }, OBF_INTERVAL_MS);
+
+// --- shooting stars (the "stars" flair) --------------------------------------
+// The twinkling is pure CSS, but a shooting star has to be RARE and unpredictable:
+// a CSS loop would fire on a fixed beat and always trace the same path. So one
+// shared ticker rolls the dice, picks a random on-screen stars line, and animates
+// its .flairFx layer along a fresh trajectory. Only transform+opacity are touched,
+// so the compositor owns the motion; the timer itself does nothing at all unless a
+// flaired line is actually on screen.
+const SHOOT_TICK_MS = 1500;
+const SHOOT_CHANCE = 0.13; // per tick -> roughly one streak every ~12s on screen
+function shootStar(el) {
+	if (typeof el.animate !== "function") return; // no Web Animations: skip silently
+	const row = el.parentElement;
+	const w = Math.max(120, row ? row.clientWidth : 320);
+	const h = Math.max(10, row ? row.clientHeight : 20);
+	const angle = 8 + Math.random() * 16; // shallow downward streak
+	const x0 = -70 + Math.random() * (w * 0.5 + 70);
+	const y0 = -3 + Math.random() * (h + 2);
+	const dist = w * (0.45 + Math.random() * 0.5);
+	const drop = dist * Math.tan((angle * Math.PI) / 180) * 0.35;
+	const rot = `rotate(${angle.toFixed(1)}deg)`;
+	el.animate(
+		[
+			{ transform: `translate3d(${x0.toFixed(1)}px, ${y0.toFixed(1)}px, 0) ${rot}`, opacity: 0 },
+			{ opacity: 0.95, offset: 0.2 },
+			{ opacity: 0.85, offset: 0.7 },
+			{ transform: `translate3d(${(x0 + dist).toFixed(1)}px, ${(y0 + drop).toFixed(1)}px, 0) ${rot}`, opacity: 0 },
+		],
+		{ duration: 420 + Math.random() * 280, easing: "cubic-bezier(.2,.65,.3,1)" },
+	);
+}
+setInterval(() => {
+	if (document.hidden) return;
+	if (Math.random() > SHOOT_CHANCE) return; // rare by design
+	const fx = terminal.querySelectorAll(".flair-stars > .flairFx");
+	if (!fx.length) return;
+	if (window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+	// prefer a line the reader can actually see, so a streak is never "spent" on
+	// something scrolled out of view; fall back to any if none are visible.
+	const top = terminal.scrollTop;
+	const bottom = top + terminal.clientHeight;
+	const visible = [...fx].filter((el) => {
+		const row = el.parentElement;
+		return row && row.offsetTop + row.offsetHeight > top && row.offsetTop < bottom;
+	});
+	const pool = visible.length ? visible : [...fx];
+	shootStar(pool[(Math.random() * pool.length) | 0]);
+}, SHOOT_TICK_MS);
 
 // start our own presence heartbeat (announces only while viewing a channel)
 schedulePresence();

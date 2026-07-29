@@ -529,49 +529,151 @@ textarea {
 	}
 }
 
-/* stars: two dot fields twinkling out of phase (opacity only) */
+/* stars: two dot fields twinkling out of phase. Every value that shapes the sky -
+   the field itself, its position, its period, its phase - comes from a custom
+   property randomized per line in flair.js, so no two messages share a pattern and
+   nothing beats in unison. The fallbacks here keep a var-less element (e.g. the
+   /flair preview chip) looking right. */
 .flair-stars::before {
-	left: 8px;
-	top: 32%;
+	left: var(--star-a-left, 8px);
+	top: var(--star-a-top, 32%);
 	width: 2px;
 	height: 2px;
 	border-radius: 50%;
 	background: #ffffff;
-	box-shadow: 34px -5px #cfe6ff, 79px 9px #ffffff, 124px -11px #a8ccff, 181px 5px #ffffff,
-		238px -8px #dbe9ff, 296px 7px #ffffff, 351px -4px #bcd8ff;
-	animation: flairTwinkleA 2.6s ease-in-out infinite;
+	box-shadow: var(
+		--star-a-field,
+		34px -5px #cfe6ff,
+		79px 9px #ffffff,
+		124px -11px #a8ccff,
+		181px 5px #ffffff,
+		238px -8px #dbe9ff,
+		296px 7px #ffffff,
+		351px -4px #bcd8ff
+	);
+	animation: flairTwinkleA var(--star-a-dur, 2.6s) ease-in-out var(--star-a-delay, 0s) infinite;
 }
 
 .flair-stars::after {
-	right: 10px;
-	top: 62%;
+	left: var(--star-b-left, 20px);
+	top: var(--star-b-top, 62%);
 	width: 2px;
 	height: 2px;
 	border-radius: 50%;
 	background: #e9f2ff;
-	box-shadow: -47px -12px #ffffff, -99px 6px #b9d5ff, -152px -7px #ffffff, -214px 10px #d6e7ff,
-		-271px -10px #ffffff;
-	animation: flairTwinkleB 3.4s ease-in-out infinite;
+	box-shadow: var(
+		--star-b-field,
+		47px -12px #ffffff,
+		99px 6px #b9d5ff,
+		152px -7px #ffffff,
+		214px 10px #d6e7ff,
+		271px -10px #ffffff
+	);
+	animation: flairTwinkleB var(--star-b-dur, 3.4s) ease-in-out var(--star-b-delay, 0s) infinite;
 }
 
+/* Each field fades through a couple of uneven peaks, blinks fully out, and is
+   MOVED while invisible (the --star-*-d* offsets) so it returns somewhere new -
+   the "twinkle out here, twinkle in over there" effect. The offset is held
+   constant to 99% and snapped back at 100% while opacity is still 0, so the loop
+   restarts invisibly instead of sliding the field back across the row. */
 @keyframes flairTwinkleA {
-	0%,
-	100% {
-		opacity: 0.25;
+	0% {
+		opacity: 0;
+		transform: translate3d(0, 0, 0);
 	}
-	50% {
+	9% {
 		opacity: 1;
+	}
+	28% {
+		opacity: 0.18;
+	}
+	44% {
+		opacity: 0.85;
+	}
+	49% {
+		opacity: 0;
+		transform: translate3d(0, 0, 0);
+	}
+	51% {
+		opacity: 0;
+		transform: translate3d(var(--star-a-dx, 7px), var(--star-a-dy, -5px), 0);
+	}
+	63% {
+		opacity: 1;
+	}
+	81% {
+		opacity: 0.2;
+	}
+	92% {
+		opacity: 0.7;
+	}
+	99% {
+		opacity: 0;
+		transform: translate3d(var(--star-a-dx, 7px), var(--star-a-dy, -5px), 0);
+	}
+	100% {
+		opacity: 0;
+		transform: translate3d(0, 0, 0);
 	}
 }
 
 @keyframes flairTwinkleB {
-	0%,
-	100% {
+	0% {
+		opacity: 0;
+		transform: translate3d(0, 0, 0);
+	}
+	14% {
+		opacity: 0.9;
+	}
+	33% {
+		opacity: 0.15;
+	}
+	41% {
 		opacity: 1;
 	}
-	45% {
-		opacity: 0.2;
+	47% {
+		opacity: 0;
+		transform: translate3d(0, 0, 0);
 	}
+	49% {
+		opacity: 0;
+		transform: translate3d(var(--star-b-dx, -9px), var(--star-b-dy, 6px), 0);
+	}
+	58% {
+		opacity: 0.75;
+	}
+	72% {
+		opacity: 1;
+	}
+	88% {
+		opacity: 0.22;
+	}
+	99% {
+		opacity: 0;
+		transform: translate3d(var(--star-b-dx, -9px), var(--star-b-dy, 6px), 0);
+	}
+	100% {
+		opacity: 0;
+		transform: translate3d(0, 0, 0);
+	}
+}
+
+/* the shooting star: a one-shot streak fired by a shared ticker (see app.js) at
+   random intervals, from a random spot, so it stays a blink-and-you-miss-it event
+   rather than a loop. Parked invisible; the ticker drives it with a short
+   transform+opacity animation the compositor owns. */
+.flairFx {
+	position: absolute;
+	left: 0;
+	top: 0;
+	width: 44px;
+	height: 2px;
+	border-radius: 2px;
+	background: linear-gradient(90deg, rgba(255, 255, 255, 0) 0%, rgba(214, 234, 255, 0.35) 45%, #ffffff 100%);
+	opacity: 0;
+	pointer-events: none;
+	z-index: -1;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -589,6 +691,11 @@ textarea {
 	.flair-stars::before,
 	.flair-stars::after {
 		opacity: 0.55;
+		transform: none;
+	}
+	/* the ticker also skips firing under reduced motion; this is the belt-and-braces */
+	.flairFx {
+		display: none;
 	}
 }
 

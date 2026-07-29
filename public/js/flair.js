@@ -32,3 +32,67 @@ export function flairClass(raw) {
 	const n = flairName(raw);
 	return n ? `flair flair-${n}` : "";
 }
+
+// --- per-line randomization ---------------------------------------------------
+// An effect built from fixed keyframes looks mechanical: every line twinkles the
+// same shape, at the same moment, forever. So the *inputs* are randomized per
+// line instead - the star field, the twinkle periods, the phase offsets - and
+// handed to CSS as custom properties. The animations stay pure CSS (compositor,
+// no per-frame JS); the randomness costs a few Math.random() calls the one time a
+// line is built. Every message gets its own night sky.
+
+const rnd = (min, max) => min + Math.random() * (max - min);
+const pick = (arr) => arr[(Math.random() * arr.length) | 0];
+
+// flairs that want an extra one-shot layer in the markup (the stars flair's
+// shooting star, fired by a shared ticker - see app.js).
+const FX_FLAIRS = new Set(["stars"]);
+
+export function flairHasFx(raw) {
+	return FX_FLAIRS.has(flairName(raw));
+}
+
+// cool white-blues, so a field reads as starlight rather than confetti
+const STAR_TINTS = ["#ffffff", "#ffffff", "#cfe6ff", "#a8ccff", "#dbe9ff", "#bcd8ff", "#e9f2ff"];
+
+// one 2px dot is cloned into a whole field by box-shadow, so a random field is
+// just a random offset list - still a single composited layer. X advances by a
+// jittered step rather than being uniformly random, which keeps stars from
+// clumping the way pure noise does.
+function starField(count, step, jitterY) {
+	const out = [];
+	let x = 0;
+	for (let i = 0; i < count; i++) {
+		x += rnd(step * 0.55, step * 1.45);
+		out.push(`${Math.round(x)}px ${Math.round(rnd(-jitterY, jitterY))}px ${pick(STAR_TINTS)}`);
+	}
+	return out.join(", ");
+}
+
+// the CSS custom properties a flaired line wants, as { "--name": value }. Unknown
+// or fx-less flairs get {} - the stylesheet carries fallbacks for every var, so a
+// line (or a /flair preview chip) with no vars set still renders correctly.
+export function flairVars(raw) {
+	if (flairName(raw) !== "stars") return {};
+	return {
+		// two independent fields: a denser one up top, a sparser one lower down
+		"--star-a-field": starField(7, 46, 11),
+		"--star-b-field": starField(5, 60, 12),
+		"--star-a-left": `${Math.round(rnd(4, 28))}px`,
+		"--star-a-top": `${Math.round(rnd(16, 40))}%`,
+		"--star-b-left": `${Math.round(rnd(12, 46))}px`,
+		"--star-b-top": `${Math.round(rnd(54, 80))}%`,
+		// where each field re-appears after twinkling out (the keyframes move it
+		// while it's invisible, so stars come back somewhere new)
+		"--star-a-dx": `${Math.round(rnd(-16, 20))}px`,
+		"--star-a-dy": `${Math.round(rnd(-7, 7))}px`,
+		"--star-b-dx": `${Math.round(rnd(-20, 16))}px`,
+		"--star-b-dy": `${Math.round(rnd(-7, 7))}px`,
+		// periods differ per line AND per field, so nothing beats in unison; the
+		// negative delay starts each one mid-cycle so lines never march together.
+		"--star-a-dur": `${rnd(2.2, 4.8).toFixed(2)}s`,
+		"--star-b-dur": `${rnd(2.8, 5.6).toFixed(2)}s`,
+		"--star-a-delay": `-${rnd(0, 5).toFixed(2)}s`,
+		"--star-b-delay": `-${rnd(0, 5).toFixed(2)}s`,
+	};
+}

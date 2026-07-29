@@ -16,9 +16,19 @@
 // enough that android users filtering at their default see us.
 export const POW_DIFFICULTY = 12;
 
-// a mining round should never block a send for long; at difficulty 12 this is
-// ~1000x headroom. anything slower means something is wrong - send unmined.
-const MINE_TIMEOUT_MS = 5000;
+// a mining round should never block a send for long. The baseline gives ~1000x
+// headroom over the expected work at POW_DIFFICULTY; each extra difficulty bit
+// ~doubles that work, so the budget doubles per bit too - otherwise mining to a
+// strict filter (16/20), especially on a slow device, would routinely time out and
+// fail open (send unmined), defeating the point of raising the filter. Capped so a
+// mine can never hang a send indefinitely; past the ceiling it still falls back to
+// an unmined send.
+const MINE_TIMEOUT_BASE_MS = 5000;
+const MINE_TIMEOUT_MAX_MS = 30000;
+function mineTimeoutMs(difficulty) {
+	const extra = Math.max(0, difficulty - POW_DIFFICULTY);
+	return Math.min(MINE_TIMEOUT_MAX_MS, MINE_TIMEOUT_BASE_MS * 2 ** extra);
+}
 
 let worker = null;
 let nextJobId = 1;
@@ -63,7 +73,7 @@ export function mineNonceTag(event, difficulty = POW_DIFFICULTY) {
 	return new Promise((resolve) => {
 		const timer = setTimeout(() => {
 			if (jobs.delete(jobId)) resolve(null);
-		}, MINE_TIMEOUT_MS);
+		}, mineTimeoutMs(difficulty));
 		jobs.set(jobId, (tag) => {
 			clearTimeout(timer);
 			resolve(tag);

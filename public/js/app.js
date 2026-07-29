@@ -353,6 +353,15 @@ function setPowFilter(n) {
 	localStorage.setItem(STORAGE_POW_FILTER_KEY, String(n));
 }
 
+// the difficulty we mine OUTBOUND events to: the interop baseline (POW_DIFFICULTY),
+// but never below your own view filter. Raising your filter raises your send floor
+// too, so your messages keep clearing the same bar you're requiring of everyone
+// else - otherwise a strict filter would silently hide your own sends from peers
+// filtering at that level, since you'd still be mining at the baseline.
+function outgoingPow() {
+	return Math.max(POW_DIFFICULTY, getPowFilter());
+}
+
 // pubkey -> { name, about, nip05, hasAvatar, updated } | null (null = looked up, none found)
 const profileCache = new Map();
 const profileFetchedAt = new Map(); // pubkey -> ms we last resolved it (drives stale-while-revalidate)
@@ -3699,7 +3708,7 @@ async function broadcastPresence() {
 		client: outgoingClient(),
 		teleport: outgoingTeleport(),
 	});
-	const nonceTag = await mineNonceTag(unsigned, POW_DIFFICULTY);
+	const nonceTag = await mineNonceTag(unsigned, outgoingPow());
 	if (nonceTag) unsigned.tags.push(nonceTag);
 	if (focusedGeo !== geo) return; // hopped channels while mining - stale announce
 	const event = signEvent(unsigned, identity.sk);
@@ -4317,7 +4326,7 @@ async function transmit(content, geo, displayName = name) {
 	const rich = hasFormat(content) ? content : undefined;
 	const plain = rich ? stripFormat(content) : content;
 	const unsigned = buildChatEvent({ content: plain, geohash: geo, name: displayName, pk: identity.pk, client: outgoingClient(), teleport: outgoingTeleport(), rich });
-	const nonceTag = await mineNonceTag(unsigned, POW_DIFFICULTY);
+	const nonceTag = await mineNonceTag(unsigned, outgoingPow());
 	if (nonceTag) {
 		unsigned.tags.push(nonceTag);
 		spamStats.mined++;

@@ -634,8 +634,12 @@ textarea {
 	z-index: 6;
 	display: flex;
 	flex-direction: column-reverse;
-	max-height: 42vh;
+	/* size against the MEASURED visual viewport (--vvh, see fitViewport): plain vh
+	   is the LAYOUT viewport, which on mobile ignores the on-screen keyboard, so a
+	   long list could be given more room than is actually visible above it. */
+	max-height: calc(var(--vvh, 100vh) * 0.42);
 	overflow-y: auto;
+	-webkit-overflow-scrolling: touch;
 	overscroll-behavior: contain;
 	background: color-mix(in srgb, var(--chrome-bg) 60%, transparent);
 	backdrop-filter: blur(10px);
@@ -650,6 +654,11 @@ textarea {
 }
 
 .suggestRow {
+	/* flex children shrink by default: in a max-height flex column an over-long
+	   list would squash every row (padding collapsing, text clipped by the
+	   overflow below) instead of letting the box scroll. Pin the natural height so
+	   the rows stay legible and the overflow becomes a scroll. */
+	flex: none;
 	padding: 7px 14px;
 	cursor: pointer;
 	white-space: nowrap;

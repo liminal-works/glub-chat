@@ -410,6 +410,14 @@ function renderFormatLine(tpl, parts) {
 	return html.replace(/\{(name|tag|msg)\}/g, (m, key) => (parts[key] != null ? parts[key] : m));
 }
 
+// {tag} keeps its identity-anchor styling inside a template: .tag dims by opacity
+// (not a fixed color), so the key suffix inherits whatever color is active at that
+// point in the template and renders as a dimmer shade of it - the same hierarchy
+// the default <@name#tag> layout has, without overriding the author's color choice.
+function formatTagHtml(tag) {
+	return `<span class="tag">#${escapeHtml(tag)}</span>`;
+}
+
 // the difficulty we mine OUTBOUND events to: the interop baseline (POW_DIFFICULTY),
 // but never below your own view filter. Raising your filter raises your send floor
 // too, so your messages keep clearing the same bar you're requiring of everyone
@@ -925,7 +933,7 @@ function messageInnerHtml(entry) {
 			body =
 				open +
 				`<span class="msg" style="color:${color}">` +
-				renderFormatLine(entry.fmt, { name: escapeHtml(who), tag: `#${escapeHtml(entry.tag)}`, msg: msgHtml }) +
+				renderFormatLine(entry.fmt, { name: escapeHtml(who), tag: formatTagHtml(entry.tag), msg: msgHtml }) +
 				`</span></span>`;
 		} else {
 			body =
@@ -5251,7 +5259,7 @@ const COMMANDS = [
 				`<span class="msg">` +
 				renderFormatLine(tpl, {
 					name: esc(clipText(name || "anon", MAX_NAME_LEN)),
-					tag: `#${esc(ownSuffix)}`,
+					tag: formatTagHtml(ownSuffix),
 					msg: esc(t("format.sample")),
 				}) +
 				`</span>`;

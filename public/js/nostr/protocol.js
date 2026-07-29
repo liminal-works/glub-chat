@@ -38,9 +38,15 @@ function geoTags(geohash, name, client, teleport = true) {
 // `rich` (optional) is glub's client-specific metadata: the raw "&"-coded
 // message text. It rides in a ["glub","rich",...] tag that native clients ignore
 // (they render the plaintext `content`) and glub prioritizes. See format.js.
-export function buildChatEvent({ content, geohash, name, pk, client, teleport = true, rich }) {
+// `fmt` (optional) is the sender's line TEMPLATE - "&"-coded decoration around
+// {name}/{tag}/{msg} placeholders - in a sibling ["glub","fmt",...] tag. It's
+// kept separate from `rich` on purpose: `rich` still has to strip exactly to
+// `content` (so it can never show something native doesn't), while the template
+// is pure decoration glub substitutes the guarded body into at render time.
+export function buildChatEvent({ content, geohash, name, pk, client, teleport = true, rich, fmt }) {
 	const tags = geoTags(geohash, name, client, teleport);
 	if (rich) tags.push(["glub", "rich", rich]);
+	if (fmt) tags.push(["glub", "fmt", fmt]);
 	return {
 		kind: CHAT_KIND,
 		created_at: Math.floor(Date.now() / 1000),

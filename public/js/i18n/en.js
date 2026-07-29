@@ -276,6 +276,23 @@ export default {
 		theme: "switch color theme (blank = list themes)",
 		help: "list commands",
 		colors: "show chat formatting codes",
+		format: "style your own chat line (blank = help)",
+	},
+
+	format: {
+		header: "chat line format  ·  /format <template>",
+		placeholders: "placeholders:",
+		ph_name: "your display name",
+		ph_tag: "your #key tag",
+		ph_msg: "the message (added at the end if you leave it out)",
+		examples: "examples:",
+		sample: "hello world",
+		current: "current:",
+		none: "no format set - your line renders the default way",
+		usage: "/format off to clear",
+		saved: "format saved",
+		cleared: "format cleared",
+		too_long: "format must be 1-{max} characters",
 	},
 
 	who: {

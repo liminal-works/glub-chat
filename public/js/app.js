@@ -353,6 +353,63 @@ function setPowFilter(n) {
 	localStorage.setItem(STORAGE_POW_FILTER_KEY, String(n));
 }
 
+// --- chat line format template (/format) -------------------------------------
+// Your personal line template: "&"-coded decoration around {name}/{tag}/{msg}
+// placeholders, e.g. "&b[cool]&f<{name}&7{tag}&f> &b» &g{msg}". It rides outbound
+// chat in a ["glub","fmt",...] tag, so other glub clients render your styled line
+// while native bitchat keeps the clean plaintext `content`. Persisted, so your
+// look survives reloads.
+const STORAGE_FORMAT_KEY = "glub_format";
+const FMT_MAX = 200; // cap: a template is decoration, not a payload
+
+// Normalize a template from ANY source (yours or a peer's). Newlines collapse to
+// spaces so a template can't spam vertically, and an oversized one is rejected
+// outright rather than truncated (a cut mid-code would render as literal junk).
+function sanitizeFormatTemplate(raw) {
+	const s = String(raw || "").replace(/[\r\n\t]+/g, " ").trim();
+	return s && s.length <= FMT_MAX ? s : "";
+}
+
+function getFormatTemplate() {
+	try {
+		return sanitizeFormatTemplate(localStorage.getItem(STORAGE_FORMAT_KEY) || "");
+	} catch {
+		return "";
+	}
+}
+
+function setFormatTemplate(tpl) {
+	try {
+		if (tpl) localStorage.setItem(STORAGE_FORMAT_KEY, tpl);
+		else localStorage.removeItem(STORAGE_FORMAT_KEY);
+	} catch {}
+}
+
+// a template without an explicit {msg} still has to show the message - append it
+// so "/format &l6ix" reads as "<bold 6ix> the message".
+function normalizeFormatTemplate(tpl) {
+	return tpl.includes("{msg}") ? tpl : `${tpl} {msg}`;
+}
+
+// render a template to html. The template itself goes through renderFormat (so
+// its "&" codes style it and every literal run is escaped), THEN the placeholder
+// tokens are swapped for pre-built safe html. Order matters: substituting first
+// would let renderFormat escape the html we're inserting. The replacement pass is
+// single-shot, so a message that itself contains "{name}" is never re-substituted.
+// shown by a bare "/format", each rendered live so the codes are self-teaching:
+// a decorated full line, a bold-name classic, and the bare-name shorthand (no
+// {msg}, so it gets one appended).
+const FORMAT_EXAMPLES = [
+	"&b[cool]&f<{name}&7{tag}&f> &b» &g{msg}",
+	"&b&l<{name}> &r{msg}",
+	"&l{name}&7{tag}&f: {msg}",
+];
+
+function renderFormatLine(tpl, parts) {
+	const html = renderFormat(normalizeFormatTemplate(tpl), (s) => escapeHtml(s));
+	return html.replace(/\{(name|tag|msg)\}/g, (m, key) => (parts[key] != null ? parts[key] : m));
+}
+
 // the difficulty we mine OUTBOUND events to: the interop baseline (POW_DIFFICULTY),
 // but never below your own view filter. Raising your filter raises your send floor
 // too, so your messages keep clearing the same bar you're requiring of everyone
@@ -855,19 +912,31 @@ function messageInnerHtml(entry) {
 	} else {
 		const who = expanded ? entry.who : clipWithEllipsis(entry.who, MAX_NAME_LEN);
 		needsToggle = needsToggle || entry.who.length > MAX_NAME_LEN;
+		const msgHtml = isRich ? renderFormat(entry.rich, richBody) : richBody(text);
 		// the whole message (name + body) is one tap target: tapping anywhere on it
 		// opens the per-user action popup (DM, copy, hug/slap...). data-user carries
 		// the full pubkey; links/geo/toggles inside keep their own behavior via the
 		// bail check in the click handler.
-		body =
-			`<span class="msgTap" data-user="${escapeHtml(entry.pubkey)}">` +
-			avatarHtml(entry.pubkey, { inline: true }) + // nostr avatar prefixing the name, if any
-			`<span class="bracket" style="color:${color}">&lt;</span>` +
-			`<span class="user" style="color:${color}">@${escapeHtml(who)}</span>` +
-			`<span class="tag" style="color:${color}">#${escapeHtml(entry.tag)}</span>` +
-			`<span class="bracket" style="color:${color}">&gt;</span> ` +
-			`<span class="msg" style="color:${color}">${isRich ? renderFormat(entry.rich, richBody) : richBody(text)}</span>` +
-			`</span>`;
+		const open = `<span class="msgTap" data-user="${escapeHtml(entry.pubkey)}">` + avatarHtml(entry.pubkey, { inline: true });
+		if (entry.fmt) {
+			// the sender's own line template replaces the default <@name#tag> layout.
+			// The peer color still sits on the wrapper, so any run the template didn't
+			// color falls back to their identity color instead of going plain.
+			body =
+				open +
+				`<span class="msg" style="color:${color}">` +
+				renderFormatLine(entry.fmt, { name: escapeHtml(who), tag: `#${escapeHtml(entry.tag)}`, msg: msgHtml }) +
+				`</span></span>`;
+		} else {
+			body =
+				open +
+				`<span class="bracket" style="color:${color}">&lt;</span>` +
+				`<span class="user" style="color:${color}">@${escapeHtml(who)}</span>` +
+				`<span class="tag" style="color:${color}">#${escapeHtml(entry.tag)}</span>` +
+				`<span class="bracket" style="color:${color}">&gt;</span> ` +
+				`<span class="msg" style="color:${color}">${msgHtml}</span>` +
+				`</span>`;
+		}
 	}
 
 	if (needsToggle) {
@@ -1283,6 +1352,12 @@ function renderEvent(ev) {
 	const richRaw = richTag && typeof richTag[2] === "string" ? richTag[2] : null;
 	const rich = richRaw && richRaw.length <= HARD_MAX_MSG_LEN && stripFormat(richRaw) === text ? richRaw : null;
 
+	// glub/fmt: the sender's line template (decoration around {name}/{tag}/{msg}).
+	// Sanitized, not content-guarded - it never replaces the message, it only wraps
+	// it, and the body it wraps is still the guarded `rich`/plaintext above.
+	const fmtTag = Array.isArray(ev.tags) && ev.tags.find((t) => t[0] === "glub" && t[1] === "fmt");
+	const fmt = fmtTag && typeof fmtTag[2] === "string" ? sanitizeFormatTemplate(fmtTag[2]) : "";
+
 	const entry = {
 		ts: ev.created_at,
 		geo,
@@ -1299,6 +1374,7 @@ function renderEvent(ev) {
 		teleport,
 		flooded, // channel was under a burner-key flood when this arrived -> hidden from the global feed
 		rich, // raw "&"-coded text (glub/rich tag), or null - renders formatted in the plain-message path
+		fmt, // sender's line template (glub/fmt tag), or "" - wraps the line in the plain-message path
 		mine: ev.pubkey.toLowerCase() === identity.pk.toLowerCase(), // bitchat bolds your own messages
 		pendingAck: pending.has(ev.id), // a message we just sent, awaiting echo-back confirmation
 		action: isActionMessage(text),
@@ -4325,7 +4401,11 @@ async function transmit(content, geo, displayName = name) {
 	// and bare ampersands like "fish & chips" - go out untouched with no tag.
 	const rich = hasFormat(content) ? content : undefined;
 	const plain = rich ? stripFormat(content) : content;
-	const unsigned = buildChatEvent({ content: plain, geohash: geo, name: displayName, pk: identity.pk, client: outgoingClient(), teleport: outgoingTeleport(), rich });
+	// your line template rides along on your OWN sends only - ".bot" output posts
+	// under a different display name and lays out its own multi-line replies, so
+	// wrapping it in a personal template would just mangle it.
+	const fmt = displayName === name ? getFormatTemplate() : "";
+	const unsigned = buildChatEvent({ content: plain, geohash: geo, name: displayName, pk: identity.pk, client: outgoingClient(), teleport: outgoingTeleport(), rich, fmt: fmt || undefined });
 	const nonceTag = await mineNonceTag(unsigned, outgoingPow());
 	if (nonceTag) {
 		unsigned.tags.push(nonceTag);
@@ -5157,6 +5237,63 @@ const COMMANDS = [
 			persistTheme(name);
 			refreshThemedColors();
 			appendSystem(t("system.theme_set", { name }));
+		},
+	},
+	{
+		name: "format",
+		// set/inspect your personal chat-line template. Bare "/format" prints the
+		// placeholders + examples (each rendered live); "off" clears it.
+		run(arg) {
+			const raw = arg.trim();
+			const esc = escapeHtml;
+			// a live preview of `tpl` as your own line would render
+			const preview = (tpl) =>
+				`<span class="msg">` +
+				renderFormatLine(tpl, {
+					name: esc(clipText(name || "anon", MAX_NAME_LEN)),
+					tag: `#${esc(ownSuffix)}`,
+					msg: esc(t("format.sample")),
+				}) +
+				`</span>`;
+
+			if (!raw) {
+				const current = getFormatTemplate();
+				const rows = [
+					`<span class="ts">${esc(t("format.header"))}</span>`,
+					"",
+					`<span class="ts">${esc(t("format.placeholders"))}</span>`,
+					`<span class="ts">{name}</span>  ${esc(t("format.ph_name"))}`,
+					`<span class="ts">{tag}</span>   ${esc(t("format.ph_tag"))}`,
+					`<span class="ts">{msg}</span>   ${esc(t("format.ph_msg"))}`,
+					"",
+					`<span class="ts">${esc(t("format.examples"))}</span>`,
+				];
+				for (const ex of FORMAT_EXAMPLES) {
+					rows.push(`<span class="ts">/format ${esc(ex)}</span>`, preview(ex));
+				}
+				rows.push(
+					"",
+					current
+						? `<span class="ts">${esc(t("format.current"))}</span> <span class="ts">${esc(current)}</span>`
+						: `<span class="ts">${esc(t("format.none"))}</span>`,
+					`<span class="ts">${esc(t("format.usage"))}</span>`,
+				);
+				pushSystem(rows.join("\n"), SYSTEM_TTL_LONG_MS);
+				return;
+			}
+
+			if (/^(off|clear|reset|none)$/i.test(raw)) {
+				setFormatTemplate("");
+				appendSystem(t("format.cleared"));
+				return;
+			}
+			const tpl = sanitizeFormatTemplate(raw);
+			if (!tpl) {
+				appendSystem(t("format.too_long", { max: FMT_MAX }));
+				return;
+			}
+			setFormatTemplate(tpl);
+			pushSystem(`<span class="ts">${esc(t("format.saved"))}</span>\n${preview(tpl)}`, SYSTEM_TTL_LONG_MS);
 		},
 	},
 	{

@@ -5,7 +5,7 @@
 // Matching is boolean "does this text contain a listed term". ASCII terms use a
 // word-boundary test (so "class" isn't flagged for "ass", etc.); non-ASCII terms
 // (CJK, Cyrillic, which have no ASCII word boundaries) match as plain substrings.
-// Obfuscated variants (n1gg3r, sh1t, …) are in the list explicitly, so we match
+// Obfuscated variants (n1gg3r, sh1t, ...) are in the list explicitly, so we match
 // the lowercased text as-is rather than trying to de-leet.
 
 const WORDS = [

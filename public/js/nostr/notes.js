@@ -198,7 +198,7 @@ export function createNotesClient({ getIdentity, getRelays, onChange, assist } =
 			rich, // raw "&"-coded text, or null - renders formatted in noteRowHtml
 			createdAt: ev.created_at,
 			name: getName(ev) || "",
-			client: getClient(ev), // ["client",…] tag if the sender stamped one
+			client: getClient(ev), // ["client",...] tag if the sender stamped one
 			geohash: String(gTag[1]).toLowerCase(),
 			expiresAt: noteExpiration(ev),
 		};

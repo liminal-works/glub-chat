@@ -36,7 +36,7 @@ function geoTags(geohash, name, client, teleport = true) {
 // the id, so it must be settled before signing). created_at is stamped at
 // build time and must not change afterwards for the same reason.
 // `rich` (optional) is glub's client-specific metadata: the raw "&"-coded
-// message text. It rides in a ["glub","rich",…] tag that native clients ignore
+// message text. It rides in a ["glub","rich",...] tag that native clients ignore
 // (they render the plaintext `content`) and glub prioritizes. See format.js.
 export function buildChatEvent({ content, geohash, name, pk, client, teleport = true, rich }) {
 	const tags = geoTags(geohash, name, client, teleport);
@@ -72,7 +72,7 @@ export const DELETE_KIND = 5;
 
 // build an unsigned location note. expiresAt is a unix-seconds number or null
 // (null = never expires). name goes in an `n` tag like chat. `rich` (optional)
-// is glub's "&"-code raw text, carried in a ["glub","rich",…] tag native ignores
+// is glub's "&"-code raw text, carried in a ["glub","rich",...] tag native ignores
 // and glub prioritizes over the plaintext `content` - same scheme as chat.
 export function buildNoteEvent({ content, geohash, name, pk, expiresAt = null, client, rich }) {
 	const tags = [["g", geohash]];
@@ -111,7 +111,7 @@ export function noteExpiration(ev) {
 
 // NIP-01 profile metadata: a replaceable kind-0 whose content is a JSON
 // "directory" of your public profile fields (name/about/picture/banner/lud16/
-// nip05/…). Editing = publish a fresh kind-0 with the full merged JSON; relays
+// nip05/...). Editing = publish a fresh kind-0 with the full merged JSON; relays
 // keep only the newest per pubkey. Doesn't ride the geohash chat relays - it
 // belongs on general/profile relays (see profile.js).
 export const METADATA_KIND = 0;

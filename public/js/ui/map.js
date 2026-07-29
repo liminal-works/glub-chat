@@ -702,10 +702,10 @@ export function createMap({ canvas, onPick, onNotesPick, colors }) {
 		let lo = 0, hi = s.length;
 		while (lo < hi) {
 			const mid = (lo + hi + 1) >> 1;
-			if (ctx.measureText(s.slice(0, mid) + "…").width <= maxW) lo = mid;
+			if (ctx.measureText(s.slice(0, mid) + "...").width <= maxW) lo = mid;
 			else hi = mid - 1;
 		}
-		return s.slice(0, lo).trimEnd() + "…";
+		return s.slice(0, lo).trimEnd() + "...";
 	}
 
 	// one pin: a stem rising from the anchor point to a circular head - count

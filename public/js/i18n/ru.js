@@ -70,8 +70,8 @@ export default {
 		profile_nip05_ph: "nip-05 (имя@домен)",
 		profile_website_ph: "сайт",
 		profile_save: "сохранить профиль",
-		profile_loading: "загрузка профиля…",
-		profile_saving: "публикация…",
+		profile_loading: "загрузка профиля...",
+		profile_saving: "публикация...",
 		profile_saved: "сохранено на {count} релеях",
 		profile_save_failed: "не удалось опубликовать — попробуйте ещё раз",
 		reveal_nsec: "показать",
@@ -85,7 +85,7 @@ export default {
 
 	profile: {
 		close: "закрыть",
-		loading: "загрузка профиля…",
+		loading: "загрузка профиля...",
 		none: "нет профиля nostr",
 		npub_copied: "npub скопирован",
 		npub_copy_failed: "ошибка копирования",
@@ -115,7 +115,7 @@ export default {
 	translate: {
 		label: "перевод",
 		label_from: "перевод с {lang}",
-		working: "перевожу…",
+		working: "перевожу...",
 		same: "уже на вашем языке",
 		unavailable: "перевод сейчас недоступен",
 		failed: "не удалось перевести — попробуйте ещё раз",
@@ -123,7 +123,7 @@ export default {
 
 	dm: {
 		inbox_title: "сообщения",
-		placeholder: "зашифрованное сообщение…",
+		placeholder: "зашифрованное сообщение...",
 		empty: "пока нет сообщений",
 		with: "@{name}",
 		no_conversations: "пока нет переписок",
@@ -178,16 +178,16 @@ export default {
 		scope_block: "квартал",
 		scope_city: "город",
 		scope_region: "регион",
-		locating: "определяем, где вы…",
+		locating: "определяем, где вы...",
 		loc_failed: "местоположение недоступно — проверьте доступ и попробуйте снова",
-		placeholder: "оставьте заметку в этом канале…",
+		placeholder: "оставьте заметку в этом канале...",
 		post: "оставить",
-		loading: "загрузка заметок…",
+		loading: "загрузка заметок...",
 		empty: "заметок пока нет — оставьте первую",
 		no_relays: "нет релеев для этого канала",
 		delete: "удалить",
 		fades_in: "исчезнет через {time}",
-		uploading: "загрузка…",
+		uploading: "загрузка...",
 		upload_failed: "не удалось загрузить — попробуйте ещё раз",
 		too_large: "файл слишком большой (макс. {max}мб)",
 		expiry_never: "срок: никогда",
@@ -209,9 +209,9 @@ export default {
 	},
 
 	composer: {
-		placeholder_global: "#канал для входа…",
+		placeholder_global: "#канал для входа...",
 		placeholder_focused: "сообщение -> #{geo}",
-		placeholder_reply: "ответ @{name}…",
+		placeholder_reply: "ответ @{name}...",
 		send: "отправить",
 		join: "войти",
 		media_photo: "фото",
@@ -239,8 +239,8 @@ export default {
 	},
 
 	ack: {
-		sending: "отправка…",
-		resending: "переотправка…",
+		sending: "отправка...",
+		resending: "переотправка...",
 		unverified: "не подтверждено",
 		latency_lt1s: "<1с",
 		latency_secs: "{count}с",

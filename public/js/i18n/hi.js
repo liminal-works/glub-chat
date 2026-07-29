@@ -70,8 +70,8 @@ export default {
 		profile_nip05_ph: "nip-05 (नाम@डोमेन)",
 		profile_website_ph: "वेबसाइट",
 		profile_save: "प्रोफ़ाइल सेव करें",
-		profile_loading: "प्रोफ़ाइल लोड हो रही है…",
-		profile_saving: "प्रकाशित हो रहा है…",
+		profile_loading: "प्रोफ़ाइल लोड हो रही है...",
+		profile_saving: "प्रकाशित हो रहा है...",
 		profile_saved: "{count} रिले पर सहेजा गया",
 		profile_save_failed: "प्रकाशन विफल — फिर कोशिश करें",
 		reveal_nsec: "दिखाएँ",
@@ -85,7 +85,7 @@ export default {
 
 	profile: {
 		close: "बंद करें",
-		loading: "प्रोफ़ाइल लोड हो रही है…",
+		loading: "प्रोफ़ाइल लोड हो रही है...",
 		none: "कोई nostr प्रोफ़ाइल नहीं",
 		npub_copied: "npub कॉपी हुआ",
 		npub_copy_failed: "कॉपी नहीं हुआ",
@@ -115,7 +115,7 @@ export default {
 	translate: {
 		label: "अनुवाद",
 		label_from: "{lang} से अनुवाद",
-		working: "अनुवाद हो रहा है…",
+		working: "अनुवाद हो रहा है...",
 		same: "पहले से आपकी भाषा में है",
 		unavailable: "अनुवाद अभी उपलब्ध नहीं",
 		failed: "अनुवाद नहीं हो सका — फिर कोशिश करें",
@@ -123,7 +123,7 @@ export default {
 
 	dm: {
 		inbox_title: "संदेश",
-		placeholder: "एन्क्रिप्टेड संदेश…",
+		placeholder: "एन्क्रिप्टेड संदेश...",
 		empty: "अभी कोई संदेश नहीं",
 		with: "@{name}",
 		no_conversations: "अभी कोई बातचीत नहीं",
@@ -173,16 +173,16 @@ export default {
 		scope_block: "ब्लॉक",
 		scope_city: "शहर",
 		scope_region: "क्षेत्र",
-		locating: "आपका स्थान खोजा जा रहा है…",
+		locating: "आपका स्थान खोजा जा रहा है...",
 		loc_failed: "स्थान उपलब्ध नहीं — अनुमति जांचें और फिर कोशिश करें",
-		placeholder: "इस चैनल के लिए एक नोट छोड़ें…",
+		placeholder: "इस चैनल के लिए एक नोट छोड़ें...",
 		post: "पोस्ट",
-		loading: "नोट्स लोड हो रहे हैं…",
+		loading: "नोट्स लोड हो रहे हैं...",
 		empty: "यहाँ अभी कोई नोट नहीं — पहला छोड़ें",
 		no_relays: "इस चैनल के लिए कोई रिले नहीं",
 		delete: "हटाएँ",
 		fades_in: "{time} में मिट जाएगा",
-		uploading: "अपलोड हो रहा है…",
+		uploading: "अपलोड हो रहा है...",
 		upload_failed: "अपलोड विफल — फिर कोशिश करें",
 		too_large: "फ़ाइल बहुत बड़ी है (अधिकतम {max}mb)",
 		expiry_never: "समाप्ति: कभी नहीं",
@@ -199,9 +199,9 @@ export default {
 	},
 
 	composer: {
-		placeholder_global: "#चैनल जिसमें जाना है…",
+		placeholder_global: "#चैनल जिसमें जाना है...",
 		placeholder_focused: "संदेश -> #{geo}",
-		placeholder_reply: "@{name} को जवाब…",
+		placeholder_reply: "@{name} को जवाब...",
 		send: "भेजें",
 		join: "जाएँ",
 		media_photo: "फ़ोटो",
@@ -224,8 +224,8 @@ export default {
 	},
 
 	ack: {
-		sending: "भेज रहे हैं…",
-		resending: "फिर भेज रहे हैं…",
+		sending: "भेज रहे हैं...",
+		resending: "फिर भेज रहे हैं...",
 		unverified: "अपुष्ट",
 		latency_lt1s: "<1s",
 		latency_secs: "{count}s",

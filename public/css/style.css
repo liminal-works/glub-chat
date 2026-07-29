@@ -1396,7 +1396,7 @@ textarea {
 	border-color: var(--chrome-border-strong);
 }
 
-/* upload feedback ("uploading…" / errors) filling the space between the expiry
+/* upload feedback ("uploading..." / errors) filling the space between the expiry
    picker and the attach/post cluster; empty when idle so it costs no layout. */
 .notesUploadHint {
 	flex: 1;

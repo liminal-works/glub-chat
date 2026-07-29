@@ -188,14 +188,14 @@ export function createBot({ broadcast, store, botName = process.env.GLUB_BOT_NAM
 	const seedHex = (process.env.GLUB_BOT_SK || "").trim().toLowerCase();
 	adoptKey(/^[0-9a-f]{64}$/.test(seedHex) ? Uint8Array.from(Buffer.from(seedHex, "hex")) : randomKey());
 	console.log(
-		`[bot] identity ${pk.slice(0, 8)}…${pk.slice(-4)} name=${botName}` +
+		`[bot] identity ${pk.slice(0, 8)}...${pk.slice(-4)} name=${botName}` +
 			(ROTATE_MIN > 0 ? ` (rotating every ${ROTATE_MIN}m)` : " (rotation off)"),
 	);
 
 	if (ROTATE_MIN > 0) {
 		setInterval(() => {
 			adoptKey(randomKey());
-			console.log(`[bot] rotated identity -> ${pk.slice(0, 8)}…${pk.slice(-4)}`);
+			console.log(`[bot] rotated identity -> ${pk.slice(0, 8)}...${pk.slice(-4)}`);
 		}, ROTATE_MIN * 60_000).unref();
 	}
 
@@ -356,7 +356,7 @@ export function createBot({ broadcast, store, botName = process.env.GLUB_BOT_NAM
 		return listenBlock(`recent in #${targetG}:`, picked, "nothing here yet");
 	}
 
-	// !listen <lang>: recent messages detected in an ISO-639-3 language (eng/rus/…).
+	// !listen <lang>: recent messages detected in an ISO-639-3 language (eng/rus/...).
 	function buildListenOutputForLanguage(code, n) {
 		const recent = recentByLanguage.get(String(code || "").trim().toLowerCase()) || [];
 		const picked = [...recent].slice(-n).reverse();
@@ -760,7 +760,7 @@ export function createBot({ broadcast, store, botName = process.env.GLUB_BOT_NAM
 		events.sort((a, b) => b.created_at - a.created_at); // newest first
 		const pick = events[0];
 		if (!pick) {
-			const f = tag ? ` for #${tag}` : author ? ` for ${toNpub(author).slice(0, 12)}…` : contentMatch ? ` for "${raw}"` : "";
+			const f = tag ? ` for #${tag}` : author ? ` for ${toNpub(author).slice(0, 12)}...` : contentMatch ? ` for "${raw}"` : "";
 			reply(`nostr:\n\nno new notes${f}`, geo);
 			return;
 		}
@@ -822,7 +822,7 @@ export function createBot({ broadcast, store, botName = process.env.GLUB_BOT_NAM
 
 	// the command registry: adding an entry here makes a command parse, dispatch,
 	// AND appear in !help automatically - there's no static list to keep in sync.
-	// aliases are the bang-stripped forms users learned (!t, !l, !list, !dump…).
+	// aliases are the bang-stripped forms users learned (!t, !l, !list, !dump...).
 	const COMMANDS = [
 		{ name: "top", aliases: ["t"], desc: "most active chats", usage: "!top", run: (c) => cmdTop(c.geo) },
 		{

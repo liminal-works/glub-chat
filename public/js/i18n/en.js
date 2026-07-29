@@ -68,8 +68,8 @@ export default {
 		profile_nip05_ph: "nip-05 (name@domain)",
 		profile_website_ph: "website",
 		profile_save: "save profile",
-		profile_loading: "loading profile…",
-		profile_saving: "publishing…",
+		profile_loading: "loading profile...",
+		profile_saving: "publishing...",
 		profile_saved: "saved to {count} relays",
 		profile_save_failed: "publish failed — try again",
 		reveal_nsec: "reveal",
@@ -83,7 +83,7 @@ export default {
 
 	profile: {
 		close: "close",
-		loading: "loading profile…",
+		loading: "loading profile...",
 		none: "no nostr profile",
 		npub_copied: "copied npub",
 		npub_copy_failed: "copy failed",
@@ -114,7 +114,7 @@ export default {
 	translate: {
 		label: "translated",
 		label_from: "translated from {lang}",
-		working: "translating…",
+		working: "translating...",
 		same: "already in your language",
 		unavailable: "translation isn't available right now",
 		failed: "couldn't translate that — try again",
@@ -132,7 +132,7 @@ export default {
 
 	dm: {
 		inbox_title: "messages",
-		placeholder: "encrypted message…",
+		placeholder: "encrypted message...",
 		empty: "no messages yet",
 		with: "@{name}",
 		no_conversations: "no conversations yet",
@@ -183,16 +183,16 @@ export default {
 		scope_block: "block",
 		scope_city: "city",
 		scope_region: "region",
-		locating: "finding where you are…",
+		locating: "finding where you are...",
 		loc_failed: "location unavailable — check permission and try again",
-		placeholder: "leave a note for this channel…",
+		placeholder: "leave a note for this channel...",
 		post: "post",
-		loading: "loading notes…",
+		loading: "loading notes...",
 		empty: "no notes here yet — leave the first",
 		no_relays: "no relays for this channel",
 		delete: "delete",
 		fades_in: "fades in {time}",
-		uploading: "uploading…",
+		uploading: "uploading...",
 		upload_failed: "upload failed — try again",
 		too_large: "file too large (max {max}mb)",
 		expiry_never: "expiry: never",
@@ -209,9 +209,9 @@ export default {
 	},
 
 	composer: {
-		placeholder_global: "#channel to join…",
+		placeholder_global: "#channel to join...",
 		placeholder_focused: "message -> #{geo}",
-		placeholder_reply: "reply to @{name}…",
+		placeholder_reply: "reply to @{name}...",
 		send: "send",
 		join: "join",
 		media_photo: "photo",
@@ -235,8 +235,8 @@ export default {
 	},
 
 	ack: {
-		sending: "sending…",
-		resending: "resending…",
+		sending: "sending...",
+		resending: "resending...",
 		unverified: "unverified",
 		latency_lt1s: "<1s",
 		latency_secs: "{count}s",

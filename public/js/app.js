@@ -923,8 +923,8 @@ function renderTranslation(entry) {
 }
 
 // send-confirmation badge for our own messages, styled like the timestamp:
-// "sending…" while the first attempt is in flight (so a not-yet-confirmed send
-// never reads as done), "resending…" once we start rebroadcasting (the first
+// "sending..." while the first attempt is in flight (so a not-yet-confirmed send
+// never reads as done), "resending..." once we start rebroadcasting (the first
 // attempt timed out without an echo), the round-trip latency once a source
 // replays it ("<1s" / "4s") - which lingers a few seconds then clears itself
 // (see confirmSent) - or "unverified" once the quick rebroadcasts are spent and
@@ -1305,7 +1305,7 @@ function renderEvent(ev) {
 		reply: parseReplyMessage(text), // { targetUser, quotedText, body } if this quotes another message
 		pow: idDifficulty(ev.id), // NIP-13 leading-zero bits actually delivered
 		powCommitted: committedDifficulty(ev), // difficulty its nonce tag claims (0 = no nonce)
-		client: getClient(ev), // ["client",…] tag if the sender stamped one ("" if not)
+		client: getClient(ev), // ["client",...] tag if the sender stamped one ("" if not)
 		wall: looksLikeWall(text), // screen-eating content starts hard-collapsed
 		images: extractImageUrls(text),
 		audio: extractAudioUrls(text), // voice-note urls -> inline <audio> players
@@ -1801,7 +1801,7 @@ async function openProfileCard(pubkey) {
 	// right away - it's how people look this identity up on other nostr clients.
 	const npub = pkToNpub(pubkey);
 	profileNpub.dataset.npub = npub;
-	profileNpubKey.textContent = `${npub.slice(0, 12)}…${npub.slice(-8)}`;
+	profileNpubKey.textContent = `${npub.slice(0, 12)}...${npub.slice(-8)}`;
 	profileNpubHint.textContent = t("settings.copy_nsec");
 	profileNpub.hidden = false;
 	profileNostrName.textContent = "";
@@ -2249,7 +2249,7 @@ function draftNoteAtScope(len) {
 		notesGate.classList.add("show");
 		return;
 	}
-	// show the sheet immediately with a "locating…" status so the tap has feedback
+	// show the sheet immediately with a "locating..." status so the tap has feedback
 	notesGate.classList.add("show");
 	notesList.innerHTML = `<div class="notesStatus">${escapeHtml(t("notes.locating"))}</div>`;
 	navigator.geolocation.getCurrentPosition(
@@ -3757,7 +3757,7 @@ function attemptBroadcast(id) {
 // the broadcast set has healed since) on a quick cadence for the first few
 // attempts, then drop to a slow background recheck rather than giving up - a
 // send that truly landed just hasn't echoed back to us yet. the entry shows
-// "resending…" during the quick attempts and "unverified" once it's moved to
+// "resending..." during the quick attempts and "unverified" once it's moved to
 // the slow recheck; either clears the moment confirmSent sees the echo.
 function onSendTimeout(id) {
 	const rec = pending.get(id);
@@ -4395,7 +4395,7 @@ async function uploadAndQueue(blob, marker, targetGeo) {
 	});
 	if (!res.ok) {
 		// surface the api's own reason (415 "not a valid media file" / 413 too large /
-		// …) so the console + a caller can tell size from format from server error.
+		// ...) so the console + a caller can tell size from format from server error.
 		let detail = `http ${res.status}`;
 		try {
 			const j = await res.json();
@@ -4984,7 +4984,7 @@ const COMMANDS = [
 				appendSystem(t("system.eightball_usage"));
 				return;
 			}
-			const question = q.length > 120 ? q.slice(0, 120) + "…" : q;
+			const question = q.length > 120 ? q.slice(0, 120) + "..." : q;
 			const answer = EIGHTBALL_ANSWERS[Math.floor(Math.random() * EIGHTBALL_ANSWERS.length)];
 			transmit(`${question}\n\n🎱: ${answer}`, focusedGeo); // no ".bot" - defaults to your own name
 		},

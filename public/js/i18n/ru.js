@@ -246,6 +246,16 @@ export default {
 		latency_secs: "{count}с",
 	},
 
+	uichip: {
+		map: "открыть карту",
+		map_live: "карта активности",
+		map_notes: "карта заметок",
+		map_menu: "настройки карты",
+		users: "кто здесь",
+		notes: "локальные заметки",
+		settings: "настройки",
+	},
+
 	payment: {
 		lightning: "lightning-счёт",
 		lnurl: "lnurl",

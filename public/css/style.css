@@ -812,7 +812,8 @@ textarea {
 /* payment chip: a detected lightning invoice / lnurl / cashu token, rendered as
    a compact tap-to-copy pill instead of a raw blob. sits inline in the message
    body, styled like the app's other bordered chrome so it reads as a control. */
-.payChip {
+.payChip,
+.uiChip {
 	display: inline-flex;
 	align-items: baseline;
 	gap: 5px;
@@ -835,6 +836,19 @@ textarea {
 .payChip:hover {
 	background: color-mix(in srgb, var(--accent) 16%, transparent);
 	border-color: var(--accent);
+}
+
+/* in-chat ui buttons ("{{map}}" etc) take the channel-link color rather than the
+   payment accent, so "this opens something in the app" reads differently at a
+   glance from "this is money you can copy". */
+.uiChip {
+	color: var(--geo);
+	background: color-mix(in srgb, var(--geo) 9%, transparent);
+}
+
+.uiChip:hover {
+	background: color-mix(in srgb, var(--geo) 18%, transparent);
+	border-color: var(--geo);
 }
 
 .payChipIcon {

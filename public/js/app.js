@@ -769,14 +769,79 @@ function paymentTokens(text) {
 // message body html: like linkify(escapeHtml(text)), but any payment token is
 // spliced out and rendered as a chip. plain runs still get the usual url/geo
 // linkification; the raw token is preserved verbatim in data-invoice for copy.
+// --- in-chat UI buttons ("{{map}}" and friends) -------------------------------
+// Typed placeholders that render as a tap-to-open button for one of the client's
+// less-discoverable windows - so answering "how do I open the map?" can be a
+// button rather than a paragraph. Double braces because they're vanishingly rare
+// in real prose, and the registry below is a strict whitelist: an unrecognized
+// "{{...}}" is left as literal text, so a pasted code snippet is never mangled.
+// Native bitchat clients just see the placeholder as written, which reads fine.
+const UI_CHIPS = {
+	map: { label: "uichip.map", run: () => openMap() },
+	"map:live": { label: "uichip.map_live", run: () => openMapInMode("live") },
+	"map:notes": { label: "uichip.map_notes", run: () => openMapInMode("notes") },
+	// the map's own dropdown (modes + display toggles) - the least discoverable
+	// corner of the ui, so it gets its own button
+	"map:menu": { label: "uichip.map_menu", run: () => { openMap(); toggleMapMenu(true); } },
+	users: { label: "uichip.users", run: () => (notesEnabledGeo() ? openUsers() : appendSystem(t("system.needs_channel"))) },
+	notes: { label: "uichip.notes", run: () => (notesEnabledGeo() ? openNotes() : appendSystem(t("system.needs_channel"))) },
+	settings: { label: "uichip.settings", run: () => openSettings() },
+};
+const UI_CHIP_RE = /\{\{([a-z]+(?::[a-z]+)?)\}\}/g;
+const UI_CHIP_MAX = 4; // cap per message, so a chip spam wall isn't a thing
+
+// open the map already switched to a given overlay mode, persisting the choice
+// the same way the map menu does.
+function openMapInMode(mode) {
+	if (mapConfig.mode !== mode) {
+		mapConfig.mode = mode;
+		saveMapConfig();
+		applyMapMode();
+	}
+	openMap();
+}
+
+// every renderable token in a message body - payment blobs and ui buttons - as
+// one position-sorted, non-overlapping list, so richBody can splice in a single
+// pass regardless of which kinds are present.
+function bodyTokens(text) {
+	const toks = paymentTokens(text).map((tk) => ({ ...tk, type: "pay" }));
+	UI_CHIP_RE.lastIndex = 0;
+	let m;
+	let n = 0;
+	while (n < UI_CHIP_MAX && (m = UI_CHIP_RE.exec(text))) {
+		if (!Object.prototype.hasOwnProperty.call(UI_CHIPS, m[1])) continue; // unknown -> stays literal
+		toks.push({ start: m.index, end: m.index + m[0].length, type: "ui", name: m[1] });
+		n++;
+	}
+	toks.sort((a, b) => a.start - b.start || b.end - a.end);
+	const out = [];
+	let lastEnd = 0;
+	for (const tk of toks) {
+		if (tk.start < lastEnd) continue; // overlaps an earlier token
+		out.push(tk);
+		lastEnd = tk.end;
+	}
+	return out;
+}
+
+function uiChipHtml(tk) {
+	return (
+		`<button type="button" class="uiChip" data-ui-open="${escapeHtml(tk.name)}">` +
+		`<span class="payChipIcon" aria-hidden="true">&#9656;</span>` +
+		`<span class="payChipLabel">${escapeHtml(t(UI_CHIPS[tk.name].label))}</span>` +
+		`</button>`
+	);
+}
+
 function richBody(text) {
-	const toks = paymentTokens(text);
+	const toks = bodyTokens(text);
 	if (!toks.length) return linkify(escapeHtml(text));
 	let html = "";
 	let i = 0;
 	for (const tk of toks) {
 		if (tk.start > i) html += linkify(escapeHtml(text.slice(i, tk.start)));
-		html += payChipHtml(tk);
+		html += tk.type === "ui" ? uiChipHtml(tk) : payChipHtml(tk);
 		i = tk.end;
 	}
 	if (i < text.length) html += linkify(escapeHtml(text.slice(i)));
@@ -3413,6 +3478,14 @@ dmPill.addEventListener("click", openDmList);
 // link, url, more/less, image) so those keep their own behavior, and bail when
 // the user is selecting text rather than tapping.
 terminal.addEventListener("click", (e) => {
+	const uiBtn = e.target.closest("[data-ui-open]");
+	if (uiBtn) {
+		// stop here: the document-level handler that dismisses open menus would
+		// otherwise close the very menu a "{{map:menu}}" button just opened.
+		e.stopPropagation();
+		UI_CHIPS[uiBtn.dataset.uiOpen]?.run();
+		return;
+	}
 	const chip = e.target.closest(".payChip");
 	if (chip) {
 		copyPayChip(chip);

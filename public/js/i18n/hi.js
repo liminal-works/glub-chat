@@ -231,6 +231,16 @@ export default {
 		latency_secs: "{count}s",
 	},
 
+	uichip: {
+		map: "मैप खोलें",
+		map_live: "हीट मैप खोलें",
+		map_notes: "नोट्स मैप खोलें",
+		map_menu: "मैप विकल्प",
+		users: "यहाँ कौन है",
+		notes: "स्थान नोट्स",
+		settings: "सेटिंग्स",
+	},
+
 	payment: {
 		lightning: "lightning इनवॉइस",
 		lnurl: "lnurl",

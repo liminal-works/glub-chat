@@ -244,6 +244,17 @@ export default {
 
 	// payment chips: a detected lightning invoice / lnurl / cashu token renders as
 	// a tap-to-copy chip instead of a raw blob
+	// labels for the in-chat "{{map}}"-style buttons that open a client window
+	uichip: {
+		map: "open map",
+		map_live: "open heat map",
+		map_notes: "open notes map",
+		map_menu: "map options",
+		users: "who's here",
+		notes: "location notes",
+		settings: "settings",
+	},
+
 	payment: {
 		lightning: "lightning invoice",
 		lnurl: "lnurl",

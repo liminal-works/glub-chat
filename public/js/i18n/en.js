@@ -162,7 +162,7 @@ export default {
 	guild: {
 		title: "guilds",
 		subtitle_1: "a name and a password tune you to a private frequency.",
-		subtitle_2: "no accounts, no server, no registry - anyone with the same pair is in the same room.",
+		subtitle_2: "anyone with the same pair is in the same channel.",
 		name_ph: "guild name",
 		pass_ph: "password (optional)",
 		enter: "enter",

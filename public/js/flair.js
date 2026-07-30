@@ -201,13 +201,20 @@ const RAIN_TINTS = ["#cfe4f5", "#9fc0d8", "#eaf4ff", "#b9d3e6", "#8fb0c8", "#dce
 const DROP_MIN = 7;
 const DROP_MAX = 10;
 
+// The one value here that is deliberately NOT randomized. Everything else about a
+// drop varies per line, but wind does not: a screenful of rain messages each
+// slanting their own way reads as chaos, not weather, because a real downpour has a
+// single prevailing direction across the whole scene. So the drift is a constant and
+// only its magnitude wobbles slightly per drop - enough that the streaks aren't a
+// printed pattern, never enough to flip one against the rest.
+const RAIN_WIND_PX = 7; // horizontal drift over a full fall, same for every line
+
 export function rainDropMarkup() {
 	const count = DROP_MIN + ((Math.random() * (DROP_MAX - DROP_MIN + 1)) | 0);
-	// one wind direction for the whole line, so the shower slants together
-	const lean = rnd(-11, 11);
 	let html = "";
 	for (let i = 0; i < count; i++) {
-		const drift = lean * rnd(0.7, 1.3);
+		// same wind on every line and every drop, give or take a little (see RAIN_WIND_PX)
+		const drift = RAIN_WIND_PX * rnd(0.85, 1.15);
 		// the streak is tilted to match the direction it's actually travelling -
 		// a vertical dash drifting sideways reads as sliding, not falling
 		const tilt = Math.max(-17, Math.min(17, drift * 1.6));

@@ -494,6 +494,39 @@ textarea {
 	}
 }
 
+/* rain's &g is the only wildcard that flows DOWN, matching the flair's motion: a
+   vertical gradient scrolled along the y axis (hence the flipped background-size),
+   so the text looks like water running over it. Overrides animation-name, so the
+   reduced-motion block disables this selector by name too. */
+.flair-rain .fmtRainbow {
+	background-image: repeating-linear-gradient(
+		180deg,
+		#7f9bb5 0%,
+		#b9d3e6 10%,
+		#eaf4ff 20%,
+		#cfe4f5 30%,
+		#9fc0d8 40%,
+		#7f9bb5 48%
+	);
+	background-size: 100% 200%;
+	animation: fmtRainText var(--rain-text-dur, 3.2s) linear var(--rain-text-delay, 0s) infinite;
+	text-decoration-color: #cfe4f5;
+}
+
+@keyframes fmtRainText {
+	0% {
+		background-position: 0 0;
+		filter: brightness(0.95);
+	}
+	50% {
+		filter: brightness(1.16);
+	}
+	100% {
+		background-position: 0 200%;
+		filter: brightness(0.95);
+	}
+}
+
 .flair-stars .fmtRainbow {
 	background-image: repeating-linear-gradient(
 		90deg,
@@ -944,6 +977,121 @@ textarea {
 	}
 }
 
+/* rain: the first flair that moves DOWNWARD. An overcast wash sits behind a wet
+   gleam along the bottom edge, and individual drops fall through the row on their
+   own timings. Each drop is also its own ripple: at the end of its fall it flattens
+   and spreads from its foot, so every splash belongs to a real drop instead of
+   being a decorative ring on the edge. Rare squalls come from the ticker in app.js. */
+.flair-rain::before {
+	inset: 0;
+	background: linear-gradient(180deg, rgba(120, 160, 195, 0.2), rgba(90, 130, 165, 0.07) 60%, transparent);
+	animation: flairRainHaze var(--rain-haze-dur, 7s) ease-in-out var(--rain-haze-delay, 0s) infinite;
+}
+
+/* the wet ground: a thin bright smear along the bottom that breathes, so impacts
+   land on something rather than in mid-air */
+.flair-rain::after {
+	left: 0;
+	right: 0;
+	bottom: 0;
+	height: 2px;
+	background: linear-gradient(90deg, transparent, rgba(207, 228, 245, 0.45) 25%, rgba(234, 244, 255, 0.6) 50%, rgba(207, 228, 245, 0.4) 75%, transparent);
+	animation: flairRainGleam var(--rain-gleam-dur, 4s) ease-in-out var(--rain-gleam-delay, 0s) infinite;
+}
+
+/* `container-type: size` turns the layer into a query container, so a drop can fall
+   `100cqh` - the row's own height - and land on the bottom edge whether the message
+   is one line or wrapped to four. (Safe here: the stylesheet already requires
+   color-mix(), which shipped later than container query units.) */
+.flair-rain > .flairFx {
+	inset: 0;
+	opacity: 1;
+	container-type: size;
+}
+
+.flair-rain .drop {
+	position: absolute;
+	top: 0;
+	left: var(--d-x, 40%);
+	width: 1.5px;
+	height: var(--d-len, 7px);
+	border-radius: 1px;
+	background: linear-gradient(180deg, transparent, var(--d-tint, #cfe4f5));
+	opacity: 0;
+	/* the splash spreads from the drop's foot, not its middle */
+	transform-origin: 50% 100%;
+	animation:
+		rainFall var(--d-fall, 1s) linear var(--d-delay, 0s) infinite,
+		rainSplash var(--d-fall, 1s) linear var(--d-delay, 0s) infinite;
+}
+
+@keyframes rainFall {
+	0% {
+		translate: 0 -10px;
+		opacity: 0;
+	}
+	8% {
+		opacity: var(--d-op, 0.8);
+	}
+	82% {
+		translate: var(--d-lean, 2px) calc(100cqh - 2px);
+		opacity: var(--d-op, 0.8);
+	}
+	90% {
+		opacity: calc(var(--d-op, 0.8) * 0.55);
+	}
+	100% {
+		translate: var(--d-lean, 2px) calc(100cqh - 2px);
+		opacity: 0;
+	}
+}
+
+/* in phase with the fall: untouched all the way down, then flattened out along the
+   ground the instant it lands */
+@keyframes rainSplash {
+	0%,
+	82% {
+		transform: scale(1, 1);
+	}
+	87% {
+		transform: scale(var(--d-splash, 3), 0.2);
+	}
+	100% {
+		transform: scale(calc(var(--d-splash, 3) * 1.6), 0.1);
+	}
+}
+
+@keyframes flairRainHaze {
+	0%,
+	100% {
+		opacity: calc(var(--rain-haze-peak, 0.8) * 0.6);
+	}
+	50% {
+		opacity: var(--rain-haze-peak, 0.8);
+	}
+}
+
+@keyframes flairRainGleam {
+	0%,
+	100% {
+		opacity: 0.3;
+	}
+	50% {
+		opacity: 0.75;
+	}
+}
+
+/* the squall sheet: injected, swept across, removed (see rainGust in app.js) */
+.flair-rain > .flairFx .gust {
+	position: absolute;
+	top: -20%;
+	bottom: -20%;
+	width: 45%;
+	background: linear-gradient(90deg, transparent, rgba(198, 222, 240, 0.22) 45%, rgba(224, 238, 250, 0.3) 60%, transparent);
+	rotate: var(--g-tilt, 12deg);
+	opacity: 0;
+}
+
 /* the shooting star: a one-shot streak fired by a shared ticker (see app.js) at
    random intervals, from a random spot, so it stays a blink-and-you-miss-it event
    rather than a loop. Parked invisible; the ticker drives it with a short
@@ -1019,9 +1167,14 @@ textarea {
 	   otherwise the storm flicker / ember huff would keep running for
 	   reduced-motion readers. */
 	.flair-lightning .fmtRainbow,
-	.flair-fire .fmtRainbow {
+	.flair-fire .fmtRainbow,
+	.flair-rain .fmtRainbow {
 		animation: none;
 		filter: brightness(1);
+	}
+	/* rain's ambient layers are opacity-animated, so parking them needs a value */
+	.flair-rain::after {
+		opacity: 0.4;
 	}
 	.flair-stars::before,
 	.flair-stars::after {

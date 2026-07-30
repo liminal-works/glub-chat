@@ -16,7 +16,7 @@
 // whitelist here is load-bearing: unknown names resolve to "" rather than being
 // interpolated into markup.
 
-export const FLAIRS = ["fire", "lightning", "stars"];
+export const FLAIRS = ["fire", "lightning", "stars", "rain"];
 
 const KNOWN = new Set(FLAIRS);
 
@@ -46,10 +46,10 @@ const pick = (arr) => arr[(Math.random() * arr.length) | 0];
 
 // flairs that want an extra one-shot layer in the markup, fired by a shared ticker
 // (see app.js): the stars flair's shooting star, the lightning flair's strike.
-// (fire uses it as a persistent SECOND particle field rather than a one-shot -
-// two independent box-shadow fields is what lets some embers die early while
-// others ride all the way up, without one composited layer per spark.)
-const FX_FLAIRS = new Set(["stars", "lightning", "fire"]);
+// (fire and rain instead use it as a persistent container of individual particles:
+// one element per spark/drop is the only way each gets its own spawn time and path,
+// which a box-shadow field - one element, one animation - cannot give.)
+const FX_FLAIRS = new Set(["stars", "lightning", "fire", "rain"]);
 
 export function flairHasFx(raw) {
 	return FX_FLAIRS.has(flairName(raw));
@@ -59,7 +59,10 @@ export function flairHasFx(raw) {
 // (stars/lightning fill it at fire time); fire pre-populates it with its embers,
 // emitted from messageHtml so they survive every in-place rerender.
 export function flairFxInner(raw) {
-	return flairName(raw) === "fire" ? fireEmberMarkup() : "";
+	const n = flairName(raw);
+	if (n === "fire") return fireEmberMarkup();
+	if (n === "rain") return rainDropMarkup();
+	return "";
 }
 
 // cool white-blues, so a field reads as starlight rather than confetti
@@ -179,6 +182,52 @@ export function fireEmberMarkup() {
 	return html;
 }
 
+// --- rain ----------------------------------------------------------------------
+// Rain is the first flair whose motion goes DOWN, and the detail that sells it is
+// the impact: rather than decorating the bottom edge with unrelated rings, each
+// drop IS its own ripple - at the end of its fall it flattens and spreads into a
+// wide, thin ellipse (transform-origin at its foot), so every splash is
+// perfectly correlated with a real drop and costs no extra element.
+//
+// Two animations per drop compose into the transform, as with embers, but here they
+// share one period so the fall and the splash stay in phase:
+//   `translate` - the fall (linear, plus this line's wind lean) + opacity
+//   `transform` - the splash (a scale that flattens the drop on landing)
+const RAIN_TINTS = ["#cfe4f5", "#9fc0d8", "#eaf4ff", "#b9d3e6", "#8fb0c8", "#dceaf6"];
+const DROP_MIN = 7;
+const DROP_MAX = 10;
+
+export function rainDropMarkup() {
+	const count = DROP_MIN + ((Math.random() * (DROP_MAX - DROP_MIN + 1)) | 0);
+	// one wind direction for the whole line, so the shower slants together
+	const lean = rnd(-9, 9);
+	let html = "";
+	for (let i = 0; i < count; i++) {
+		const style = [
+			`--d-x:${Math.round(rnd(2, 96))}%`,
+			`--d-len:${rnd(4, 9).toFixed(1)}px`,
+			`--d-tint:${pick(RAIN_TINTS)}`,
+			`--d-op:${rnd(0.42, 0.92).toFixed(2)}`,
+			`--d-lean:${(lean * rnd(0.7, 1.3)).toFixed(1)}px`,
+			`--d-splash:${rnd(2.2, 4.6).toFixed(1)}`,
+			// rain is fast, so periods are short and turnover is high; the random
+			// negative delay is what scatters the spawn moments into a real shower
+			// instead of a marching row.
+			`--d-fall:${rnd(0.62, 1.45).toFixed(2)}s`,
+			`--d-delay:-${rnd(0, 1.6).toFixed(2)}s`,
+		].join(";");
+		html += `<span class="drop" style="${style}"></span>`;
+	}
+	return html;
+}
+
+// a squall: one translucent slanted sheet driven across the row. Appended for the
+// ~600ms it lasts and removed again, so it never disturbs the drops it passes.
+export function rainGustMarkup() {
+	const tilt = rnd(8, 16) * (Math.random() < 0.5 ? -1 : 1);
+	return `<span class="gust" style="--g-tilt:${tilt.toFixed(1)}deg"></span>`;
+}
+
 // the CSS custom properties a flaired line wants, as { "--name": value }. Unknown
 // or var-less flairs get {} - the stylesheet carries fallbacks for every var, so a
 // line (or a /flair preview chip) with no vars set still renders correctly.
@@ -218,6 +267,19 @@ export function flairVars(raw) {
 			"--lit-flash-x": `${Math.round(rnd(12, 88))}%`, // where the glow is centred
 			"--lit-text-dur": `${rnd(5.5, 9.5).toFixed(2)}s`, // the &g wildcard's flicker
 			"--lit-text-delay": `-${rnd(0, 8).toFixed(2)}s`,
+		};
+	}
+	// rain's drops carry their own timing (see rainDropMarkup); these are the row's
+	// ambient layers - the overcast wash and the wet gleam along the bottom edge.
+	if (n === "rain") {
+		return {
+			"--rain-haze-dur": `${rnd(5, 9.5).toFixed(2)}s`,
+			"--rain-haze-delay": `-${rnd(0, 8).toFixed(2)}s`,
+			"--rain-haze-peak": rnd(0.55, 0.9).toFixed(2),
+			"--rain-gleam-dur": `${rnd(2.8, 5.5).toFixed(2)}s`,
+			"--rain-gleam-delay": `-${rnd(0, 5).toFixed(2)}s`,
+			"--rain-text-dur": `${rnd(2.4, 4.6).toFixed(2)}s`,
+			"--rain-text-delay": `-${rnd(0, 4).toFixed(2)}s`,
 		};
 	}
 	if (n !== "stars") return {};

@@ -25,7 +25,7 @@ import { isProfane } from "./censor.js";
 import { fetchConditions, wmoDescribe, geocodePlace, parseLatLon } from "./weather.js";
 import { THEMES, themeNames, activeTheme, applyTheme, persistTheme, initTheme, hexToRgb } from "./themes.js";
 import { stripFormat, hasFormat, renderFormat } from "./format.js";
-import { FLAIRS, flairName, flairClass, flairVars, flairHasFx, flairFxInner, lightningStrikeMarkup } from "./flair.js";
+import { FLAIRS, flairName, flairClass, flairVars, flairHasFx, flairFxInner, lightningStrikeMarkup, rainGustMarkup } from "./flair.js";
 
 // re-apply the persisted theme before anything renders (module scripts run
 // before first paint, so a saved theme doesn't flash bitchat green first).
@@ -4479,6 +4479,30 @@ function lightningStrike(el) {
 	}; // leave nothing behind between strikes
 }
 
+// a squall sweeping the row. Unlike the lightning strike this must NOT clobber the
+// fx layer's contents - rain's drops live there permanently - so the sheet is
+// appended, driven, and removed on its own.
+function rainGust(el) {
+	if (typeof el.animate !== "function") return;
+	const row = el.parentElement;
+	if (!row) return;
+	const w = Math.max(120, row.clientWidth);
+	el.insertAdjacentHTML("beforeend", rainGustMarkup());
+	const sheet = el.lastElementChild;
+	const from = Math.random() < 0.5 ? -1 : 1; // enters from either side
+	const anim = sheet.animate(
+		[
+			{ transform: `translate3d(${(-from * w * 0.7).toFixed(0)}px, 0, 0)`, opacity: 0 },
+			{ opacity: 0.9, offset: 0.25 },
+			{ opacity: 0.75, offset: 0.7 },
+			{ transform: `translate3d(${(from * w * 0.9).toFixed(0)}px, 0, 0)`, opacity: 0 },
+		],
+		{ duration: 520 + Math.random() * 320, easing: "cubic-bezier(.3,.5,.4,1)" },
+	);
+	anim.onfinish = () => sheet.remove();
+	anim.oncancel = () => sheet.remove();
+}
+
 // pick a random fx layer for `selector`, preferring rows the reader can actually
 // see so an effect is never "spent" on something scrolled out of view.
 function pickFxTarget(selector) {
@@ -4497,6 +4521,7 @@ function pickFxTarget(selector) {
 // one timer drives every flair's rare one-shot effect. Each rolls independently, so
 // rates stay per-effect, and the tick costs nothing when no flaired line is up.
 const STRIKE_CHANCE = 0.075; // per tick -> roughly one bolt every ~20s on screen
+const GUST_CHANCE = 0.11; // squalls are weather, not events - a little more frequent
 setInterval(() => {
 	if (document.hidden) return;
 	if (window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
@@ -4507,6 +4532,10 @@ setInterval(() => {
 	if (Math.random() < STRIKE_CHANCE) {
 		const el = pickFxTarget(".flair-lightning > .flairFx");
 		if (el) lightningStrike(el);
+	}
+	if (Math.random() < GUST_CHANCE) {
+		const el = pickFxTarget(".flair-rain > .flairFx");
+		if (el) rainGust(el);
 	}
 }, SHOOT_TICK_MS);
 

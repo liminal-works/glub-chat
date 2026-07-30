@@ -55,6 +55,13 @@ export function flairHasFx(raw) {
 	return FX_FLAIRS.has(flairName(raw));
 }
 
+// what a flair's fx layer starts life containing. Empty for the one-shot effects
+// (stars/lightning fill it at fire time); fire pre-populates it with its embers,
+// emitted from messageHtml so they survive every in-place rerender.
+export function flairFxInner(raw) {
+	return flairName(raw) === "fire" ? fireEmberMarkup() : "";
+}
+
 // cool white-blues, so a field reads as starlight rather than confetti
 const STAR_TINTS = ["#ffffff", "#ffffff", "#cfe6ff", "#a8ccff", "#dbe9ff", "#bcd8ff", "#e9f2ff"];
 
@@ -118,18 +125,58 @@ export function lightningStrikeMarkup(w, h) {
 const EMBER_TINTS = ["#ffb057", "#ff7a18", "#ffd08a", "#ff9d3d", "#ffc46b", "#ff6a00"];
 const ASH_TINTS = ["#8a7f77", "#6d635c", "#b9a89a", "#c9762f", "#7d726a", "#ffa14d"];
 
-// a rising particle's path, as four drift offsets the keyframes interpolate
-// through. Signs alternate so the spark corkscrews as it climbs instead of
-// travelling in a straight line, and a constant lean is added so the whole field
-// drifts with the "wind" of the updraft.
+// a drifting particle's lateral path, as offsets the keyframes ease through. Signs
+// alternate around a constant `lean` (the line's prevailing draft) so the particle
+// serpentines rather than travelling straight. Amplitudes are deliberately gentle:
+// big alternating offsets read as a jolt at every waypoint, not a float.
 function wobble(prefix, amp, lean) {
 	const d = Math.random() < 0.5 ? -1 : 1;
 	return {
-		[`${prefix}1`]: `${(d * amp * 0.45 + lean * 0.25).toFixed(1)}px`,
-		[`${prefix}2`]: `${(-d * amp * 0.75 + lean * 0.5).toFixed(1)}px`,
-		[`${prefix}3`]: `${(d * amp + lean * 0.75).toFixed(1)}px`,
-		[`${prefix}4`]: `${(-d * amp * 0.6 + lean).toFixed(1)}px`,
+		[`${prefix}1`]: `${(d * amp * 0.4 + lean * 0.3).toFixed(1)}px`,
+		[`${prefix}2`]: `${(-d * amp * 0.5 + lean * 0.65).toFixed(1)}px`,
+		[`${prefix}3`]: `${(d * amp * 0.35 + lean).toFixed(1)}px`,
 	};
+}
+
+// --- individual embers ----------------------------------------------------------
+// The bright embers can't be a box-shadow field: one element means ONE animation,
+// so every clone is locked to the same spawn moment and the same path - the tell
+// that made the old shower look like a marching row. Each ember is its own span
+// instead, and gets TWO animations that compose into the final transform:
+//
+//   `translate` (rise + lifetime) - linear, so vertical speed stays steady
+//   `transform` (sway)            - ease-in-out + alternate, a smooth oscillation
+//
+// Because the two run at unrelated periods, the combined path is a non-repeating
+// serpentine with no corners in it, and because every ember has its own period and
+// a random negative delay, they drift in and out of phase forever: sometimes a
+// cluster, sometimes a lull with nothing rising at all. The `emberShort` variant
+// dies partway up, so a given spark may or may not make it.
+const EMBER_MIN = 5;
+const EMBER_MAX = 7;
+
+export function fireEmberMarkup() {
+	const count = EMBER_MIN + ((Math.random() * (EMBER_MAX - EMBER_MIN + 1)) | 0);
+	let html = "";
+	for (let i = 0; i < count; i++) {
+		const short = Math.random() < 0.4; // ~2 in 5 burn out before the top
+		const size = Math.random() < 0.25 ? 3 : 2;
+		const style = [
+			`--e-x:${Math.round(rnd(4, 92))}%`,
+			`--e-size:${size}px`,
+			`--e-tint:${pick(EMBER_TINTS)}`,
+			`--e-peak:${rnd(0.62, 1).toFixed(2)}`,
+			`--e-lift:${rnd(1.5, 2.6).toFixed(2)}em`,
+			`--e-amp:${rnd(3, 11).toFixed(1)}px`,
+			// unrelated periods for rise vs sway, each phase-shifted on its own
+			`--e-rise:${rnd(2.8, 6.4).toFixed(2)}s`,
+			`--e-rise-delay:-${rnd(0, 7).toFixed(2)}s`,
+			`--e-sway:${rnd(1.3, 2.9).toFixed(2)}s`,
+			`--e-sway-delay:-${rnd(0, 3).toFixed(2)}s`,
+		].join(";");
+		html += `<span class="ember${short ? " emberShort" : ""}" style="${style}"></span>`;
+	}
+	return html;
 }
 
 // the CSS custom properties a flaired line wants, as { "--name": value }. Unknown
@@ -141,25 +188,20 @@ export function flairVars(raw) {
 	// spacing, colour and corkscrew all differ per line, so a screenful of fire
 	// lines breathes out of step instead of pulsing as one.
 	if (n === "fire") {
-		const lean = rnd(-7, 11); // this line's prevailing draft
+		const lean = rnd(-6, 9); // this line's prevailing draft
 		return {
 			"--fire-glow-dur": `${rnd(2.6, 5.2).toFixed(2)}s`,
 			"--fire-glow-delay": `-${rnd(0, 5).toFixed(2)}s`,
 			"--fire-glow-peak": rnd(0.82, 1).toFixed(2),
 			"--fire-glow-low": rnd(0.34, 0.55).toFixed(2),
-			// field A: the bright embers straight off the fire, rising fast
-			"--em-a-field": particleField(6, 52, 4, EMBER_TINTS),
-			"--em-a-left": `${Math.round(rnd(2, 24))}px`,
-			"--em-a-dur": `${rnd(2.4, 4.2).toFixed(2)}s`,
-			"--em-a-delay": `-${rnd(0, 4).toFixed(2)}s`,
-			...wobble("--em-a-x", rnd(5, 13), lean),
-			// field B: lighter ash + spent sparks - slower, wider wobble, and its
-			// keyframes snuff it out partway up (see flairAshRise)
-			"--em-b-field": particleField(5, 68, 5, ASH_TINTS),
-			"--em-b-left": `${Math.round(rnd(8, 40))}px`,
-			"--em-b-dur": `${rnd(3.6, 6.4).toFixed(2)}s`,
-			"--em-b-delay": `-${rnd(0, 6).toFixed(2)}s`,
-			...wobble("--em-b-x", rnd(9, 20), lean * 1.3),
+			// the bright embers are individual spans (see fireEmberMarkup); this field
+			// is only the dim ash haze behind them, where uniform timing doesn't read
+			// - it's slow, faint, and snuffs out partway up (see flairAshRise).
+			"--ash-field": particleField(5, 68, 5, ASH_TINTS),
+			"--ash-left": `${Math.round(rnd(8, 40))}px`,
+			"--ash-dur": `${rnd(4.2, 7.5).toFixed(2)}s`,
+			"--ash-delay": `-${rnd(0, 7).toFixed(2)}s`,
+			...wobble("--ash-x", rnd(6, 13), lean),
 			"--fire-text-dur": `${rnd(3.4, 6.2).toFixed(2)}s`,
 			"--fire-text-delay": `-${rnd(0, 5).toFixed(2)}s`,
 		};

@@ -578,35 +578,102 @@ textarea {
 	animation: flairFireGlow var(--fire-glow-dur, 3.4s) ease-in-out var(--fire-glow-delay, 0s) infinite;
 }
 
+/* the ash haze: still a box-shadow field, because for dim slow specks behind the
+   embers a shared cadence doesn't read. Its sway eases per waypoint so it drifts
+   rather than jolting, and it snuffs out partway up. */
 .flair-fire::after {
-	left: var(--em-a-left, 4px);
-	top: 100%;
-	width: 2px;
-	height: 2px;
-	border-radius: 50%;
-	background: #ffb057;
-	box-shadow: var(
-		--em-a-field,
-		18px 0 #ff7a18,
-		47px 0 #ffd08a,
-		83px 0 #ff9d3d,
-		126px 0 #ff7a18,
-		170px 0 #ffc46b,
-		219px 0 #ff8c2b
-	);
-	animation: flairEmbers var(--em-a-dur, 3.2s) linear var(--em-a-delay, 0s) infinite;
-}
-
-/* the ash field: same trick, its own everything */
-.flair-fire > .flairFx {
-	left: var(--em-b-left, 20px);
+	left: var(--ash-left, 20px);
 	top: 100%;
 	width: 2px;
 	height: 2px;
 	border-radius: 50%;
 	background: #8a7f77;
-	box-shadow: var(--em-b-field, 40px 0 #6d635c, 96px 0 #b9a89a, 158px 0 #c9762f, 226px 0 #7d726a);
-	animation: flairAshRise var(--em-b-dur, 5s) linear var(--em-b-delay, 0s) infinite;
+	box-shadow: var(--ash-field, 40px 0 #6d635c, 96px 0 #b9a89a, 158px 0 #c9762f, 226px 0 #7d726a);
+	animation: flairAshRise var(--ash-dur, 5.5s) linear var(--ash-delay, 0s) infinite;
+}
+
+/* the ember layer is just a container; every spark inside it is its own element */
+.flair-fire > .flairFx {
+	inset: 0;
+	opacity: 1;
+}
+
+/* One ember. Two animations compose into its transform: `translate` carries the
+   rise (linear - steady climb) and `transform` carries the sway (ease-in-out +
+   alternate - a smooth oscillation with no corners). Their periods are unrelated
+   and independently phase-shifted, so the path never repeats and the field never
+   marches in step. */
+.flair-fire .ember {
+	position: absolute;
+	bottom: -2px;
+	left: var(--e-x, 20%);
+	width: var(--e-size, 2px);
+	height: var(--e-size, 2px);
+	border-radius: 50%;
+	background: var(--e-tint, #ffb057);
+	opacity: 0;
+	animation:
+		emberRise var(--e-rise, 4s) linear var(--e-rise-delay, 0s) infinite,
+		emberSway var(--e-sway, 2s) ease-in-out var(--e-sway-delay, 0s) infinite alternate;
+}
+
+/* the long invisible tail is deliberate: with every ember on its own period, those
+   dead stretches drift past each other so the shower clusters and lulls instead of
+   streaming evenly. */
+@keyframes emberRise {
+	0% {
+		translate: 0 0;
+		opacity: 0;
+	}
+	6% {
+		opacity: var(--e-peak, 0.95);
+	}
+	48% {
+		opacity: calc(var(--e-peak, 0.95) * 0.5);
+	}
+	66% {
+		translate: 0 calc(var(--e-lift, 2.2em) * -1);
+		opacity: 0;
+	}
+	100% {
+		translate: 0 calc(var(--e-lift, 2.2em) * -1);
+		opacity: 0;
+	}
+}
+
+/* embers that burn out low: same rise, snuffed much earlier */
+.flair-fire .ember.emberShort {
+	animation-name: emberRiseShort, emberSway;
+}
+
+@keyframes emberRiseShort {
+	0% {
+		translate: 0 0;
+		opacity: 0;
+	}
+	8% {
+		opacity: calc(var(--e-peak, 0.95) * 0.85);
+	}
+	30% {
+		opacity: calc(var(--e-peak, 0.95) * 0.35);
+	}
+	40% {
+		translate: 0 calc(var(--e-lift, 2.2em) * -0.5);
+		opacity: 0;
+	}
+	100% {
+		translate: 0 calc(var(--e-lift, 2.2em) * -0.5);
+		opacity: 0;
+	}
+}
+
+@keyframes emberSway {
+	from {
+		transform: translate3d(calc(var(--e-amp, 6px) * -1), 0, 0);
+	}
+	to {
+		transform: translate3d(var(--e-amp, 6px), 0, 0);
+	}
 }
 
 /* fast catch, slow settle, twice per cycle at uneven depths - a fire breathing */
@@ -634,58 +701,35 @@ textarea {
 	}
 }
 
-/* embers: catch bright, corkscrew up through four drift offsets, thin out near the
-   top. They rise the full height of the row and fade before the clip edge, so they
-   read as dissipating into the dark rather than being cut off. */
-@keyframes flairEmbers {
-	0% {
-		transform: translate3d(0, 0, 0);
-		opacity: 0;
-	}
-	14% {
-		opacity: 0.95;
-	}
-	32% {
-		transform: translate3d(var(--em-a-x1, 3px), -0.55em, 0);
-	}
-	54% {
-		transform: translate3d(var(--em-a-x2, -5px), -1.1em, 0);
-		opacity: 0.8;
-	}
-	76% {
-		transform: translate3d(var(--em-a-x3, 7px), -1.65em, 0);
-		opacity: 0.45;
-	}
-	100% {
-		transform: translate3d(var(--em-a-x4, -4px), -2.25em, 0);
-		opacity: 0;
-	}
-}
-
-/* ash: dimmer, wider wobble, and gone by ~70% - the "sometimes it doesn't make it
-   all the way up" half of the shower. */
+/* ash: dim, slow, gone by ~70%. Each waypoint eases in and out of the next, so the
+   drift is a soft serpentine instead of the hard corner a linear interpolation
+   would put at every offset. */
 @keyframes flairAshRise {
 	0% {
 		transform: translate3d(0, 0, 0);
 		opacity: 0;
+		animation-timing-function: ease-in-out;
 	}
-	18% {
-		opacity: 0.6;
+	20% {
+		opacity: 0.42;
+		animation-timing-function: ease-in-out;
 	}
-	38% {
-		transform: translate3d(var(--em-b-x1, -6px), -0.5em, 0);
-		opacity: 0.5;
+	42% {
+		transform: translate3d(var(--ash-x1, -4px), -0.5em, 0);
+		opacity: 0.32;
+		animation-timing-function: ease-in-out;
 	}
-	56% {
-		transform: translate3d(var(--em-b-x2, 9px), -0.95em, 0);
-		opacity: 0.28;
+	60% {
+		transform: translate3d(var(--ash-x2, 6px), -0.95em, 0);
+		opacity: 0.18;
+		animation-timing-function: ease-in-out;
 	}
-	70% {
-		transform: translate3d(var(--em-b-x3, -11px), -1.3em, 0);
+	74% {
+		transform: translate3d(var(--ash-x3, -3px), -1.3em, 0);
 		opacity: 0;
 	}
 	100% {
-		transform: translate3d(var(--em-b-x4, 7px), -1.7em, 0);
+		transform: translate3d(var(--ash-x3, -3px), -1.45em, 0);
 		opacity: 0;
 	}
 }

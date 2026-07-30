@@ -25,7 +25,7 @@ import { isProfane } from "./censor.js";
 import { fetchConditions, wmoDescribe, geocodePlace, parseLatLon } from "./weather.js";
 import { THEMES, themeNames, activeTheme, applyTheme, persistTheme, initTheme, hexToRgb } from "./themes.js";
 import { stripFormat, hasFormat, renderFormat } from "./format.js";
-import { FLAIRS, flairName, flairClass, flairVars, flairHasFx, lightningStrikeMarkup } from "./flair.js";
+import { FLAIRS, flairName, flairClass, flairVars, flairHasFx, flairFxInner, lightningStrikeMarkup } from "./flair.js";
 
 // re-apply the persisted theme before anything renders (module scripts run
 // before first paint, so a saved theme doesn't flash bitchat green first).
@@ -1086,7 +1086,7 @@ function messageHtml(entry) {
 	// flairs with a one-shot layer (stars' shooting star) carry an empty absolutely-
 	// positioned span the ticker animates. Emitted here rather than in renderEntryDom
 	// so it survives every in-place rerender (translation, ack, avatar, expand).
-	const fx = !entry.system && flairHasFx(entry.flair) ? `<span class="flairFx" aria-hidden="true"></span>` : "";
+	const fx = !entry.system && flairHasFx(entry.flair) ? `<span class="flairFx" aria-hidden="true">${flairFxInner(entry.flair)}</span>` : "";
 	return (focusedGeo ? "" : entry.geoPrefix || "") + body + fx;
 }
 

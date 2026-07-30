@@ -6116,6 +6116,10 @@ function mentionProvider(value, caret) {
 // so this provider carries its own onPick instead of the default text-insert.
 function channelProvider(value, caret) {
 	if (focusedGeo) return null; // only in global mode
+	// a guild composer is a message box, not a picker: focusedGeo is null in a guild
+	// too, so without this the channel list would offer to send you somewhere else
+	// from inside a closed room.
+	if (focusedGuild) return null;
 	const text = value.trimStart();
 	if (text.startsWith("/")) return null; // commands win
 	const query = text.trim().replace(/^#/, "").toLowerCase();

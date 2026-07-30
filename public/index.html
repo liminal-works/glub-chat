@@ -57,8 +57,10 @@
 					</form>
 					<!-- the two things that belong to YOU rather than to a channel, docked
 					     under the card you reach by tapping your name in the topbar -->
-					<button id="nameGateGuilds" class="nameGateLink nameGateLinkLeft" type="button" data-i18n="name_gate.guilds">[ guilds ]</button>
-					<button id="nameGateSettings" class="nameGateLink" type="button" data-i18n="name_gate.settings">[ settings ]</button>
+					<div class="nameGateLinks">
+						<button id="nameGateSettings" class="nameGateLink" type="button" data-i18n="name_gate.settings">[ settings ]</button>
+						<button id="nameGateGuilds" class="nameGateLink" type="button" data-i18n="name_gate.guilds">[ guilds ]</button>
+					</div>
 				</div>
 			</div>
 
@@ -220,7 +222,9 @@
 						without a password anyone who guesses the name can read this guild.
 					</div>
 					<div id="guildList" class="guildList"></div>
-					<button id="guildClose" class="nameGateLink" type="button" data-i18n="guild.close">[ close ]</button>
+					<div class="nameGateLinks">
+						<button id="guildClose" class="nameGateLink" type="button" data-i18n="guild.close">[ close ]</button>
+					</div>
 				</div>
 			</div>
 

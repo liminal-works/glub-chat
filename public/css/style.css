@@ -3248,10 +3248,19 @@ textarea {
    discoverable way into settings than the topbar "relays" readout. The name gate
    carries two of them: guilds on the left, settings on the right. Both are yours
    rather than a channel's, which is why they live here and not in the user list. */
-.nameGateLink {
+/* the stack of links that hangs off the gate card's bottom-right corner. It's the
+   container that's positioned, not the links, so adding a second one just extends
+   the column downward instead of needing an offset that tracks the first's height. */
+.nameGateLinks {
 	position: absolute;
 	top: 100%; /* just below the card's bottom edge */
 	right: 0; /* flush with the card's right edge */
+	display: flex;
+	flex-direction: column;
+	align-items: flex-end;
+}
+
+.nameGateLink {
 	border: 0;
 	background: transparent;
 	color: var(--accent); /* same green as the "enter a name" title */
@@ -3268,11 +3277,6 @@ textarea {
 .nameGateLink:hover {
 	opacity: 1;
 	text-shadow: var(--glow);
-}
-
-.nameGateLinkLeft {
-	right: auto;
-	left: 0;
 }
 
 /* boot-sequence lines: the few dim lines the client prints while waking up.

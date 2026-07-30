@@ -24,10 +24,23 @@
 // cheaper than attacking the ciphertext. Deriving both from the same PBKDF2 pass
 // keeps the cost of a guess identical either way.
 //
-// Events use kind 20002: ephemeral (like chat), ignored by the main subscription,
-// and never requested by native clients. Everything except the frequency tag is
-// encrypted - including the sender's display name - so an observer sees only that
-// an opaque blob landed on some frequency.
+// Events use kind 2002, in nostr's REGULAR range (1000-9999), which is the range
+// relays are expected to store and replay. That's the whole point: a guild is a
+// room you come back to, so "i'll be on at 7" has to still be there at 6. The
+// ephemeral range (20000+) that public geohash chat uses is explicitly the range
+// relays may forward and forget, which would make a guild a place you can only
+// ever be present in.
+//
+// 2002 is a deliberately quiet corner: away from NIP-29's relay-based groups
+// (9000-9021), the DVM bands (5000-7999), and gift wraps (1059), none of which we
+// want a relay applying special handling to on our behalf. A collision with some
+// future kind would be harmless anyway - the subscription filters on our 32-hex
+// frequency tag, every event is signature-checked, and anything that doesn't
+// decrypt under our key is dropped.
+//
+// Everything except the frequency tag is encrypted - including the sender's
+// display name - so an observer sees only that an opaque blob landed on some
+// frequency.
 //
 // KNOWN, DELIBERATE LIMITS (see the UI copy, which says so plainly):
 //   * messages are signed with your real key, so an observer can see WHICH pubkeys
@@ -37,7 +50,11 @@
 //   * a low-entropy password can be attacked offline forever against any captured
 //     ciphertext. PBKDF2 raises the cost per guess; it cannot make it go away.
 //   * no forward secrecy: someone who learns the password can read past traffic they
-//     captured earlier.
+//     captured earlier. Storing history sharpens this: the ciphertext an attacker
+//     would have had to be listening to capture is now sitting on public relays,
+//     waiting. Persistence and deniability are genuinely opposed here, and this
+//     picks persistence - which is the right call for a room you return to, and the
+//     wrong one for anything you'd rather leave no trace of.
 //   * uploaded media (images, voice notes) is hosted UNENCRYPTED by the api, exactly
 //     as it is for public channels. What the seal protects is the link, not the
 //     bytes: only members learn the url, but anyone who obtains it - or who runs the
@@ -49,12 +66,12 @@ import { finalizeEvent, verifyEvent } from "https://esm.sh/nostr-tools@2";
 import { sha256 } from "https://esm.sh/@noble/hashes@2.0.1/sha2";
 import { xchacha20poly1305 } from "https://esm.sh/@noble/ciphers@2.1.1/chacha";
 
-export const GUILD_KIND = 20002;
+export const GUILD_KIND = 2002;
 
 const PBKDF2_ITER = 300_000; // ~a quarter second on a phone; paid once per join
 const NONCE_BYTES = 24; // xchacha
 const MAX_NAME_LEN = 40;
-const SUB_LIMIT = 200;
+const SUB_LIMIT = 200; // messages of backlog replayed on tuning in
 const MAX_BACKOFF_MS = 30_000;
 const RELAY_COUNT = 8; // a guild is not geographic, so this is just breadth
 

@@ -3259,10 +3259,17 @@ textarea {
 	right: 0; /* flush with the card's right edge */
 	display: flex;
 	align-items: center;
+	/* four links can outrun a narrow card, and a flex item is allowed to shrink
+	   below its content - which broke each "[ label ]" across three lines. nowrap
+	   keeps a label whole and wrapping moves whole links to a second row instead. */
+	flex-wrap: wrap;
+	justify-content: flex-end;
 	gap: 12px;
 }
 
 .nameGateLink {
+	flex: none;
+	white-space: nowrap;
 	border: 0;
 	background: transparent;
 	color: var(--accent); /* same green as the "enter a name" title */

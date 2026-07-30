@@ -3251,15 +3251,15 @@ textarea {
 /* the row of links that hangs off the gate card's bottom-right corner. It's the
    container that's positioned, not the links, so a second one just extends the row
    leftward instead of needing an offset that tracks its neighbour's width. The gap
-   is wide for the type size on purpose: these are small tap targets sitting side by
-   side, and a thumb needs the slack to be sure which one it hit. */
+   sits on top of the 4px each link already carries as padding, so the tap targets
+   stay separated without the two reading as unrelated. */
 .nameGateLinks {
 	position: absolute;
 	top: 100%; /* just below the card's bottom edge */
 	right: 0; /* flush with the card's right edge */
 	display: flex;
 	align-items: center;
-	gap: 22px;
+	gap: 12px;
 }
 
 .nameGateLink {

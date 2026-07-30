@@ -5240,7 +5240,11 @@ function send() {
 		const prefix = `> @${pendingReply.name}: ${pendingReply.quoted}\n\n`;
 		const geo = pendingReply.geo;
 		cancelReply();
-		transmit(prefix + body, geo);
+		// a reply composed inside a guild stays sealed inside it. Without this it
+		// would fall through to transmit() and be published in the clear to a public
+		// channel named after the guild - quoted guild message and all.
+		if (focusedGuild) guildSend(prefix + body);
+		else transmit(prefix + body, geo);
 		return;
 	}
 

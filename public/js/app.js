@@ -461,6 +461,14 @@ function setFlair(v) {
 	} catch {}
 }
 
+// a live preview chip for one flair: the ambient effect plays on the chip itself,
+// and its label is rendered as an "&g" run so the flair's WILDCARD palette shows at
+// the same time - one chip, both halves of the look. The gradient needs no wiring
+// here: .fmtRainbow inside a .flair-* element is already retuned by the cascade.
+function flairChipHtml(f, label) {
+	return `<span class="${flairClass(f)} flairChip"><span class="fmtRainbow">${escapeHtml(label)}</span></span>`;
+}
+
 // the difficulty we mine OUTBOUND events to: the interop baseline (POW_DIFFICULTY),
 // but never below your own view filter. Raising your filter raises your send floor
 // too, so your messages keep clearing the same bar you're requiring of everyone
@@ -5481,7 +5489,7 @@ const COMMANDS = [
 			const esc = escapeHtml;
 			if (!raw) {
 				const current = getFlair();
-				const chips = FLAIRS.map((f) => `<span class="${flairClass(f)} flairChip">${esc(f)}</span>`).join(" ");
+				const chips = FLAIRS.map((f) => flairChipHtml(f, f)).join(" ");
 				pushSystem(
 					[
 						`<span class="ts">${esc(t("flair.header"))}</span>`,
@@ -5510,7 +5518,7 @@ const COMMANDS = [
 			setFlair(f);
 			pushSystem(
 				`<span class="ts">${esc(t("flair.saved", { flair: f }))}</span>\n` +
-					`<span class="${flairClass(f)} flairChip">${esc(t("flair.sample"))}</span>`,
+					flairChipHtml(f, t("flair.sample")),
 				SYSTEM_TTL_LONG_MS,
 			);
 		},

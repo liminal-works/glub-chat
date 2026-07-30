@@ -1519,7 +1519,13 @@ function renderEvent(ev, guildFreq = "") {
 	// clip only the *displayed* geohash so an oversized "g" tag can't flood a
 	// line; data-geo keeps the full value so clicking still focuses the real
 	// channel (an actually-invalid geohash is caught by focusChannel).
-	const geoPrefix = `<span class="geo" data-geo="${escapeHtml(geo)}">#${escapeHtml(clipWithEllipsis(geo, MAX_GEO_LEN))}</span> `;
+	//
+	// A guild has no geography and you are only ever in one at a time, so its lines
+	// carry no prefix at all: there'd be nothing to disambiguate, and the guild's
+	// name isn't a channel you could click into.
+	const geoPrefix = guildFreq
+		? ""
+		: `<span class="geo" data-geo="${escapeHtml(geo)}">#${escapeHtml(clipWithEllipsis(geo, MAX_GEO_LEN))}</span> `;
 
 	// highlight messages that @-mention us, tinted with the sender's own color
 	// so it stays visually cohesive (includes our own messages @-ing ourselves) -
@@ -1586,7 +1592,9 @@ function renderEvent(ev, guildFreq = "") {
 		images: extractImageUrls(text),
 		audio: extractAudioUrls(text), // voice-note urls -> inline <audio> players
 		profane: isProfane(text), // flagged once; the text-censor setting gates display live
-		sig: messageSignature(text), // "" unless long enough to judge as broadcast spam
+		// "" unless long enough to judge as broadcast spam - and always "" in a guild,
+		// which never touches the global feed the spam sweep exists to protect.
+		sig: guildFreq ? "" : messageSignature(text),
 
 		expanded: false,
 		el: null,
@@ -3441,7 +3449,8 @@ function startMention() {
 	if (!ctx) return;
 	if (ctx.noteId) closeNotes(); // mentioning from a note: reveal the composer behind it
 	cancelReply(); // a mention replaces whatever you were composing
-	const prefix = focusedGeo ? "" : `#${ctx.geo} `;
+	// a guild is addressed by being in it, so it needs no "#channel " prefix either
+	const prefix = focusedGeo || focusedGuild ? "" : `#${ctx.geo} `;
 	chatInput.value = `${prefix}@${ctx.name} `;
 	chatInput.focus();
 	chatInput.setSelectionRange(chatInput.value.length, chatInput.value.length);

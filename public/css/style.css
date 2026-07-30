@@ -389,6 +389,11 @@ textarea {
    selector is the whole mechanism. Only the gradient (and its pace) is swapped;
    the scroll keyframes are shared, and the reduced-motion rule below still wins
    because it zeroes animation-name, leaving the themed gradient as a static fill. */
+/* fire's &g reads as text lit BY the fire: the ember gradient keeps rolling, but
+   the brightness huffs on the same uneven catch-and-settle curve as the row's glow,
+   so the words swell and dim with the flame instead of scrolling at a fixed pace.
+   Overriding animation-name here outranks the generic .fmtRainbow rule, so the
+   reduced-motion block re-disables this selector by name. */
 .flair-fire .fmtRainbow {
 	background-image: repeating-linear-gradient(
 		90deg,
@@ -400,8 +405,34 @@ textarea {
 		#ff6a00 40%,
 		#ff3d00 48%
 	);
-	animation-duration: 3.4s; /* quicker, so it reads as flicker rather than drift */
+	animation: fmtEmberText var(--fire-text-dur, 4.4s) linear var(--fire-text-delay, 0s) infinite;
 	text-decoration-color: #ffb057;
+}
+
+@keyframes fmtEmberText {
+	0% {
+		background-position: 0 0;
+		filter: brightness(0.88) saturate(1);
+	}
+	9% {
+		filter: brightness(1.42) saturate(1.15);
+	}
+	34% {
+		filter: brightness(0.92) saturate(1);
+	}
+	46% {
+		filter: brightness(1.24) saturate(1.1);
+	}
+	61% {
+		filter: brightness(0.85) saturate(0.95);
+	}
+	72% {
+		filter: brightness(1.38) saturate(1.15);
+	}
+	100% {
+		background-position: 200% 0;
+		filter: brightness(0.88) saturate(1);
+	}
 }
 
 /* lightning's &g doesn't scroll - it STRIKES. A drifting gradient would fight the
@@ -531,45 +562,130 @@ textarea {
 	margin-right: 4px;
 }
 
-/* fire: a warm updraft glow with embers rising off the row */
+/* fire: a bonfire under a night sky. The glow HUFFS rather than pulses - a smooth
+   sine reads as a machine breathing, so the keyframes surge fast and fall away
+   slowly at uneven intervals, the way a fire catches and settles. Two independent
+   particle fields rise off the bottom edge: bright embers straight off the flame
+   (::after) and slower, wider-wobbling ash that snuffs out partway up (.flairFx).
+   Both corkscrew instead of travelling straight, and every value - the huff's
+   period and depth, each field's speed, phase, spacing, colour and drift - is
+   randomized per line in flair.js. Two fields is the trick that lets some sparks
+   die early while others ride all the way, without paying a composited layer per
+   spark: each field is one box-shadow-cloned dot. */
 .flair-fire::before {
 	inset: 0;
-	background: linear-gradient(to top, rgba(255, 96, 0, 0.22), rgba(255, 150, 40, 0.06) 55%, transparent);
-	animation: flairFireGlow 2.4s ease-in-out infinite;
+	background: linear-gradient(to top, rgba(255, 96, 0, 0.24), rgba(255, 150, 40, 0.06) 55%, transparent);
+	animation: flairFireGlow var(--fire-glow-dur, 3.4s) ease-in-out var(--fire-glow-delay, 0s) infinite;
 }
 
 .flair-fire::after {
-	left: 4px;
+	left: var(--em-a-left, 4px);
 	top: 100%;
 	width: 2px;
 	height: 2px;
 	border-radius: 50%;
 	background: #ffb057;
-	box-shadow: 18px 0 #ff7a18, 47px 0 #ffd08a, 83px 0 #ff9d3d, 126px 0 #ff7a18, 170px 0 #ffc46b,
-		219px 0 #ff8c2b, 262px 0 #ffb057, 311px 0 #ff7a18, 355px 0 #ffd08a;
-	animation: flairEmbers 3.2s linear infinite;
+	box-shadow: var(
+		--em-a-field,
+		18px 0 #ff7a18,
+		47px 0 #ffd08a,
+		83px 0 #ff9d3d,
+		126px 0 #ff7a18,
+		170px 0 #ffc46b,
+		219px 0 #ff8c2b
+	);
+	animation: flairEmbers var(--em-a-dur, 3.2s) linear var(--em-a-delay, 0s) infinite;
 }
 
+/* the ash field: same trick, its own everything */
+.flair-fire > .flairFx {
+	left: var(--em-b-left, 20px);
+	top: 100%;
+	width: 2px;
+	height: 2px;
+	border-radius: 50%;
+	background: #8a7f77;
+	box-shadow: var(--em-b-field, 40px 0 #6d635c, 96px 0 #b9a89a, 158px 0 #c9762f, 226px 0 #7d726a);
+	animation: flairAshRise var(--em-b-dur, 5s) linear var(--em-b-delay, 0s) infinite;
+}
+
+/* fast catch, slow settle, twice per cycle at uneven depths - a fire breathing */
 @keyframes flairFireGlow {
-	0%,
-	100% {
-		opacity: 0.6;
+	0% {
+		opacity: var(--fire-glow-low, 0.45);
 	}
-	50% {
-		opacity: 1;
+	9% {
+		opacity: var(--fire-glow-peak, 0.95);
+	}
+	34% {
+		opacity: calc(var(--fire-glow-low, 0.45) * 1.25);
+	}
+	46% {
+		opacity: calc(var(--fire-glow-peak, 0.95) * 0.82);
+	}
+	61% {
+		opacity: var(--fire-glow-low, 0.45);
+	}
+	72% {
+		opacity: var(--fire-glow-peak, 0.95);
+	}
+	100% {
+		opacity: var(--fire-glow-low, 0.45);
 	}
 }
 
+/* embers: catch bright, corkscrew up through four drift offsets, thin out near the
+   top. They rise the full height of the row and fade before the clip edge, so they
+   read as dissipating into the dark rather than being cut off. */
 @keyframes flairEmbers {
 	0% {
 		transform: translate3d(0, 0, 0);
 		opacity: 0;
 	}
-	20% {
+	14% {
 		opacity: 0.95;
 	}
+	32% {
+		transform: translate3d(var(--em-a-x1, 3px), -0.55em, 0);
+	}
+	54% {
+		transform: translate3d(var(--em-a-x2, -5px), -1.1em, 0);
+		opacity: 0.8;
+	}
+	76% {
+		transform: translate3d(var(--em-a-x3, 7px), -1.65em, 0);
+		opacity: 0.45;
+	}
 	100% {
-		transform: translate3d(9px, -1.9em, 0);
+		transform: translate3d(var(--em-a-x4, -4px), -2.25em, 0);
+		opacity: 0;
+	}
+}
+
+/* ash: dimmer, wider wobble, and gone by ~70% - the "sometimes it doesn't make it
+   all the way up" half of the shower. */
+@keyframes flairAshRise {
+	0% {
+		transform: translate3d(0, 0, 0);
+		opacity: 0;
+	}
+	18% {
+		opacity: 0.6;
+	}
+	38% {
+		transform: translate3d(var(--em-b-x1, -6px), -0.5em, 0);
+		opacity: 0.5;
+	}
+	56% {
+		transform: translate3d(var(--em-b-x2, 9px), -0.95em, 0);
+		opacity: 0.28;
+	}
+	70% {
+		transform: translate3d(var(--em-b-x3, -11px), -1.3em, 0);
+		opacity: 0;
+	}
+	100% {
+		transform: translate3d(var(--em-b-x4, 7px), -1.7em, 0);
 		opacity: 0;
 	}
 }
@@ -854,10 +970,12 @@ textarea {
 	.flair-lightning::after {
 		opacity: 0;
 	}
-	/* lightning's &g sets animation-name at a higher specificity than the generic
-	   .fmtRainbow rule above, so it has to be switched off by name here - otherwise
-	   the storm flicker would keep running for reduced-motion readers. */
-	.flair-lightning .fmtRainbow {
+	/* these &g overrides set animation-name at a higher specificity than the generic
+	   .fmtRainbow rule above, so they have to be switched off by name here -
+	   otherwise the storm flicker / ember huff would keep running for
+	   reduced-motion readers. */
+	.flair-lightning .fmtRainbow,
+	.flair-fire .fmtRainbow {
 		animation: none;
 		filter: brightness(1);
 	}

@@ -46,7 +46,10 @@ const pick = (arr) => arr[(Math.random() * arr.length) | 0];
 
 // flairs that want an extra one-shot layer in the markup, fired by a shared ticker
 // (see app.js): the stars flair's shooting star, the lightning flair's strike.
-const FX_FLAIRS = new Set(["stars", "lightning"]);
+// (fire uses it as a persistent SECOND particle field rather than a one-shot -
+// two independent box-shadow fields is what lets some embers die early while
+// others ride all the way up, without one composited layer per spark.)
+const FX_FLAIRS = new Set(["stars", "lightning", "fire"]);
 
 export function flairHasFx(raw) {
 	return FX_FLAIRS.has(flairName(raw));
@@ -56,15 +59,15 @@ export function flairHasFx(raw) {
 const STAR_TINTS = ["#ffffff", "#ffffff", "#cfe6ff", "#a8ccff", "#dbe9ff", "#bcd8ff", "#e9f2ff"];
 
 // one 2px dot is cloned into a whole field by box-shadow, so a random field is
-// just a random offset list - still a single composited layer. X advances by a
-// jittered step rather than being uniformly random, which keeps stars from
-// clumping the way pure noise does.
-function starField(count, step, jitterY) {
+// just a random offset list - still a single composited layer no matter how many
+// particles it holds. X advances by a jittered step rather than being uniformly
+// random, which keeps particles from clumping the way pure noise does.
+function particleField(count, step, jitterY, tints) {
 	const out = [];
 	let x = 0;
 	for (let i = 0; i < count; i++) {
 		x += rnd(step * 0.55, step * 1.45);
-		out.push(`${Math.round(x)}px ${Math.round(rnd(-jitterY, jitterY))}px ${pick(STAR_TINTS)}`);
+		out.push(`${Math.round(x)}px ${Math.round(rnd(-jitterY, jitterY))}px ${pick(tints)}`);
 	}
 	return out.join(", ");
 }
@@ -111,11 +114,56 @@ export function lightningStrikeMarkup(w, h) {
 	);
 }
 
+// embers glow warm; ash is what's left of them, so field B mixes dull greys in
+const EMBER_TINTS = ["#ffb057", "#ff7a18", "#ffd08a", "#ff9d3d", "#ffc46b", "#ff6a00"];
+const ASH_TINTS = ["#8a7f77", "#6d635c", "#b9a89a", "#c9762f", "#7d726a", "#ffa14d"];
+
+// a rising particle's path, as four drift offsets the keyframes interpolate
+// through. Signs alternate so the spark corkscrews as it climbs instead of
+// travelling in a straight line, and a constant lean is added so the whole field
+// drifts with the "wind" of the updraft.
+function wobble(prefix, amp, lean) {
+	const d = Math.random() < 0.5 ? -1 : 1;
+	return {
+		[`${prefix}1`]: `${(d * amp * 0.45 + lean * 0.25).toFixed(1)}px`,
+		[`${prefix}2`]: `${(-d * amp * 0.75 + lean * 0.5).toFixed(1)}px`,
+		[`${prefix}3`]: `${(d * amp + lean * 0.75).toFixed(1)}px`,
+		[`${prefix}4`]: `${(-d * amp * 0.6 + lean).toFixed(1)}px`,
+	};
+}
+
 // the CSS custom properties a flaired line wants, as { "--name": value }. Unknown
 // or var-less flairs get {} - the stylesheet carries fallbacks for every var, so a
 // line (or a /flair preview chip) with no vars set still renders correctly.
 export function flairVars(raw) {
 	const n = flairName(raw);
+	// a fire never repeats itself: the glow's huff, both ember fields' speed, phase,
+	// spacing, colour and corkscrew all differ per line, so a screenful of fire
+	// lines breathes out of step instead of pulsing as one.
+	if (n === "fire") {
+		const lean = rnd(-7, 11); // this line's prevailing draft
+		return {
+			"--fire-glow-dur": `${rnd(2.6, 5.2).toFixed(2)}s`,
+			"--fire-glow-delay": `-${rnd(0, 5).toFixed(2)}s`,
+			"--fire-glow-peak": rnd(0.82, 1).toFixed(2),
+			"--fire-glow-low": rnd(0.34, 0.55).toFixed(2),
+			// field A: the bright embers straight off the fire, rising fast
+			"--em-a-field": particleField(6, 52, 4, EMBER_TINTS),
+			"--em-a-left": `${Math.round(rnd(2, 24))}px`,
+			"--em-a-dur": `${rnd(2.4, 4.2).toFixed(2)}s`,
+			"--em-a-delay": `-${rnd(0, 4).toFixed(2)}s`,
+			...wobble("--em-a-x", rnd(5, 13), lean),
+			// field B: lighter ash + spent sparks - slower, wider wobble, and its
+			// keyframes snuff it out partway up (see flairAshRise)
+			"--em-b-field": particleField(5, 68, 5, ASH_TINTS),
+			"--em-b-left": `${Math.round(rnd(8, 40))}px`,
+			"--em-b-dur": `${rnd(3.6, 6.4).toFixed(2)}s`,
+			"--em-b-delay": `-${rnd(0, 6).toFixed(2)}s`,
+			...wobble("--em-b-x", rnd(9, 20), lean * 1.3),
+			"--fire-text-dur": `${rnd(3.4, 6.2).toFixed(2)}s`,
+			"--fire-text-delay": `-${rnd(0, 5).toFixed(2)}s`,
+		};
+	}
 	// a storm is never in sync with itself: every line gets its own flash cadence,
 	// phase, brightness and origin, so the room flickers unevenly like real weather.
 	if (n === "lightning") {
@@ -133,8 +181,8 @@ export function flairVars(raw) {
 	if (n !== "stars") return {};
 	return {
 		// two independent fields: a denser one up top, a sparser one lower down
-		"--star-a-field": starField(7, 46, 11),
-		"--star-b-field": starField(5, 60, 12),
+		"--star-a-field": particleField(7, 46, 11, STAR_TINTS),
+		"--star-b-field": particleField(5, 60, 12, STAR_TINTS),
 		"--star-a-left": `${Math.round(rnd(4, 28))}px`,
 		"--star-a-top": `${Math.round(rnd(16, 40))}%`,
 		"--star-b-left": `${Math.round(rnd(12, 46))}px`,

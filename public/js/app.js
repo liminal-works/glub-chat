@@ -175,6 +175,7 @@ const usersGate = document.getElementById("usersGate");
 const usersTitle = document.getElementById("usersTitle");
 const usersLocation = document.getElementById("usersLocation");
 const usersList = document.getElementById("usersList");
+const nameGateMap = document.getElementById("nameGateMap");
 const nameGateGuilds = document.getElementById("nameGateGuilds");
 const guildGate = document.getElementById("guildGate");
 const guildForm = document.getElementById("guildForm");
@@ -358,8 +359,11 @@ function setPresenceEnabled(on) {
 
 const STORAGE_RETRO_KEY = "glub_retro";
 
+// on by default - the scanlines are part of what glub looks like, not an opt-in
+// novelty. Same "!== false" shape as the other default-on settings, so an explicit
+// opt-out survives reloads while an untouched install gets the CRT.
 function getRetroEnabled() {
-	return localStorage.getItem(STORAGE_RETRO_KEY) === "true";
+	return localStorage.getItem(STORAGE_RETRO_KEY) !== "false";
 }
 
 function setRetroEnabled(on) {
@@ -3967,6 +3971,7 @@ document.addEventListener("click", (e) => {
 	if (!mediaMenu.hidden && !mediaMenu.contains(e.target) && !mediaBtn.contains(e.target)) toggleMediaMenu(false);
 });
 usersNotes.addEventListener("click", openNotes);
+nameGateMap.addEventListener("click", openMap);
 nameGateGuilds.addEventListener("click", openGuildGate);
 guildClose.addEventListener("click", closeGuildGate);
 // a password field with nothing in it is the one case worth warning about, so the

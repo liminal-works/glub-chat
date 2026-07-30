@@ -16,6 +16,7 @@ export default {
 		enter: "प्रवेश",
 		settings: "[ सेटिंग्स ]",
 		close: "[ बंद करें ]",
+		map: "[ मैप ]",
 		guilds: "[ गिल्ड ]",
 	},
 

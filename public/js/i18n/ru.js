@@ -16,6 +16,7 @@ export default {
 		enter: "войти",
 		settings: "[ настройки ]",
 		close: "[ закрыть ]",
+		map: "[ карта ]",
 		guilds: "[ гильдии ]",
 	},
 

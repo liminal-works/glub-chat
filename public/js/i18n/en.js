@@ -14,6 +14,7 @@ export default {
 		enter: "enter",
 		settings: "[ settings ]",
 		close: "[ close ]",
+		map: "[ map ]",
 		guilds: "[ guilds ]",
 	},
 

@@ -180,6 +180,47 @@
 				</div>
 			</div>
 
+			<div id="guildGate" class="gate">
+				<div class="gateCard">
+					<div class="gateTitle" data-i18n="guild.title">guilds</div>
+					<div class="gateSub">
+						<span data-i18n="guild.subtitle_1">a name and a password tune you to a private frequency.</span>
+						<span data-i18n="guild.subtitle_2">no accounts, no server, no registry - anyone with the same pair is in the same room.</span>
+					</div>
+
+					<form id="guildForm" autocomplete="off">
+						<input
+							id="guildName"
+							type="text"
+							maxlength="40"
+							spellcheck="false"
+							autocapitalize="none"
+							autocorrect="off"
+							autocomplete="off"
+							placeholder="guild name"
+							data-i18n-placeholder="guild.name_ph"
+						/>
+						<input
+							id="guildPass"
+							type="password"
+							maxlength="128"
+							spellcheck="false"
+							autocapitalize="none"
+							autocorrect="off"
+							autocomplete="off"
+							placeholder="password (optional)"
+							data-i18n-placeholder="guild.pass_ph"
+						/>
+						<button id="guildEnter" type="submit" data-i18n="guild.enter">enter</button>
+					</form>
+					<div id="guildWarn" class="guildWarn" data-i18n="guild.warn_nopass" hidden>
+						without a password anyone who guesses the name can read this guild.
+					</div>
+					<div id="guildList" class="guildList"></div>
+					<button id="guildClose" class="nameGateSettings" type="button" data-i18n="guild.close">[ close ]</button>
+				</div>
+			</div>
+
 			<div id="usersGate" class="gate">
 				<div class="usersPanel">
 					<div class="usersHeader">
@@ -187,6 +228,7 @@
 						<span class="usersHeaderBtns">
 							<strong id="usersMap" class="usersExit" data-i18n="users.map">[MAP]</strong>
 							<strong id="usersNotes" class="usersExit" data-i18n="users.notes" hidden>[NOTES]</strong>
+							<strong id="usersGuilds" class="usersExit" data-i18n="users.guilds">[GUILDS]</strong>
 							<strong id="usersClose" class="usersExit" data-i18n="users.exit">[EXIT]</strong>
 						</span>
 					</div>

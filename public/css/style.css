@@ -1739,6 +1739,7 @@ textarea {
 /* one feedback language for every bordered control: edge brightens + a whisper
    of green fill on hover, and the whole control drops 1px while pressed. */
 #nameForm button,
+#guildForm button,
 #settingsClose,
 .profileCard #profileClose,
 .idBtn,
@@ -1748,6 +1749,7 @@ textarea {
 }
 
 #nameForm button:hover,
+#guildForm button:hover,
 #settingsClose:hover,
 .profileCard #profileClose:hover,
 .idBtn:hover,
@@ -1757,6 +1759,7 @@ textarea {
 }
 
 #nameForm button:active,
+#guildForm button:active,
 #settingsClose:active,
 .profileCard #profileClose:active,
 .idBtn:active,
@@ -2762,6 +2765,131 @@ textarea {
 	cursor: pointer;
 }
 
+/* --- guild gate ------------------------------------------------------------
+   the same card/field/button vocabulary as the name gate - a guild is just
+   another door, so it shouldn't announce itself as a different kind of UI. */
+#guildForm {
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+}
+
+#guildName,
+#guildPass {
+	width: 100%;
+	box-sizing: border-box;
+	border: 1px solid var(--chrome-border);
+	background: var(--field-bg);
+	color: var(--fg);
+	font: inherit;
+	font-size: 16px; /* < 16px makes ios zoom the page on focus */
+	padding: 10px 12px;
+	outline: 0;
+	transition: border-color 0.15s ease;
+}
+
+#guildName:focus,
+#guildPass:focus {
+	border-color: var(--chrome-border-strong);
+}
+
+#guildForm button {
+	border: 1px solid var(--chrome-border);
+	background: transparent;
+	color: var(--accent);
+	font: inherit;
+	font-weight: 700;
+	padding: 10px 12px;
+	cursor: pointer;
+}
+
+#guildForm button:disabled {
+	opacity: 0.45;
+	cursor: default;
+}
+
+/* shown only while the name is filled and the password isn't: a passwordless
+   guild is obfuscation, not privacy, and that has to be said before you enter,
+   not after. warning-coloured, but not an error - it's a legitimate choice. */
+.guildWarn {
+	margin-top: 10px;
+	border-left: 2px solid color-mix(in srgb, var(--danger) 45%, transparent);
+	padding-left: 8px;
+	color: var(--muted);
+	font-size: 12px;
+	line-height: 1.4;
+}
+
+.guildWarn[hidden] {
+	display: none;
+}
+
+.guildList {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	margin-top: 14px;
+	/* a long membership list scrolls inside the card instead of pushing the
+	   [ close ] link (which hangs off the card's bottom edge) off-screen. */
+	max-height: 30vh;
+	overflow-y: auto;
+	overscroll-behavior: contain;
+}
+
+/* joined guilds are re-enterable without retyping the password: the derived key
+   is already stored, so a row is a one-tap door back in. */
+.guildRow {
+	display: flex;
+	align-items: baseline;
+	gap: 8px;
+	padding: 5px 6px;
+	cursor: pointer;
+	transition: background-color 0.15s ease;
+	-webkit-tap-highlight-color: transparent;
+}
+
+.guildRow:hover {
+	background-color: color-mix(in srgb, var(--accent) 7%, transparent);
+}
+
+.guildName {
+	flex: 1 1 auto;
+	min-width: 0;
+	color: var(--fg);
+	font-size: 14px;
+	overflow: hidden; /* the name is already clipped in js, so this is just a backstop */
+	white-space: nowrap;
+}
+
+/* the frequency's first 8 chars - two guilds can share a name, and this is the
+   only thing that tells them apart. */
+.guildFreq {
+	flex: none;
+	color: var(--muted);
+	font-size: 11px;
+	letter-spacing: 0.04em;
+	opacity: 0.75;
+}
+
+.guildForget {
+	flex: none;
+	border: 0;
+	background: transparent;
+	color: var(--muted);
+	font: inherit;
+	font-size: 11px;
+	padding: 2px 4px;
+	cursor: pointer;
+	opacity: 0.6;
+	transition: color 0.15s ease, opacity 0.15s ease;
+	-webkit-tap-highlight-color: transparent;
+}
+
+.guildForget:hover {
+	color: var(--danger);
+	opacity: 1;
+}
+
 .settingRow {
 	position: relative; /* contains the visually-hidden checkbox */
 	display: flex;
@@ -3178,6 +3306,11 @@ textarea {
 	#nameInput,
 	.idField,
 	#nameForm button,
+	#guildName,
+	#guildPass,
+	#guildForm button,
+	.guildRow,
+	.guildForget,
 	#settingsClose,
 	.profileCard #profileClose,
 	.idBtn,

@@ -19,6 +19,7 @@ import { createSuggest } from "./ui/suggest.js";
 import { createMap } from "./ui/map.js";
 import { createDmClient, DM_MAX_CONTENT_BYTES } from "./nostr/dm.js";
 import { createNotesClient } from "./nostr/notes.js";
+import { createGuildClient, deriveGuild, normalizeGuildName, serializeGuild, deserializeGuild } from "./nostr/guild.js";
 import { uploadImageToNostrBuild, NOSTR_BUILD_MAX_BYTES, NOSTR_BUILD_MAX_MB } from "./nostr/nip96.js";
 import { fetchProfileMetadata, publishProfileMetadata } from "./nostr/profileEdit.js";
 import { isProfane } from "./censor.js";
@@ -173,6 +174,15 @@ const usersGate = document.getElementById("usersGate");
 const usersTitle = document.getElementById("usersTitle");
 const usersLocation = document.getElementById("usersLocation");
 const usersList = document.getElementById("usersList");
+const usersGuilds = document.getElementById("usersGuilds");
+const guildGate = document.getElementById("guildGate");
+const guildForm = document.getElementById("guildForm");
+const guildNameInput = document.getElementById("guildName");
+const guildPassInput = document.getElementById("guildPass");
+const guildEnter = document.getElementById("guildEnter");
+const guildWarn = document.getElementById("guildWarn");
+const guildListEl = document.getElementById("guildList");
+const guildClose = document.getElementById("guildClose");
 const usersClose = document.getElementById("usersClose");
 const usersMap = document.getElementById("usersMap");
 const mapGate = document.getElementById("mapGate");
@@ -438,6 +448,37 @@ function renderFormatLine(tpl, parts) {
 // the default <@name#tag> layout has, without overriding the author's color choice.
 function formatTagHtml(tag) {
 	return `<span class="tag">#${escapeHtml(tag)}</span>`;
+}
+
+// --- guilds (password-gated encrypted group chat) ----------------------------
+// A guild is a frequency derived from (name, password) - see nostr/guild.js for the
+// derivation and its security properties. Here we only hold the joined list, the
+// currently-tuned guild, and the wiring between its relay client and the normal
+// message pipeline: a decrypted guild message becomes an ordinary entry, so colors,
+// mentions, "&"-formatting and flair all work inside a guild for free.
+//
+// Joining stores the DERIVED KEY rather than the password, so a reload doesn't
+// re-prompt. Same trust model as the nsec already in localStorage - a device that
+// can read one can read the other - and /guild forget removes it.
+const STORAGE_GUILDS_KEY = "glub_guilds";
+
+let joinedGuilds = loadGuilds();
+let focusedGuild = null; // { name, freq, key } while tuned in, else null
+
+function loadGuilds() {
+	try {
+		const raw = JSON.parse(localStorage.getItem(STORAGE_GUILDS_KEY) || "[]");
+		if (!Array.isArray(raw)) return [];
+		return raw.map(deserializeGuild).filter(Boolean).slice(0, 50);
+	} catch {
+		return [];
+	}
+}
+
+function saveGuilds() {
+	try {
+		localStorage.setItem(STORAGE_GUILDS_KEY, JSON.stringify(joinedGuilds.map(serializeGuild)));
+	} catch {}
 }
 
 // --- line flair (/flair) -----------------------------------------------------
@@ -883,6 +924,7 @@ function payChipHtml(tk) {
 function entryPassesPow(entry) {
 	const required = getPowFilter();
 	if (!required || entry.mine) return true;
+	if (entry.guild) return true; // guild messages aren't mined - membership is the gate
 	return entry.powCommitted >= required && entry.pow >= required;
 }
 
@@ -990,6 +1032,10 @@ function entryVisible(entry) {
 	if (entry.system) return true;
 	if (isBlocked(entry.pubkey)) return false; // blocked author (local, persisted)
 	if (!entryPassesPow(entry)) return false; // below the proof-of-work bar (live view filter)
+	// a guild is a closed room: its messages appear only while tuned to it, and
+	// nothing from the open network appears alongside them.
+	if (focusedGuild) return entry.guild === focusedGuild.freq;
+	if (entry.guild) return false;
 	if (focusedGeo) return entry.geo === focusedGeo; // focused: this channel, everything shown (spam included - you opened it on purpose)
 	if (isGlobalSpam(entry)) return false; // global feed: omit broadcast-spam clusters (still visible in-channel)
 	if (entry.flooded) return false; // global feed: quarantine a channel that was under a burner-key flood when this arrived
@@ -1463,7 +1509,7 @@ function pubkeyTint(pubkey) {
 	return `rgba(${r}, ${g}, ${b}, 0.16)`;
 }
 
-function renderEvent(ev) {
+function renderEvent(ev, guildFreq = "") {
 	const geo = getGeohash(ev) || "?";
 	const who = getName(ev) || "anon";
 	const tag = ev.pubkey.slice(-4);
@@ -1488,8 +1534,8 @@ function renderEvent(ev) {
 	// burner-key flood: log this message, then check whether its channel is being
 	// flooded. Baked onto the entry so entryVisible can quarantine the flood from the
 	// global feed (a legit backlog spread over time can't trip it - see FLOOD_*).
-	recordFloodSample(geo, ev.pubkey, ev.created_at);
-	const flooded = channelFlooded(geo);
+	if (!guildFreq) recordFloodSample(geo, ev.pubkey, ev.created_at);
+	const flooded = guildFreq ? false : channelFlooded(geo);
 	if (flooded && !focusedGeo) maybeNotifyFlood(geo);
 
 	// glub/rich: the sender's raw "&"-coded message (see format.js). Honor it
@@ -1525,6 +1571,7 @@ function renderEvent(ev) {
 		mentionTint,
 		teleport,
 		flooded, // channel was under a burner-key flood when this arrived -> hidden from the global feed
+		guild: guildFreq, // "" for normal chat; a guild frequency scopes this entry to that guild
 		rich, // raw "&"-coded text (glub/rich tag), or null - renders formatted in the plain-message path
 		fmt, // sender's line template (glub/fmt tag), or "" - wraps the line in the plain-message path
 		flair, // sender's ambient line effect (glub/flair tag), or "" - a class on the row
@@ -1563,7 +1610,7 @@ function talkers(geo, withinMs) {
 	const cutoff = withinMs ? Math.floor(Date.now() / 1000) - withinMs / 1000 : -Infinity;
 	const latest = new Map();
 	for (const e of entries) {
-		if (e.system || e.geo !== geo || e.ts < cutoff) continue;
+		if (e.system || e.guild || e.geo !== geo || e.ts < cutoff) continue;
 		const prev = latest.get(e.pubkey);
 		if (!prev || e.ts >= prev.ts) latest.set(e.pubkey, e);
 	}
@@ -1600,7 +1647,7 @@ function activeChannels(limit = 12) {
 	};
 
 	for (const e of entries) {
-		if (!e.system && e.geo && e.ts >= cutoffSec) bump(e.geo, e.pubkey, e.ts);
+		if (!e.system && !e.guild && e.geo && e.ts >= cutoffSec) bump(e.geo, e.pubkey, e.ts);
 	}
 
 	return [...byGeo]
@@ -1613,6 +1660,17 @@ function activeChannels(limit = 12) {
 function renderTopbar() {
 	syncMediaBtn(); // renderTopbar fires on every mode/status change, so piggyback
 	const cursor = `<span class="cursor" aria-hidden="true"></span>`;
+	if (focusedGuild) {
+		// the lock is the point: this row is not the open network
+		brandEl.innerHTML =
+			`<strong class="chan">&#128274;${escapeHtml(clipText(focusedGuild.name, 12))}</strong>` +
+			`/<span class="handle">@${escapeHtml(clipText(name || "anon", 12))}</span>${cursor}`;
+		const { connected, total } = guildRelayState;
+		statusEl.innerHTML =
+			`<span class="ts">${escapeHtml(t("guild.relays", { connected, total }))}</span> - <strong>${escapeHtml(t("topbar.exit"))}</strong>`;
+		statusEl.classList.add("tapExit");
+		return;
+	}
 	if (focusedGeo) {
 		const clippedGeo = clipText(focusedGeo, 12);
 		// the channel keeps its real case (class "chan" opts out of the topbar's
@@ -2400,6 +2458,168 @@ const notesAssistBridge = {
 	},
 	publish: (event) => publishViaApi(event),
 };
+
+// --- guild client + plumbing --------------------------------------------------
+let guildClient = null;
+let guildRelayState = { connected: 0, total: 0 };
+
+function ensureGuildClient() {
+	if (!guildClient) {
+		guildClient = createGuildClient({
+			getIdentity: () => identity,
+			// a guild has no geography, so there's nothing to sort by proximity -
+			// just take breadth from the global relay set.
+			getRelays: () => allRelays.map((r) => r.url),
+			onMessage: renderGuildMessage,
+			onState: (st) => {
+				guildRelayState = st;
+				if (focusedGuild) renderTopbar();
+			},
+		});
+	}
+	return guildClient;
+}
+
+// a decrypted guild message, rebuilt as an ordinary chat event so the whole render
+// pipeline applies unchanged. The `g` tag carries the guild's NAME for display only;
+// what actually scopes it is entry.guild (the frequency), set by renderEvent.
+function renderGuildMessage({ id, pubkey, createdAt, freq, payload }) {
+	if (!focusedGuild || freq !== focusedGuild.freq) return; // stale, or not the tuned guild
+	if (seen.has(id)) return;
+	seen.add(id);
+	const tags = [
+		["g", focusedGuild.name],
+		["n", String(payload.n || "anon").slice(0, MAX_NAME_LEN * 2)],
+	];
+	if (payload.r) tags.push(["glub", "rich", String(payload.r)]);
+	if (payload.f) tags.push(["glub", "fmt", String(payload.f)]);
+	if (payload.l) tags.push(["glub", "flair", String(payload.l)]);
+	renderEvent({ id, pubkey, created_at: createdAt, kind: CHAT_KIND, content: String(payload.m || ""), tags }, freq);
+}
+
+// send into the tuned guild. Mirrors transmit()'s formatting handling, but the
+// payload is sealed rather than broadcast in the clear, and nothing is mined: PoW
+// is a spam bar for open channels, and a guild is gated by its password instead.
+function guildSend(content) {
+	if (!focusedGuild || !guildClient) return;
+	if (NSEC_RE.test(content)) {
+		appendSystem(t("system.nsec_blocked"));
+		return;
+	}
+	const rich = hasFormat(content) ? content : undefined;
+	const payload = { n: name || "anon", m: rich ? stripFormat(content) : content };
+	if (rich) payload.r = rich;
+	const fmt = getFormatTemplate();
+	if (fmt) payload.f = fmt;
+	const flair = getFlair();
+	if (flair) payload.l = flair;
+
+	const res = guildClient.post(payload);
+	if (!res) {
+		appendSystem(t("guild.send_failed"));
+		return;
+	}
+	if (!res.relays) appendSystem(t("guild.no_relays"));
+	// echo locally rather than waiting for a relay to hand our own message back
+	renderGuildMessage({ id: res.event.id, pubkey: identity.pk, createdAt: res.event.created_at, freq: focusedGuild.freq, payload });
+	jumpToBottom();
+}
+
+// tune in. Leaves any focused geohash channel first - the two are mutually
+// exclusive, and dropping focusedGeo is also what silences presence announcements
+// (broadcastPresence early-returns without one), so tuning in never leaks that
+// you're here.
+function focusGuild(g) {
+	focusedGuild = g;
+	focusedGeo = null;
+	closeNotes();
+	closeUsers();
+	closeGuildGate();
+	suggest.hide();
+	ensureGuildClient().open(g);
+	updatePlaceholder();
+	updateFocusedUserCount();
+	updateNotesButton();
+	renderTopbar();
+	rerenderTerminal();
+	appendSystem(t("guild.joined", { name: g.name }));
+}
+
+function leaveGuild() {
+	if (!focusedGuild) return;
+	focusedGuild = null;
+	guildClient?.close();
+	updatePlaceholder();
+	updateNotesButton();
+	renderTopbar();
+	rerenderTerminal();
+}
+
+// derive + join. "create" and "join" are the same operation: there is no registry,
+// so you either derive the right frequency or you're simply somewhere else.
+async function joinGuild(rawName, password) {
+	const name = normalizeGuildName(rawName);
+	if (!name) {
+		appendSystem(t("guild.need_name"));
+		return;
+	}
+	guildEnter.disabled = true;
+	try {
+		const g = await deriveGuild(name, password);
+		// re-joining an existing guild with a different password is a DIFFERENT
+		// frequency, so key on that rather than on the name.
+		const existing = joinedGuilds.findIndex((x) => x.freq === g.freq);
+		if (existing >= 0) joinedGuilds[existing] = g;
+		else joinedGuilds.unshift(g);
+		joinedGuilds = joinedGuilds.slice(0, 50);
+		saveGuilds();
+		focusGuild(g);
+	} catch {
+		appendSystem(t("guild.derive_failed"));
+	} finally {
+		guildEnter.disabled = false;
+	}
+}
+
+function forgetGuild(freq) {
+	joinedGuilds = joinedGuilds.filter((g) => g.freq !== freq);
+	saveGuilds();
+	if (focusedGuild && focusedGuild.freq === freq) leaveGuild();
+	renderGuildList();
+}
+
+function renderGuildList() {
+	if (!joinedGuilds.length) {
+		guildListEl.innerHTML = `<div class="notesStatus">${escapeHtml(t("guild.none"))}</div>`;
+		return;
+	}
+	guildListEl.innerHTML = joinedGuilds
+		.map(
+			(g) =>
+				`<div class="guildRow" data-guild="${escapeHtml(g.freq)}">` +
+				// clipped here rather than by css ellipsis so long names truncate with
+				// the same "..." the rest of the app uses
+				`<span class="guildName">${escapeHtml(clipText(g.name, 24))}</span>` +
+				`<span class="guildFreq">${escapeHtml(g.freq.slice(0, 8))}</span>` +
+				`<button type="button" class="guildForget" data-guild-forget="${escapeHtml(g.freq)}">${escapeHtml(t("guild.forget"))}</button>` +
+				`</div>`,
+		)
+		.join("");
+}
+
+function openGuildGate() {
+	closeUsers();
+	guildNameInput.value = "";
+	guildPassInput.value = "";
+	guildWarn.hidden = true;
+	renderGuildList();
+	guildGate.classList.add("show");
+	setTimeout(() => guildNameInput.focus(), 0);
+}
+
+function closeGuildGate() {
+	guildGate.classList.remove("show");
+}
 
 function ensureNotesClient() {
 	if (!notesClient) {
@@ -3593,6 +3813,10 @@ dmInput.addEventListener("keydown", (e) => {
 // opens the user list, tapping anywhere else (incl. [EXIT]) leaves the channel.
 // In global view it's the settings entry point.
 statusEl.addEventListener("click", (e) => {
+	if (focusedGuild) {
+		leaveGuild();
+		return;
+	}
 	if (!focusedGeo) {
 		openSettings();
 		return;
@@ -3716,6 +3940,30 @@ document.addEventListener("click", (e) => {
 	if (!mediaMenu.hidden && !mediaMenu.contains(e.target) && !mediaBtn.contains(e.target)) toggleMediaMenu(false);
 });
 usersNotes.addEventListener("click", openNotes);
+usersGuilds.addEventListener("click", openGuildGate);
+guildClose.addEventListener("click", closeGuildGate);
+// a password field with nothing in it is the one case worth warning about, so the
+// notice appears as soon as there's a name but no secret.
+const syncGuildWarn = () => {
+	guildWarn.hidden = !guildNameInput.value.trim() || !!guildPassInput.value;
+};
+guildNameInput.addEventListener("input", syncGuildWarn);
+guildPassInput.addEventListener("input", syncGuildWarn);
+guildForm.addEventListener("submit", (e) => {
+	e.preventDefault();
+	joinGuild(guildNameInput.value, guildPassInput.value);
+});
+guildListEl.addEventListener("click", (e) => {
+	const forget = e.target.closest("[data-guild-forget]");
+	if (forget) {
+		forgetGuild(forget.dataset.guildForget);
+		return;
+	}
+	const row = e.target.closest("[data-guild]");
+	if (!row) return;
+	const g = joinedGuilds.find((x) => x.freq === row.dataset.guild);
+	if (g) focusGuild(g);
+});
 notesClose.addEventListener("click", closeNotes);
 notesDraft.addEventListener("click", (e) => {
 	e.stopPropagation();
@@ -4606,6 +4854,11 @@ function bootSequence() {
 })();
 
 function updatePlaceholder() {
+	if (focusedGuild) {
+		chatInput.placeholder = t("guild.placeholder", { name: clipText(focusedGuild.name, 16) });
+		updateSendLabel();
+		return;
+	}
 	chatInput.placeholder = focusedGeo
 		? t("composer.placeholder_focused", { geo: focusedGeo })
 		: t("composer.placeholder_global");
@@ -4979,6 +5232,16 @@ function send() {
 		const geo = pendingReply.geo;
 		cancelReply();
 		transmit(prefix + body, geo);
+		return;
+	}
+
+	// tuned into a guild: everything you type goes there, sealed. No channel
+	// parsing - a guild is a closed room, not a place you can address out of.
+	if (focusedGuild) {
+		const body = chatInput.value.trim();
+		chatInput.value = "";
+		suggest.hide();
+		if (body) guildSend(body);
 		return;
 	}
 

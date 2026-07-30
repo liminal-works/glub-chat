@@ -499,19 +499,23 @@ textarea {
    so the text looks like water running over it. Overrides animation-name, so the
    reduced-motion block disables this selector by name too. */
 .flair-rain .fmtRainbow {
-	/* px stops with a fixed 26px period, so the pattern tiles seamlessly and the
-	   scroll can be expressed in the same unit (a percentage background-position
-	   resolves against the box, which is what made the first attempt run backwards). */
-	background-image: repeating-linear-gradient(
+	/* One period per TILE. A repeating-gradient at background-size:auto is sized to
+	   the element, so its last repeat is cut wherever the box ends and the next tile
+	   restarts mid-period - the seam that made the scroll snap back. Sizing the tile
+	   to exactly the 26px period instead (first and last stop the same colour) means
+	   the tiles butt up perfectly, and a 26px scroll lands exactly one tile along:
+	   a true seamless loop. */
+	background-image: linear-gradient(
 		180deg,
-		#7f9bb5 0px,
-		#b9d3e6 6px,
-		#eaf4ff 11px,
-		#cfe4f5 16px,
-		#9fc0d8 21px,
-		#7f9bb5 26px
+		#7f9bb5 0%,
+		#b9d3e6 23%,
+		#eaf4ff 42%,
+		#cfe4f5 62%,
+		#9fc0d8 81%,
+		#7f9bb5 100%
 	);
-	background-size: auto;
+	background-size: 100% 26px;
+	background-repeat: repeat;
 	animation: fmtRainText var(--rain-text-dur, 3.2s) linear var(--rain-text-delay, 0s) infinite;
 	text-decoration-color: #cfe4f5;
 }
@@ -601,9 +605,11 @@ textarea {
 	margin-right: 4px;
 }
 
-/* fire: a bonfire under a night sky. The glow HUFFS rather than pulses - a smooth
-   sine reads as a machine breathing, so the keyframes surge fast and fall away
-   slowly at uneven intervals, the way a fire catches and settles. Two independent
+/* fire: a bonfire under a night sky. The glow fades HORIZONTALLY (as lightning's
+   does): a vertical wash reads as a bevel once rows stack up, giving the whole log
+   an unintended 3d-button look. It also HUFFS rather than pulses - a smooth sine
+   reads as a machine breathing, so the keyframes surge fast and fall away slowly at
+   uneven intervals, the way a fire catches and settles. Two independent
    particle fields rise off the bottom edge: bright embers straight off the flame
    (::after) and slower, wider-wobbling ash that snuffs out partway up (.flairFx).
    Both corkscrew instead of travelling straight, and every value - the huff's
@@ -613,7 +619,7 @@ textarea {
    spark: each field is one box-shadow-cloned dot. */
 .flair-fire::before {
 	inset: 0;
-	background: linear-gradient(to top, rgba(255, 96, 0, 0.24), rgba(255, 150, 40, 0.06) 55%, transparent);
+	background: linear-gradient(90deg, rgba(255, 96, 0, 0.24), rgba(255, 150, 40, 0.07) 60%, transparent);
 	animation: flairFireGlow var(--fire-glow-dur, 3.4s) ease-in-out var(--fire-glow-delay, 0s) infinite;
 }
 
@@ -983,14 +989,15 @@ textarea {
 	}
 }
 
-/* rain: the first flair that moves DOWNWARD. An overcast wash sits behind a wet
-   gleam along the bottom edge, and individual drops fall through the row on their
-   own timings. Each drop is also its own ripple: at the end of its fall it flattens
+/* rain: the first flair that moves DOWNWARD. The overcast wash fades horizontally
+   like the others - the motion is what carries the direction here, and a vertical
+   wash would bevel every row - while individual drops fall through on their own
+   timings. Each drop is also its own ripple: at the end of its fall it flattens
    and spreads from its foot, so every splash belongs to a real drop instead of
    being a decorative ring on the edge. Rare squalls come from the ticker in app.js. */
 .flair-rain::before {
 	inset: 0;
-	background: linear-gradient(180deg, rgba(120, 160, 195, 0.2), rgba(90, 130, 165, 0.07) 60%, transparent);
+	background: linear-gradient(90deg, rgba(120, 160, 195, 0.22), rgba(90, 130, 165, 0.07) 60%, transparent);
 	animation: flairRainHaze var(--rain-haze-dur, 7s) ease-in-out var(--rain-haze-delay, 0s) infinite;
 }
 

@@ -116,11 +116,15 @@ export function lightningStrikeMarkup(w, h) {
 	}
 	// the flash sits under the bolt so a strike lights the whole row, not just the
 	// path - that's what makes it read as lightning rather than a drawn squiggle.
+	// Wrapped in one node so a caller can APPEND and remove it: the rain flair keeps
+	// its drops in the same layer, and replacing the layer's contents would wipe them.
 	return (
+		`<span class="strike">` +
 		`<span class="boltFlash"></span>` +
 		`<svg class="boltSvg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" aria-hidden="true">` +
 		`<polyline class="boltGlow" points="${main}"/><polyline class="boltCore" points="${main}"/>${fork}` +
-		`</svg>`
+		`</svg>` +
+		`</span>`
 	);
 }
 
@@ -200,21 +204,25 @@ const DROP_MAX = 10;
 export function rainDropMarkup() {
 	const count = DROP_MIN + ((Math.random() * (DROP_MAX - DROP_MIN + 1)) | 0);
 	// one wind direction for the whole line, so the shower slants together
-	const lean = rnd(-9, 9);
+	const lean = rnd(-11, 11);
 	let html = "";
 	for (let i = 0; i < count; i++) {
+		const drift = lean * rnd(0.7, 1.3);
+		// the streak is tilted to match the direction it's actually travelling -
+		// a vertical dash drifting sideways reads as sliding, not falling
+		const tilt = Math.max(-17, Math.min(17, drift * 1.6));
 		const style = [
 			`--d-x:${Math.round(rnd(2, 96))}%`,
-			`--d-len:${rnd(4, 9).toFixed(1)}px`,
+			`--d-len:${rnd(5, 10).toFixed(1)}px`,
 			`--d-tint:${pick(RAIN_TINTS)}`,
-			`--d-op:${rnd(0.42, 0.92).toFixed(2)}`,
-			`--d-lean:${(lean * rnd(0.7, 1.3)).toFixed(1)}px`,
-			`--d-splash:${rnd(2.2, 4.6).toFixed(1)}`,
-			// rain is fast, so periods are short and turnover is high; the random
-			// negative delay is what scatters the spawn moments into a real shower
-			// instead of a marching row.
-			`--d-fall:${rnd(0.62, 1.45).toFixed(2)}s`,
-			`--d-delay:-${rnd(0, 1.6).toFixed(2)}s`,
+			`--d-op:${rnd(0.45, 0.95).toFixed(2)}`,
+			`--d-lean:${drift.toFixed(1)}px`,
+			`--d-tilt:${tilt.toFixed(1)}deg`,
+			`--d-ring:${rnd(7, 13).toFixed(1)}px`,
+			// gravity is quick: short periods and high turnover. The random negative
+			// delay scatters the spawn moments into a real shower rather than a row.
+			`--d-fall:${rnd(0.34, 0.72).toFixed(2)}s`,
+			`--d-delay:-${rnd(0, 1.2).toFixed(2)}s`,
 		].join(";");
 		html += `<span class="drop" style="${style}"></span>`;
 	}
@@ -276,8 +284,6 @@ export function flairVars(raw) {
 			"--rain-haze-dur": `${rnd(5, 9.5).toFixed(2)}s`,
 			"--rain-haze-delay": `-${rnd(0, 8).toFixed(2)}s`,
 			"--rain-haze-peak": rnd(0.55, 0.9).toFixed(2),
-			"--rain-gleam-dur": `${rnd(2.8, 5.5).toFixed(2)}s`,
-			"--rain-gleam-delay": `-${rnd(0, 5).toFixed(2)}s`,
 			"--rain-text-dur": `${rnd(2.4, 4.6).toFixed(2)}s`,
 			"--rain-text-delay": `-${rnd(0, 4).toFixed(2)}s`,
 		};

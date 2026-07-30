@@ -4462,8 +4462,11 @@ function lightningStrike(el) {
 	if (typeof el.animate !== "function") return;
 	const row = el.parentElement;
 	if (!row) return;
-	el.innerHTML = lightningStrikeMarkup(row.clientWidth, row.clientHeight);
-	const anim = el.animate(
+	// appended, not assigned: the rain flair keeps its drops in this same layer, so
+	// replacing its contents would empty the shower.
+	el.insertAdjacentHTML("beforeend", lightningStrikeMarkup(row.clientWidth, row.clientHeight));
+	const strike = el.lastElementChild;
+	const anim = strike.animate(
 		[
 			{ opacity: 0 },
 			{ opacity: 1, offset: 0.12 },
@@ -4474,9 +4477,8 @@ function lightningStrike(el) {
 		],
 		{ duration: 170 + Math.random() * 130, easing: "linear" },
 	);
-	anim.onfinish = () => {
-		el.innerHTML = "";
-	}; // leave nothing behind between strikes
+	anim.onfinish = () => strike.remove(); // leave nothing behind between strikes
+	anim.oncancel = () => strike.remove();
 }
 
 // a squall sweeping the row. Unlike the lightning strike this must NOT clobber the
@@ -4522,6 +4524,7 @@ function pickFxTarget(selector) {
 // rates stay per-effect, and the tick costs nothing when no flaired line is up.
 const STRIKE_CHANCE = 0.075; // per tick -> roughly one bolt every ~20s on screen
 const GUST_CHANCE = 0.11; // squalls are weather, not events - a little more frequent
+const RAIN_BOLT_CHANCE = 0.03; // ~one thunderclap every ~50s of rain on screen
 setInterval(() => {
 	if (document.hidden) return;
 	if (window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
@@ -4536,6 +4539,13 @@ setInterval(() => {
 	if (Math.random() < GUST_CHANCE) {
 		const el = pickFxTarget(".flair-rain > .flairFx");
 		if (el) rainGust(el);
+	}
+	// a downpour occasionally turns into a thunderstorm: the same procedural bolt the
+	// lightning flair uses, but rarer here - it's a surprise inside the rain, not the
+	// point of it.
+	if (Math.random() < RAIN_BOLT_CHANCE) {
+		const el = pickFxTarget(".flair-rain > .flairFx");
+		if (el) lightningStrike(el);
 	}
 }, SHOOT_TICK_MS);
 

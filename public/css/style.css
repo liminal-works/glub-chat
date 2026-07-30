@@ -499,20 +499,26 @@ textarea {
    so the text looks like water running over it. Overrides animation-name, so the
    reduced-motion block disables this selector by name too. */
 .flair-rain .fmtRainbow {
+	/* px stops with a fixed 26px period, so the pattern tiles seamlessly and the
+	   scroll can be expressed in the same unit (a percentage background-position
+	   resolves against the box, which is what made the first attempt run backwards). */
 	background-image: repeating-linear-gradient(
 		180deg,
-		#7f9bb5 0%,
-		#b9d3e6 10%,
-		#eaf4ff 20%,
-		#cfe4f5 30%,
-		#9fc0d8 40%,
-		#7f9bb5 48%
+		#7f9bb5 0px,
+		#b9d3e6 6px,
+		#eaf4ff 11px,
+		#cfe4f5 16px,
+		#9fc0d8 21px,
+		#7f9bb5 26px
 	);
-	background-size: 100% 200%;
+	background-size: auto;
 	animation: fmtRainText var(--rain-text-dur, 3.2s) linear var(--rain-text-delay, 0s) infinite;
 	text-decoration-color: #cfe4f5;
 }
 
+/* INCREASING background-position-y slides the image down the box, so the colours
+   travel downward with the rain. (Going 0 -> 100% instead scrolls the viewport down
+   THROUGH the image, which makes the pattern appear to climb - the bug this fixes.) */
 @keyframes fmtRainText {
 	0% {
 		background-position: 0 0;
@@ -522,7 +528,7 @@ textarea {
 		filter: brightness(1.16);
 	}
 	100% {
-		background-position: 0 200%;
+		background-position: 0 26px;
 		filter: brightness(0.95);
 	}
 }
@@ -988,17 +994,6 @@ textarea {
 	animation: flairRainHaze var(--rain-haze-dur, 7s) ease-in-out var(--rain-haze-delay, 0s) infinite;
 }
 
-/* the wet ground: a thin bright smear along the bottom that breathes, so impacts
-   land on something rather than in mid-air */
-.flair-rain::after {
-	left: 0;
-	right: 0;
-	bottom: 0;
-	height: 2px;
-	background: linear-gradient(90deg, transparent, rgba(207, 228, 245, 0.45) 25%, rgba(234, 244, 255, 0.6) 50%, rgba(207, 228, 245, 0.4) 75%, transparent);
-	animation: flairRainGleam var(--rain-gleam-dur, 4s) ease-in-out var(--rain-gleam-delay, 0s) infinite;
-}
-
 /* `container-type: size` turns the layer into a query container, so a drop can fall
    `100cqh` - the row's own height - and land on the bottom edge whether the message
    is one line or wrapped to four. (Safe here: the stylesheet already requires
@@ -1009,55 +1004,79 @@ textarea {
 	container-type: size;
 }
 
+/* a drop is a thin streak, TILTED to match the direction it's actually travelling -
+   a vertical dash drifting sideways reads as sliding rather than falling. The fall
+   itself is eased IN, so it accelerates the way gravity does instead of gliding at
+   a constant speed. */
 .flair-rain .drop {
 	position: absolute;
 	top: 0;
 	left: var(--d-x, 40%);
-	width: 1.5px;
+	width: 1.4px;
 	height: var(--d-len, 7px);
 	border-radius: 1px;
 	background: linear-gradient(180deg, transparent, var(--d-tint, #cfe4f5));
 	opacity: 0;
-	/* the splash spreads from the drop's foot, not its middle */
-	transform-origin: 50% 100%;
-	animation:
-		rainFall var(--d-fall, 1s) linear var(--d-delay, 0s) infinite,
-		rainSplash var(--d-fall, 1s) linear var(--d-delay, 0s) infinite;
+	rotate: var(--d-tilt, 7deg);
+	animation: rainFall var(--d-fall, 0.5s) cubic-bezier(0.36, 0, 0.78, 0.34) var(--d-delay, 0s) infinite;
+}
+
+/* the ripple: the drop's OWN pseudo-element, so it costs no extra node and lands
+   exactly where its drop does (it rides the same translate). Counter-rotated so the
+   ring lies flat on the ground even though the streak above it is tilted, and timed
+   to bloom at 80% - the instant the fall keyframe puts the drop on the bottom edge. */
+.flair-rain .drop::after {
+	content: "";
+	position: absolute;
+	left: 50%;
+	bottom: -1px;
+	width: var(--d-ring, 9px);
+	height: calc(var(--d-ring, 9px) * 0.36);
+	margin-left: calc(var(--d-ring, 9px) / -2);
+	border: 1px solid var(--d-tint, #cfe4f5);
+	border-radius: 50%;
+	rotate: calc(var(--d-tilt, 7deg) * -1);
+	opacity: 0;
+	animation: rainRipple var(--d-fall, 0.5s) ease-out var(--d-delay, 0s) infinite;
 }
 
 @keyframes rainFall {
 	0% {
-		translate: 0 -10px;
+		translate: 0 -12px;
 		opacity: 0;
 	}
-	8% {
+	10% {
 		opacity: var(--d-op, 0.8);
 	}
-	82% {
-		translate: var(--d-lean, 2px) calc(100cqh - 2px);
+	80% {
+		translate: var(--d-lean, 3px) calc(100cqh - 2px);
 		opacity: var(--d-op, 0.8);
 	}
-	90% {
-		opacity: calc(var(--d-op, 0.8) * 0.55);
+	/* the streak dies on impact so what you see next is the ring, not a dash sitting
+	   on the floor */
+	87% {
+		translate: var(--d-lean, 3px) calc(100cqh - 2px);
+		opacity: 0;
 	}
 	100% {
-		translate: var(--d-lean, 2px) calc(100cqh - 2px);
+		translate: var(--d-lean, 3px) calc(100cqh - 2px);
 		opacity: 0;
 	}
 }
 
-/* in phase with the fall: untouched all the way down, then flattened out along the
-   ground the instant it lands */
-@keyframes rainSplash {
+@keyframes rainRipple {
 	0%,
-	82% {
-		transform: scale(1, 1);
+	80% {
+		transform: scale(0.2);
+		opacity: 0;
 	}
-	87% {
-		transform: scale(var(--d-splash, 3), 0.2);
+	85% {
+		transform: scale(0.55);
+		opacity: 0.9;
 	}
 	100% {
-		transform: scale(calc(var(--d-splash, 3) * 1.6), 0.1);
+		transform: scale(2.1);
+		opacity: 0;
 	}
 }
 
@@ -1068,16 +1087,6 @@ textarea {
 	}
 	50% {
 		opacity: var(--rain-haze-peak, 0.8);
-	}
-}
-
-@keyframes flairRainGleam {
-	0%,
-	100% {
-		opacity: 0.3;
-	}
-	50% {
-		opacity: 0.75;
 	}
 }
 
@@ -1120,13 +1129,19 @@ textarea {
 	inset: 0;
 }
 
-.flair-lightning > .flairFx .boltFlash {
+.flairFx .strike {
+	position: absolute;
+	inset: 0;
+	opacity: 0;
+}
+
+.flairFx .boltFlash {
 	position: absolute;
 	inset: 0;
 	background: radial-gradient(150% 220% at 50% 50%, rgba(240, 248, 255, 0.92), rgba(160, 205, 255, 0.4) 45%, transparent 78%);
 }
 
-.flair-lightning > .flairFx .boltSvg {
+.flairFx .boltSvg {
 	position: absolute;
 	inset: 0;
 	display: block;

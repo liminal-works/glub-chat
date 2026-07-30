@@ -36,14 +36,16 @@ export function createSuggest(boxEl) {
 		if (activeEl) activeEl.scrollIntoView({ block: "nearest" });
 	}
 
-	// autoHighlight:false starts with no row selected, so Enter commits what the
-	// user typed instead of the nearest suggestion (the channel-join picker wants
-	// this - typing "#s" must join "#s", not the popular "#st" it suggests). the
-	// user can still arrow onto a row or tap one. mentions/commands leave it on.
-	function show(nextItems, pick, { autoHighlight = true } = {}) {
+	// A list always opens with NO row selected, so Enter commits exactly what the
+	// user typed rather than whatever was suggested - typing "#s" joins "#s", not the
+	// popular "#st" above it, and "/flair f" runs as written. Picking is explicit:
+	// Tab completes the nearest match, a tap takes that row, or arrow onto one first.
+	// This keeps Enter meaning one thing everywhere instead of changing behaviour
+	// depending on whether a popup happens to be open.
+	function show(nextItems, pick) {
 		items = nextItems;
 		onPick = pick;
-		active = autoHighlight ? 0 : -1;
+		active = -1;
 		boxEl.hidden = false;
 		render();
 	}
@@ -89,8 +91,8 @@ export function createSuggest(boxEl) {
 				move(-1);
 				return true;
 			case "Enter":
-				// nothing highlighted (auto-highlight off) -> don't consume it; let the
-				// caller commit what was typed (e.g. join the exact channel you wrote).
+				// nothing highlighted (the default) -> don't consume it; the caller
+				// commits what was typed. Only an explicitly arrowed-onto row is picked.
 				if (active < 0) return false;
 				e.preventDefault();
 				pick(active);

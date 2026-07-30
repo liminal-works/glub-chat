@@ -13,6 +13,7 @@ export default {
 		input_placeholder: "alias",
 		enter: "enter",
 		settings: "[ settings ]",
+		close: "[ close ]",
 		guilds: "[ guilds ]",
 	},
 

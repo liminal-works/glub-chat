@@ -15,6 +15,7 @@ export default {
 		input_placeholder: "उपनाम",
 		enter: "प्रवेश",
 		settings: "[ सेटिंग्स ]",
+		close: "[ बंद करें ]",
 		guilds: "[ गिल्ड ]",
 	},
 

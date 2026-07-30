@@ -15,6 +15,7 @@ export default {
 		input_placeholder: "псевдоним",
 		enter: "войти",
 		settings: "[ настройки ]",
+		close: "[ закрыть ]",
 		guilds: "[ гильдии ]",
 	},
 

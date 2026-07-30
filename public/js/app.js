@@ -170,6 +170,7 @@ const settingsClose = document.getElementById("settingsClose");
 const settingsList = document.getElementById("settingsList");
 const settingsDesc = document.getElementById("settingsDesc");
 const nameGateSettings = document.getElementById("nameGateSettings");
+const nameGateClose = document.getElementById("nameGateClose");
 const usersGate = document.getElementById("usersGate");
 const usersTitle = document.getElementById("usersTitle");
 const usersLocation = document.getElementById("usersLocation");
@@ -1737,6 +1738,10 @@ let nameGateTyped = false;
 function openNameGate() {
 	nameInput.value = name || "";
 	updateNameHint();
+	// on first run this is a gate, not a panel: there's no name to fall back on, so
+	// there's nothing to close back to. Once you have one, reopening it is optional
+	// and dismissible.
+	nameGateClose.hidden = !name;
 	nameGate.classList.add("show");
 	if (!nameGateTyped) {
 		nameGateTyped = true;
@@ -3923,6 +3928,7 @@ settingsList.addEventListener("pointerdown", onSettingsInteract);
 settingsList.addEventListener("focusin", onSettingsInteract);
 // the name gate's own way into settings (more discoverable than the topbar)
 nameGateSettings.addEventListener("click", openSettings);
+nameGateClose.addEventListener("click", closeNameGate);
 
 usersClose.addEventListener("click", closeUsers);
 usersGate.addEventListener("click", (e) => {

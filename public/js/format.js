@@ -149,7 +149,14 @@ function applyCode(state, c) {
 
 function styleFor(state) {
 	let style = "";
-	if (!state.rainbow && state.color) style += `color:${state.color};`; // rainbow's color comes from css
+	// -webkit-text-fill-color alongside color, because a colored run can end up
+	// NESTED inside a gradient run - a "/format ...&g{msg}" template wraps the whole
+	// message in .fmtRainbow, which paints glyphs by setting the fill to transparent.
+	// That property inherits and outranks a descendant's `color`, so without matching
+	// it here an explicitly-coloured "&chello" inside such a template would render in
+	// the template's gradient instead of red. Uncoloured runs still inherit the
+	// gradient, which is what makes "&g{msg}" work in the first place.
+	if (!state.rainbow && state.color) style += `color:${state.color};-webkit-text-fill-color:${state.color};`;
 	if (state.bold) style += "font-weight:700;";
 	if (state.italic) style += "font-style:italic;";
 	const deco = [];

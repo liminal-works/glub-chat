@@ -1029,7 +1029,9 @@ textarea {
 	content: "";
 	position: absolute;
 	left: 50%;
-	bottom: -1px;
+	/* centred ON the foot (half the ellipse's own height), so the ring expands
+	   symmetrically around the impact point rather than hanging below it */
+	bottom: calc(var(--d-ring, 9px) * -0.18);
 	width: var(--d-ring, 9px);
 	height: calc(var(--d-ring, 9px) * 0.36);
 	margin-left: calc(var(--d-ring, 9px) / -2);
@@ -1048,18 +1050,20 @@ textarea {
 	10% {
 		opacity: var(--d-op, 0.8);
 	}
+	/* the translate moves the streak's TOP, so its own length is subtracted to put
+	   its FOOT on the ground - otherwise the ring lands below the row and clips. */
 	80% {
-		translate: var(--d-lean, 3px) calc(100cqh - 2px);
+		translate: var(--d-lean, 3px) calc(100cqh - var(--d-len, 7px) - 6px);
 		opacity: var(--d-op, 0.8);
 	}
 	/* the streak dies on impact so what you see next is the ring, not a dash sitting
 	   on the floor */
 	87% {
-		translate: var(--d-lean, 3px) calc(100cqh - 2px);
+		translate: var(--d-lean, 3px) calc(100cqh - var(--d-len, 7px) - 6px);
 		opacity: 0;
 	}
 	100% {
-		translate: var(--d-lean, 3px) calc(100cqh - 2px);
+		translate: var(--d-lean, 3px) calc(100cqh - var(--d-len, 7px) - 6px);
 		opacity: 0;
 	}
 }

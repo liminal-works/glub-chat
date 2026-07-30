@@ -466,7 +466,18 @@ function setFlair(v) {
 // the same time - one chip, both halves of the look. The gradient needs no wiring
 // here: .fmtRainbow inside a .flair-* element is already retuned by the cascade.
 function flairChipHtml(f, label) {
-	return `<span class="${flairClass(f)} flairChip"><span class="fmtRainbow">${escapeHtml(label)}</span></span>`;
+	// flairs whose particles live in the fx layer (fire's embers, rain's drops) need
+	// that layer in the preview too - a chip without it shows the ambient wash and
+	// none of the motion the flair is actually about. Flairs whose fx is a one-shot
+	// (stars, lightning) return "" and get no layer, since their ambient look is
+	// entirely in the pseudo-elements already.
+	const fx = flairFxInner(f);
+	return (
+		`<span class="${flairClass(f)} flairChip">` +
+		`<span class="fmtRainbow">${escapeHtml(label)}</span>` +
+		(fx ? `<span class="flairFx" aria-hidden="true">${fx}</span>` : "") +
+		`</span>`
+	);
 }
 
 // the difficulty we mine OUTBOUND events to: the interop baseline (POW_DIFFICULTY),

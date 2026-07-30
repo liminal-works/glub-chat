@@ -44,9 +44,9 @@ export function flairClass(raw) {
 const rnd = (min, max) => min + Math.random() * (max - min);
 const pick = (arr) => arr[(Math.random() * arr.length) | 0];
 
-// flairs that want an extra one-shot layer in the markup (the stars flair's
-// shooting star, fired by a shared ticker - see app.js).
-const FX_FLAIRS = new Set(["stars"]);
+// flairs that want an extra one-shot layer in the markup, fired by a shared ticker
+// (see app.js): the stars flair's shooting star, the lightning flair's strike.
+const FX_FLAIRS = new Set(["stars", "lightning"]);
 
 export function flairHasFx(raw) {
 	return FX_FLAIRS.has(flairName(raw));
@@ -69,11 +69,68 @@ function starField(count, step, jitterY) {
 	return out.join(", ");
 }
 
+// --- procedural lightning ------------------------------------------------------
+// A bolt is generated as SVG markup on the fly - a jagged polyline down the row
+// with a soft wide stroke under a bright thin core, plus a fork about half the
+// time. No assets and no canvas: it's a string, built only at the moment a strike
+// fires and dropped from the DOM again when the animation ends. Every bolt is a
+// different shape.
+export function lightningStrikeMarkup(w, h) {
+	const width = Math.max(60, Math.round(w));
+	const height = Math.max(8, Math.round(h));
+	const jitter = width * 0.055;
+	const segs = 3 + ((Math.random() * 3) | 0);
+	const pts = [];
+	let x = width * (0.12 + Math.random() * 0.76);
+	for (let i = 0; i <= segs; i++) {
+		const y = (height / segs) * i;
+		pts.push(`${x.toFixed(1)},${y.toFixed(1)}`);
+		x = Math.max(2, Math.min(width - 2, x + (Math.random() * 2 - 1) * jitter));
+	}
+	const main = pts.join(" ");
+	// a fork peels off a middle vertex and dies partway down
+	let fork = "";
+	if (Math.random() < 0.55 && pts.length > 2) {
+		const i = 1 + ((Math.random() * (pts.length - 2)) | 0);
+		const [fx, fy] = pts[i].split(",").map(Number);
+		const dir = Math.random() < 0.5 ? -1 : 1;
+		const f = [
+			`${fx.toFixed(1)},${fy.toFixed(1)}`,
+			`${(fx + dir * jitter * 1.6).toFixed(1)},${Math.min(height, fy + height * 0.22).toFixed(1)}`,
+			`${(fx + dir * jitter * 2.4).toFixed(1)},${Math.min(height, fy + height * 0.44).toFixed(1)}`,
+		].join(" ");
+		fork = `<polyline class="boltGlow" points="${f}"/><polyline class="boltCore" points="${f}"/>`;
+	}
+	// the flash sits under the bolt so a strike lights the whole row, not just the
+	// path - that's what makes it read as lightning rather than a drawn squiggle.
+	return (
+		`<span class="boltFlash"></span>` +
+		`<svg class="boltSvg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" aria-hidden="true">` +
+		`<polyline class="boltGlow" points="${main}"/><polyline class="boltCore" points="${main}"/>${fork}` +
+		`</svg>`
+	);
+}
+
 // the CSS custom properties a flaired line wants, as { "--name": value }. Unknown
-// or fx-less flairs get {} - the stylesheet carries fallbacks for every var, so a
+// or var-less flairs get {} - the stylesheet carries fallbacks for every var, so a
 // line (or a /flair preview chip) with no vars set still renders correctly.
 export function flairVars(raw) {
-	if (flairName(raw) !== "stars") return {};
+	const n = flairName(raw);
+	// a storm is never in sync with itself: every line gets its own flash cadence,
+	// phase, brightness and origin, so the room flickers unevenly like real weather.
+	if (n === "lightning") {
+		return {
+			"--lit-haze-dur": `${rnd(4.5, 9).toFixed(2)}s`,
+			"--lit-haze-delay": `-${rnd(0, 6).toFixed(2)}s`,
+			"--lit-flash-dur": `${rnd(6.5, 14).toFixed(2)}s`,
+			"--lit-flash-delay": `-${rnd(0, 12).toFixed(2)}s`,
+			"--lit-flash-peak": rnd(0.18, 0.42).toFixed(2), // the faint sheet-lightning glow
+			"--lit-flash-x": `${Math.round(rnd(12, 88))}%`, // where the glow is centred
+			"--lit-text-dur": `${rnd(5.5, 9.5).toFixed(2)}s`, // the &g wildcard's flicker
+			"--lit-text-delay": `-${rnd(0, 8).toFixed(2)}s`,
+		};
+	}
+	if (n !== "stars") return {};
 	return {
 		// two independent fields: a denser one up top, a sparser one lower down
 		"--star-a-field": starField(7, 46, 11),

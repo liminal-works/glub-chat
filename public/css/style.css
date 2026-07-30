@@ -404,19 +404,63 @@ textarea {
 	text-decoration-color: #ffb057;
 }
 
+/* lightning's &g doesn't scroll - it STRIKES. A drifting gradient would fight the
+   flair's whole idea, so the text sits dim and storm-blue and flares white on the
+   same uneven double-tap cadence as the row's flashes (randomized per line via
+   --lit-text-*). The gradient still creeps a little so the glow isn't static.
+   Overriding animation-name here would outrank the reduced-motion rule below, so
+   that block re-disables this selector explicitly. */
 .flair-lightning .fmtRainbow {
 	background-image: repeating-linear-gradient(
 		90deg,
-		#4a5bd6 0%,
-		#5b8dff 8%,
-		#9fd0ff 16%,
+		#5b8dff 0%,
+		#9fd0ff 12%,
 		#eaf6ff 24%,
-		#ffffff 32%,
-		#7fb3ff 40%,
-		#4a5bd6 48%
+		#ffffff 33%,
+		#9fd0ff 42%,
+		#5b8dff 48%
 	);
-	animation-duration: 2.2s; /* snappiest of the three - electric, not lazy */
+	animation: fmtStormText var(--lit-text-dur, 7s) linear var(--lit-text-delay, 0s) infinite;
 	text-decoration-color: #cde8ff;
+}
+
+@keyframes fmtStormText {
+	0%,
+	100% {
+		background-position: 0 0;
+		filter: brightness(0.62);
+	}
+	7% {
+		filter: brightness(0.62);
+	}
+	8.5% {
+		filter: brightness(1.85);
+	}
+	10% {
+		filter: brightness(0.7);
+	}
+	11.5% {
+		filter: brightness(1.4);
+	}
+	14%,
+	48% {
+		filter: brightness(0.62);
+	}
+	49.5% {
+		filter: brightness(2.1);
+	}
+	51% {
+		filter: brightness(0.72);
+	}
+	52.5% {
+		filter: brightness(1.6);
+	}
+	56% {
+		filter: brightness(0.62);
+	}
+	99.9% {
+		background-position: 140% 0;
+	}
 }
 
 .flair-stars .fmtRainbow {
@@ -530,53 +574,82 @@ textarea {
 	}
 }
 
-/* lightning: a cool electric wash that flickers, plus a bolt sweeping the row on
-   a long cycle - most of the timeline is deliberately idle so it reads as an
-   occasional strike rather than a loop. */
+/* lightning: a distant thunderstorm. No moving highlight - a sliding shine reads
+   as polished metal, not weather. Instead the row holds a slow-breathing blue haze
+   (the storm sky) under a flash layer whose timeline is mostly DEAD AIR punctuated
+   by sheet-lightning glows: each event is a double-tap flicker, one faint and one
+   noticeably brighter, washing most of the line for a split second. Every value -
+   cadence, phase, brightness, where the glow is centred - is randomized per line
+   in flair.js, so a screenful flickers unevenly like real weather rather than
+   pulsing in unison. Rare full strikes (bolt + whiteout) come from the ticker in
+   app.js, the same way shooting stars do. */
 .flair-lightning::before {
 	inset: 0;
-	background: linear-gradient(90deg, rgba(90, 150, 255, 0.18), rgba(150, 200, 255, 0.05) 60%, transparent);
-	animation: flairBoltFlicker 5.5s ease-in-out infinite;
+	background: linear-gradient(90deg, rgba(90, 150, 255, 0.2), rgba(150, 200, 255, 0.06) 60%, transparent);
+	animation: flairStormHaze var(--lit-haze-dur, 6s) ease-in-out var(--lit-haze-delay, 0s) infinite;
 }
 
 .flair-lightning::after {
 	inset: 0;
-	background: linear-gradient(100deg, transparent 42%, rgba(205, 232, 255, 0.9) 50%, transparent 58%);
-	transform: translate3d(-100%, 0, 0);
-	animation: flairBoltSweep 5.5s ease-in-out infinite;
+	/* a broad soft glow rather than a band, so a flash lights the row as a whole */
+	background: radial-gradient(
+		130% 190% at var(--lit-flash-x, 30%) 50%,
+		rgba(226, 240, 255, 0.85),
+		rgba(150, 200, 255, 0.28) 42%,
+		transparent 74%
+	);
+	opacity: 0;
+	animation: flairStormFlash var(--lit-flash-dur, 9s) linear var(--lit-flash-delay, 0s) infinite;
 }
 
-@keyframes flairBoltFlicker {
+/* the sky itself never sits still, but it never strobes either */
+@keyframes flairStormHaze {
 	0%,
-	74%,
 	100% {
-		opacity: 0.5;
+		opacity: 0.45;
 	}
-	78% {
-		opacity: 1;
-	}
-	81% {
-		opacity: 0.55;
-	}
-	84% {
-		opacity: 1;
-	}
-	88% {
-		opacity: 0.6;
+	50% {
+		opacity: 0.85;
 	}
 }
 
-@keyframes flairBoltSweep {
+/* two flash events per cycle, both double-tapped, separated by long silence - the
+   gap is the point: it's what makes the next one feel like weather. */
+@keyframes flairStormFlash {
 	0%,
-	74% {
-		transform: translate3d(-100%, 0, 0);
+	5% {
 		opacity: 0;
 	}
-	78% {
-		opacity: 1;
+	6.5% {
+		opacity: var(--lit-flash-peak, 0.3);
 	}
+	8% {
+		opacity: 0.04;
+	}
+	9.5% {
+		opacity: calc(var(--lit-flash-peak, 0.3) * 0.65);
+	}
+	12%,
+	46% {
+		opacity: 0;
+	}
+	47.5% {
+		opacity: calc(var(--lit-flash-peak, 0.3) * 1.75);
+	}
+	49% {
+		opacity: 0.06;
+	}
+	50.5% {
+		opacity: calc(var(--lit-flash-peak, 0.3) * 1.2);
+	}
+	52% {
+		opacity: 0.03;
+	}
+	53.5% {
+		opacity: calc(var(--lit-flash-peak, 0.3) * 0.5);
+	}
+	57%,
 	100% {
-		transform: translate3d(100%, 0, 0);
 		opacity: 0;
 	}
 }
@@ -715,17 +788,58 @@ textarea {
    random intervals, from a random spot, so it stays a blink-and-you-miss-it event
    rather than a loop. Parked invisible; the ticker drives it with a short
    transform+opacity animation the compositor owns. */
+/* the one-shot layer every fx flair shares; each flair styles its own inside it */
 .flairFx {
 	position: absolute;
+	pointer-events: none;
+	opacity: 0;
+	z-index: -1;
+}
+
+/* stars: the streak itself IS the layer */
+.flair-stars > .flairFx {
 	left: 0;
 	top: 0;
 	width: 44px;
 	height: 2px;
 	border-radius: 2px;
 	background: linear-gradient(90deg, rgba(255, 255, 255, 0) 0%, rgba(214, 234, 255, 0.35) 45%, #ffffff 100%);
-	opacity: 0;
-	pointer-events: none;
-	z-index: -1;
+}
+
+/* lightning: the layer spans the row and holds a generated bolt + its whiteout.
+   Empty (and invisible) until a strike fires, emptied again when it ends. */
+.flair-lightning > .flairFx {
+	inset: 0;
+}
+
+.flair-lightning > .flairFx .boltFlash {
+	position: absolute;
+	inset: 0;
+	background: radial-gradient(150% 220% at 50% 50%, rgba(240, 248, 255, 0.92), rgba(160, 205, 255, 0.4) 45%, transparent 78%);
+}
+
+.flair-lightning > .flairFx .boltSvg {
+	position: absolute;
+	inset: 0;
+	display: block;
+}
+
+/* wide soft stroke under a thin bright core - the cheap way to fake a glow
+   without a filter (which would cost a repaint every frame of the strike) */
+.boltGlow {
+	fill: none;
+	stroke: rgba(150, 200, 255, 0.85);
+	stroke-width: 3.4;
+	stroke-linejoin: round;
+	stroke-linecap: round;
+}
+
+.boltCore {
+	fill: none;
+	stroke: #ffffff;
+	stroke-width: 1.2;
+	stroke-linejoin: round;
+	stroke-linecap: round;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -739,6 +853,13 @@ textarea {
 	.flair-fire::after,
 	.flair-lightning::after {
 		opacity: 0;
+	}
+	/* lightning's &g sets animation-name at a higher specificity than the generic
+	   .fmtRainbow rule above, so it has to be switched off by name here - otherwise
+	   the storm flicker would keep running for reduced-motion readers. */
+	.flair-lightning .fmtRainbow {
+		animation: none;
+		filter: brightness(1);
 	}
 	.flair-stars::before,
 	.flair-stars::after {

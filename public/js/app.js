@@ -25,7 +25,7 @@ import { isProfane } from "./censor.js";
 import { fetchConditions, wmoDescribe, geocodePlace, parseLatLon } from "./weather.js";
 import { THEMES, themeNames, activeTheme, applyTheme, persistTheme, initTheme, hexToRgb } from "./themes.js";
 import { stripFormat, hasFormat, renderFormat } from "./format.js";
-import { FLAIRS, flairName, flairClass, flairVars, flairHasFx } from "./flair.js";
+import { FLAIRS, flairName, flairClass, flairVars, flairHasFx, lightningStrikeMarkup } from "./flair.js";
 
 // re-apply the persisted theme before anything renders (module scripts run
 // before first paint, so a saved theme doesn't flash bitchat green first).
@@ -4445,14 +4445,37 @@ function shootStar(el) {
 		{ duration: 420 + Math.random() * 280, easing: "cubic-bezier(.2,.65,.3,1)" },
 	);
 }
-setInterval(() => {
-	if (document.hidden) return;
-	if (Math.random() > SHOOT_CHANCE) return; // rare by design
-	const fx = terminal.querySelectorAll(".flair-stars > .flairFx");
-	if (!fx.length) return;
-	if (window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-	// prefer a line the reader can actually see, so a streak is never "spent" on
-	// something scrolled out of view; fall back to any if none are visible.
+// a full strike: a freshly generated bolt plus the whiteout that sells it. The
+// markup only exists for the ~200ms the strike lasts - built on demand, dropped on
+// finish - and the flare itself is a double-tap so it reads as a real discharge
+// rather than a fade. Rare on purpose: the storm's faint sheet flashes are the
+// constant, and this is the one that makes you look up.
+function lightningStrike(el) {
+	if (typeof el.animate !== "function") return;
+	const row = el.parentElement;
+	if (!row) return;
+	el.innerHTML = lightningStrikeMarkup(row.clientWidth, row.clientHeight);
+	const anim = el.animate(
+		[
+			{ opacity: 0 },
+			{ opacity: 1, offset: 0.12 },
+			{ opacity: 0.25, offset: 0.3 },
+			{ opacity: 0.9, offset: 0.46 },
+			{ opacity: 0.15, offset: 0.66 },
+			{ opacity: 0 },
+		],
+		{ duration: 170 + Math.random() * 130, easing: "linear" },
+	);
+	anim.onfinish = () => {
+		el.innerHTML = "";
+	}; // leave nothing behind between strikes
+}
+
+// pick a random fx layer for `selector`, preferring rows the reader can actually
+// see so an effect is never "spent" on something scrolled out of view.
+function pickFxTarget(selector) {
+	const fx = terminal.querySelectorAll(selector);
+	if (!fx.length) return null;
 	const top = terminal.scrollTop;
 	const bottom = top + terminal.clientHeight;
 	const visible = [...fx].filter((el) => {
@@ -4460,7 +4483,23 @@ setInterval(() => {
 		return row && row.offsetTop + row.offsetHeight > top && row.offsetTop < bottom;
 	});
 	const pool = visible.length ? visible : [...fx];
-	shootStar(pool[(Math.random() * pool.length) | 0]);
+	return pool[(Math.random() * pool.length) | 0];
+}
+
+// one timer drives every flair's rare one-shot effect. Each rolls independently, so
+// rates stay per-effect, and the tick costs nothing when no flaired line is up.
+const STRIKE_CHANCE = 0.075; // per tick -> roughly one bolt every ~20s on screen
+setInterval(() => {
+	if (document.hidden) return;
+	if (window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+	if (Math.random() < SHOOT_CHANCE) {
+		const el = pickFxTarget(".flair-stars > .flairFx");
+		if (el) shootStar(el);
+	}
+	if (Math.random() < STRIKE_CHANCE) {
+		const el = pickFxTarget(".flair-lightning > .flairFx");
+		if (el) lightningStrike(el);
+	}
 }, SHOOT_TICK_MS);
 
 // start our own presence heartbeat (announces only while viewing a channel)

@@ -11,8 +11,8 @@
 // something other than the visible plaintext.
 //
 // Static colors + bold/italic/underline/strike + reset, plus two animated
-// codes: &k obfuscated (text scrambles glyph-by-glyph) and &g rainbow (a hue
-// gradient flows through the run). The animated codes only tag the run with a
+// codes: &k obfuscated (text scrambles glyph-by-glyph) and &g a flowing gradient
+// (rainbow by default, retuned by your equipped flair - see RAINBOW below). The animated codes only tag the run with a
 // class here (fmtObf / fmtRainbow); the motion itself lives in app.js's
 // animation loop (scrambling) and css (the rainbow gradient) - this module
 // stays pure and DOM-free so it can be tested in isolation.
@@ -44,7 +44,11 @@ const COLORS = {
 // the animated pair (obfuscated / rainbow) whose motion app.js + css drive.
 const FORMATS = new Set(["l", "m", "n", "o"]); // bold / strikethrough / underline / italic
 const OBFUSCATE = "k"; // scrambling "magic" text
-const RAINBOW = "g"; // flowing hue gradient
+// &g is a wildcard gradient: rainbow on its own, but retuned to your equipped
+// flair's palette when you have one (fire reads as embers, lightning as electric
+// arc, ...). Purely a css concern - see .fmtRainbow and its .flair-* overrides -
+// so this module just marks the run and the row's flair class does the rest.
+const RAINBOW = "g";
 const RESET = "r";
 
 // a char is a recognized code iff it's a color, a format, animated, or reset.

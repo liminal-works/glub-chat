@@ -382,6 +382,58 @@ textarea {
 	}
 }
 
+/* &g is a WILDCARD, not literally "rainbow": with no flair equipped it's the rgb
+   gradient above, but an equipped flair retunes it to its own palette, so your
+   text and your row read as one effect. This needs no JS and no protocol change -
+   the flair class is on the line and the &g span is inside it, so a descendant
+   selector is the whole mechanism. Only the gradient (and its pace) is swapped;
+   the scroll keyframes are shared, and the reduced-motion rule below still wins
+   because it zeroes animation-name, leaving the themed gradient as a static fill. */
+.flair-fire .fmtRainbow {
+	background-image: repeating-linear-gradient(
+		90deg,
+		#ff3d00 0%,
+		#ff7a18 8%,
+		#ffb057 16%,
+		#ffe6a3 24%,
+		#ffb057 32%,
+		#ff6a00 40%,
+		#ff3d00 48%
+	);
+	animation-duration: 3.4s; /* quicker, so it reads as flicker rather than drift */
+	text-decoration-color: #ffb057;
+}
+
+.flair-lightning .fmtRainbow {
+	background-image: repeating-linear-gradient(
+		90deg,
+		#4a5bd6 0%,
+		#5b8dff 8%,
+		#9fd0ff 16%,
+		#eaf6ff 24%,
+		#ffffff 32%,
+		#7fb3ff 40%,
+		#4a5bd6 48%
+	);
+	animation-duration: 2.2s; /* snappiest of the three - electric, not lazy */
+	text-decoration-color: #cde8ff;
+}
+
+.flair-stars .fmtRainbow {
+	background-image: repeating-linear-gradient(
+		90deg,
+		#ffffff 0%,
+		#cfe6ff 8%,
+		#a8ccff 16%,
+		#d9c7ff 24%,
+		#ffffff 32%,
+		#bcd8ff 40%,
+		#ffffff 48%
+	);
+	animation-duration: 8s; /* a slow shimmer, matching the twinkle's calm */
+	text-decoration-color: #dbe9ff;
+}
+
 /* &k obfuscated: app.js scrambles the glyphs on a timer; the class is just the
    hook it queries. A faint dim marks it as noise even between frames. */
 .fmtObf {

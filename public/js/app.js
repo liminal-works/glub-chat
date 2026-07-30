@@ -5555,7 +5555,7 @@ const COMMANDS = [
 				`${code("n")}  ${preview("&nunderline")}`,
 				`${code("m")}  ${preview("&mstrikethrough")}`,
 				`${code("k")}  ${preview("&kobfuscated")}`,
-				`${code("g")}  ${preview("&grainbow")}`,
+				`${code("g")}  ${preview("&grainbow")}  <span class="ts">${esc(t("colors.wildcard"))}</span>`,
 				`${code("r")}  <span class="ts">${esc(t("colors.reset"))}</span>`,
 			];
 			const html =

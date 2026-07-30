@@ -330,6 +330,7 @@ export default {
 	colors: {
 		header: "chat formatting  ·  &code",
 		reset: "reset (back to normal)",
+		wildcard: "· follows your flair",
 		stack: "codes stack, even mid-word:",
 		escape: "&& = a literal &",
 	},

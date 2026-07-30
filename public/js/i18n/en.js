@@ -176,6 +176,7 @@ export default {
 		no_relays: "no relay connected - message may not have gone out",
 		placeholder: "encrypted -> {name}...",
 		warn_nopass: "without a password anyone who guesses the name can read this guild.",
+		upload_left: "left {name} before the upload finished - nothing was sent",
 	},
 
 	origin: {

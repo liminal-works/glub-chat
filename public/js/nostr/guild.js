@@ -38,6 +38,12 @@
 //     ciphertext. PBKDF2 raises the cost per guess; it cannot make it go away.
 //   * no forward secrecy: someone who learns the password can read past traffic they
 //     captured earlier.
+//   * uploaded media (images, voice notes) is hosted UNENCRYPTED by the api, exactly
+//     as it is for public channels. What the seal protects is the link, not the
+//     bytes: only members learn the url, but anyone who obtains it - or who runs the
+//     host - can fetch the file. The filename's 64 bits of randomness make guessing
+//     one impractical, which is a different guarantee from the one the rest of this
+//     module provides, and worth knowing before sending something sensitive.
 
 import { finalizeEvent, verifyEvent } from "https://esm.sh/nostr-tools@2";
 import { sha256 } from "https://esm.sh/@noble/hashes@2.0.1/sha2";

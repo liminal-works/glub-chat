@@ -4887,9 +4887,10 @@ function updatePlaceholder() {
 }
 
 // the global composer only ever joins (it's a channel picker), so the button
-// reads "join" the whole time you're in global; focused mode always "send".
+// reads "join" the whole time you're in global; a focused channel and a guild are
+// both places you're already in, so both say "send".
 function updateSendLabel() {
-	sendBtn.textContent = t(focusedGeo ? "composer.send" : "composer.join");
+	sendBtn.textContent = t(focusedGeo || focusedGuild ? "composer.send" : "composer.join");
 }
 
 function focusChannel(geo) {
@@ -4990,10 +4991,10 @@ async function transmit(content, geo, displayName = name) {
 // --- media upload (assist-only) ----------------------------------------------
 
 // the "+" button shows only while assist mode is live (uploads go to the api)
-// AND you're focused in a channel (there's a target to send to); otherwise it's
-// hidden and the feature effectively doesn't exist.
+// AND you're somewhere with a destination - a focused channel or a guild;
+// otherwise it's hidden and the feature effectively doesn't exist.
 function syncMediaBtn() {
-	mediaBtn.hidden = liveSource !== "assist" || !focusedGeo;
+	mediaBtn.hidden = liveSource !== "assist" || !(focusedGeo || focusedGuild);
 	if (mediaBtn.hidden) toggleMediaMenu(false); // don't leave the "+" menu orphaned when the button goes away
 }
 
@@ -5023,12 +5024,40 @@ async function cleanEncodeImage(file) {
 	return blob;
 }
 
+// where a finished upload should land, captured at start time. A geohash channel
+// can be posted to from anywhere, so it's remembered by name; a guild can only be
+// posted to while you're still tuned to it, so it's remembered by frequency and
+// re-checked on arrival.
+function currentSendTarget() {
+	if (focusedGuild) return { guildFreq: focusedGuild.freq, name: focusedGuild.name };
+	if (focusedGeo) return { geo: focusedGeo };
+	return null;
+}
+
+// deliver a finished upload to the target it was begun in. A guild you've since
+// left is a dead end on purpose: guildSend can only reach the tuned guild, and
+// falling back to transmit() would publish it to the open network - so it's
+// dropped with a notice rather than quietly redirected.
+function deliverToTarget(target, content) {
+	if (target && target.guildFreq) {
+		if (focusedGuild && focusedGuild.freq === target.guildFreq) guildSend(content);
+		else appendSystem(t("guild.upload_left", { name: clipText(target.name, 16) }));
+		return;
+	}
+	if (target && target.geo) {
+		transmit(content, target.geo);
+		return;
+	}
+	chatInput.value = chatInput.value ? `${chatInput.value} ${content}` : content;
+	chatInput.focus();
+}
+
 // POST a media blob to the api and drop the resulting "[marker] {url}" into chat.
-// Shared by image uploads and voice notes. `targetGeo` is bound by the caller at
-// start time, so the result lands in the channel it was begun in even if the user
-// has since hopped channels; a start from the global view (no target) drops the
-// marker into the composer so the user can aim it at a #channel.
-async function uploadAndQueue(blob, marker, targetGeo) {
+// Shared by image uploads and voice notes. `target` is bound by the caller at
+// start time, so the result lands where it was begun even if the user has since
+// moved; a start from the global view (no target) drops the marker into the
+// composer so the user can aim it at a #channel.
+async function uploadAndQueue(blob, marker, target) {
 	const res = await fetch(`${API_BASE}/api/media`, {
 		method: "POST",
 		// strip any codec params ("audio/webm;codecs=opus" -> "audio/webm") so the
@@ -5055,13 +5084,7 @@ async function uploadAndQueue(blob, marker, targetGeo) {
 	// won't get mixed-content-blocked. resolves against the api's origin when it's
 	// separately hosted; leaves an already-absolute url (PUBLIC_ORIGIN) as is.
 	const url = new URL(data.url, API_BASE || location.href).href;
-	const content = `${marker} ${url}`;
-	if (targetGeo) {
-		transmit(content, targetGeo);
-	} else {
-		chatInput.value = chatInput.value ? `${chatInput.value} ${content}` : content;
-		chatInput.focus();
-	}
+	deliverToTarget(target, `${marker} ${url}`);
 }
 
 async function uploadMedia(file) {
@@ -5071,7 +5094,7 @@ async function uploadMedia(file) {
 	}
 	// bind the destination NOW (see uploadAndQueue). Uploads are fire-and-forget -
 	// several can run concurrently, the button never blocks.
-	const targetGeo = focusedGeo;
+	const target = currentSendTarget();
 	try {
 		const blob = await cleanEncodeImage(file);
 		// the re-encode can still exceed the host cap (a big lossless png that even the
@@ -5082,7 +5105,7 @@ async function uploadMedia(file) {
 			appendSystem(t("system.upload_too_large", { max: MEDIA_MAX_MB }));
 			return;
 		}
-		await uploadAndQueue(blob, "[image]", targetGeo); // native bitchat's image marker
+		await uploadAndQueue(blob, "[image]", target); // native bitchat's image marker
 	} catch (err) {
 		console.error("[media] image upload failed:", err);
 		// a payload-too-large from the api reads clearer as the size message
@@ -5101,7 +5124,7 @@ let recStream = null;
 let recChunks = [];
 let recTimer = null;
 let recStartMs = 0;
-let recTargetGeo = null;
+let recTarget = null;
 let recSend = false; // stopVoiceRecording() sets this so onstop knows upload vs discard
 const REC_MAX_MS = 5 * 60_000; // hard cap so a forgotten recording can't run forever
 
@@ -5141,7 +5164,7 @@ async function startVoiceRecording() {
 		appendSystem(t("system.voice_denied"));
 		return;
 	}
-	recTargetGeo = focusedGeo; // bind destination at start (see uploadAndQueue)
+	recTarget = currentSendTarget(); // bind destination at start (see uploadAndQueue)
 	recChunks = [];
 	recSend = false;
 	try {
@@ -5184,7 +5207,7 @@ function onRecordingStop() {
 	const type = String((mediaRecorder && mediaRecorder.mimeType) || (recChunks[0] && recChunks[0].type) || "audio/webm").split(";")[0];
 	const chunks = recChunks;
 	const send = recSend;
-	const targetGeo = recTargetGeo;
+	const target = recTarget;
 	// tear down before the async upload so a new recording can start immediately
 	stopRecStream();
 	mediaRecorder = null;
@@ -5195,7 +5218,7 @@ function onRecordingStop() {
 		appendSystem(t("system.upload_too_large", { max: MEDIA_MAX_MB }));
 		return;
 	}
-	uploadAndQueue(blob, "[voice]", targetGeo).catch((err) => {
+	uploadAndQueue(blob, "[voice]", target).catch((err) => {
 		console.error("[media] voice upload failed:", err);
 		appendSystem(err && err.status === 413 ? t("system.upload_too_large", { max: MEDIA_MAX_MB }) : t("system.upload_failed"));
 	});

@@ -174,7 +174,6 @@ export default {
 		derive_failed: "couldn't derive that guild - try again",
 		send_failed: "couldn't send to the guild",
 		no_relays: "no relay connected - message may not have gone out",
-		relays: "GUILD {connected}/{total}",
 		placeholder: "encrypted -> {name}...",
 		warn_nopass: "without a password anyone who guesses the name can read this guild.",
 	},

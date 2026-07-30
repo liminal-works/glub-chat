@@ -1666,17 +1666,28 @@ function activeChannels(limit = 12) {
 		.slice(0, limit);
 }
 
+// "* RELAYS: 3/8" - the link-state readout, shared by the global view and guilds.
+// Solid dot while we hold connections, dim pulse while we have none (searching);
+// an unknown or zero count reads "--" rather than a misleading 0. The .tapRelays
+// span is the settings hit target, kept off the [EXIT] beside it in a guild.
+function relayReadoutHtml(connected, total) {
+	const left = connected == null || connected === 0 ? "--" : connected;
+	const right = total == null || total === 0 ? "--" : total;
+	const dot = `<span class="dot${left === "--" ? " off" : ""}" aria-hidden="true"></span>`;
+	return `<span class="tapRelays">${dot}<strong>${escapeHtml(t("topbar.relays"))}</strong>: ${left}/${right}</span>`;
+}
+
 function renderTopbar() {
 	syncMediaBtn(); // renderTopbar fires on every mode/status change, so piggyback
 	const cursor = `<span class="cursor" aria-hidden="true"></span>`;
 	if (focusedGuild) {
-		// the lock is the point: this row is not the open network
 		brandEl.innerHTML =
-			`<strong class="chan">&#128274;${escapeHtml(clipText(focusedGuild.name, 12))}</strong>` +
+			`<strong class="chan">${escapeHtml(clipText(focusedGuild.name, 12))}</strong>` +
 			`/<span class="handle">@${escapeHtml(clipText(name || "anon", 12))}</span>${cursor}`;
-		const { connected, total } = guildRelayState;
-		statusEl.innerHTML =
-			`<span class="ts">${escapeHtml(t("guild.relays", { connected, total }))}</span> - <strong>${escapeHtml(t("topbar.exit"))}</strong>`;
+		// the guild's own sockets, read exactly like the global view's relay counter -
+		// same dot, same "RELAYS: n/n", same tap-for-settings - so the readout means
+		// one thing everywhere rather than one thing per mode.
+		statusEl.innerHTML = `${relayReadoutHtml(guildRelayState.connected, guildRelayState.total)} - <strong>${escapeHtml(t("topbar.exit"))}</strong>`;
 		statusEl.classList.add("tapExit");
 		return;
 	}
@@ -1693,14 +1704,8 @@ function renderTopbar() {
 		brandEl.innerHTML = `<strong>GLUB.CHAT</strong>/<span class="handle">@${escapeHtml(clipText(name || "anon", 12))}</span>${cursor}`;
 		statusEl.classList.remove("tapExit");
 
-		// relay link state: solid dot while we hold connections, dim pulse while not
 		const r = liveSource === "assist" ? apiHealth?.relays : null;
-		const connected = r ? r.connected : pool.connectedCount;
-		const total = r ? r.monitored : pool.total;
-		const left = connected == null || connected === 0 ? "--" : connected;
-		const right = total == null || total === 0 ? "--" : total;
-		const dot = `<span class="dot${left === "--" ? " off" : ""}" aria-hidden="true"></span>`;
-		statusEl.innerHTML = `${dot}<strong>${escapeHtml(t("topbar.relays"))}</strong>: ${left}/${right}`;
+		statusEl.innerHTML = relayReadoutHtml(r ? r.connected : pool.connectedCount, r ? r.monitored : pool.total);
 	}
 }
 
@@ -3824,6 +3829,11 @@ dmInput.addEventListener("keydown", (e) => {
 // opens the user list, tapping anywhere else (incl. [EXIT]) leaves the channel.
 // In global view it's the settings entry point.
 statusEl.addEventListener("click", (e) => {
+	// the relay readout is the settings entry point wherever it appears
+	if (e.target.closest(".tapRelays")) {
+		openSettings();
+		return;
+	}
 	if (focusedGuild) {
 		leaveGuild();
 		return;

@@ -5672,6 +5672,34 @@ function themeArgProvider(value, caret) {
 }
 
 // --- @mention (and future /command) autocomplete ----------------------------
+// the same completion for "/flair <partial>", plus the "off" switch the command
+// accepts. Each row previews the effect live, so you pick a look rather than a word.
+function flairArgProvider(value, caret) {
+	const before = value.slice(0, caret);
+	const m = before.match(/^\/flair\s+(\S*)$/i);
+	if (!m) return null;
+	const query = m[1].toLowerCase();
+	const current = getFlair();
+	const names = [...FLAIRS, "off"];
+	// once the argument IS a whole name there's nothing left to complete, and leaving
+	// the popup up would swallow the Enter that runs the command (it would re-pick
+	// the same row instead). Close it and let the keypress through.
+	if (names.includes(query)) return null;
+	const items = names
+		.filter((n) => n.startsWith(query))
+		.map((n) => ({
+			insert: n,
+			// the name rides INSIDE a live chip, so the row previews the effect while
+			// staying short enough not to be ellipsised on a phone.
+			html:
+				(n === "off"
+					? `<strong>${escapeHtml(n)}</strong>`
+					: `<span class="${flairClass(n)} flairChip"><strong>${escapeHtml(n)}</strong></span>`) +
+				(n === current ? ` <span class="sfx">- ${escapeHtml(t("system.theme_current"))}</span>` : ""),
+		}));
+	return { start: caret - m[1].length, end: caret, items };
+}
+
 const suggest = createSuggest(suggestBox);
 
 // the roster we can @-mention: everyone in the focused channel's "present" list
@@ -5737,7 +5765,7 @@ function joinFromSuggest(geo) {
 	setTimeout(() => chatInput.focus(), 0);
 }
 
-const SUGGEST_PROVIDERS = [commandProvider, themeArgProvider, mentionProvider, channelProvider];
+const SUGGEST_PROVIDERS = [commandProvider, themeArgProvider, flairArgProvider, mentionProvider, channelProvider];
 
 function refreshSuggest() {
 	const value = chatInput.value;

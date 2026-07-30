@@ -444,15 +444,15 @@ textarea {
 .flair-lightning .fmtRainbow {
 	background-image: repeating-linear-gradient(
 		90deg,
-		#5b8dff 0%,
-		#9fd0ff 12%,
-		#eaf6ff 24%,
+		#00a6ff 0%,
+		#3fc9ff 12%,
+		#a5ecff 24%,
 		#ffffff 33%,
-		#9fd0ff 42%,
-		#5b8dff 48%
+		#3fc9ff 42%,
+		#00a6ff 48%
 	);
 	animation: fmtStormText var(--lit-text-dur, 7s) linear var(--lit-text-delay, 0s) infinite;
-	text-decoration-color: #cde8ff;
+	text-decoration-color: #a5ecff;
 }
 
 @keyframes fmtStormText {
@@ -507,17 +507,17 @@ textarea {
 	   a true seamless loop. */
 	background-image: linear-gradient(
 		180deg,
-		#7f9bb5 0%,
-		#b9d3e6 23%,
-		#eaf4ff 42%,
-		#cfe4f5 62%,
-		#9fc0d8 81%,
-		#7f9bb5 100%
+		#3f7fc4 0%,
+		#6fb2e8 23%,
+		#c4e7ff 42%,
+		#8ecbf2 62%,
+		#5595d4 81%,
+		#3f7fc4 100%
 	);
 	background-size: 100% 26px;
 	background-repeat: repeat;
 	animation: fmtRainText var(--rain-text-dur, 3.2s) linear var(--rain-text-delay, 0s) infinite;
-	text-decoration-color: #cfe4f5;
+	text-decoration-color: #a9d6f5;
 }
 
 /* INCREASING background-position-y slides the image down the box, so the colours
@@ -543,7 +543,7 @@ textarea {
 		#ffffff 0%,
 		#cfe6ff 8%,
 		#a8ccff 16%,
-		#d9c7ff 24%,
+		#f0d2e8 24%,
 		#ffffff 32%,
 		#bcd8ff 40%,
 		#ffffff 48%

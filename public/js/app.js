@@ -174,7 +174,7 @@ const usersGate = document.getElementById("usersGate");
 const usersTitle = document.getElementById("usersTitle");
 const usersLocation = document.getElementById("usersLocation");
 const usersList = document.getElementById("usersList");
-const usersGuilds = document.getElementById("usersGuilds");
+const nameGateGuilds = document.getElementById("nameGateGuilds");
 const guildGate = document.getElementById("guildGate");
 const guildForm = document.getElementById("guildForm");
 const guildNameInput = document.getElementById("guildName");
@@ -846,6 +846,7 @@ const UI_CHIPS = {
 	users: { label: "uichip.users", run: () => (notesEnabledGeo() ? openUsers() : appendSystem(t("system.needs_channel"))) },
 	notes: { label: "uichip.notes", run: () => (notesEnabledGeo() ? openNotes() : appendSystem(t("system.needs_channel"))) },
 	settings: { label: "uichip.settings", run: () => openSettings() },
+	guilds: { label: "uichip.guilds", run: () => openGuildGate() },
 };
 const UI_CHIP_RE = /\{\{([a-z]+(?::[a-z]+)?)\}\}/g;
 const UI_CHIP_MAX = 4; // cap per message, so a chip spam wall isn't a thing
@@ -2543,6 +2544,7 @@ function focusGuild(g) {
 	closeNotes();
 	closeUsers();
 	closeGuildGate();
+	closeNameGate(); // the gate you most likely came in through
 	suggest.hide();
 	ensureGuildClient().open(g);
 	updatePlaceholder();
@@ -3949,7 +3951,7 @@ document.addEventListener("click", (e) => {
 	if (!mediaMenu.hidden && !mediaMenu.contains(e.target) && !mediaBtn.contains(e.target)) toggleMediaMenu(false);
 });
 usersNotes.addEventListener("click", openNotes);
-usersGuilds.addEventListener("click", openGuildGate);
+nameGateGuilds.addEventListener("click", openGuildGate);
 guildClose.addEventListener("click", closeGuildGate);
 // a password field with nothing in it is the one case worth warning about, so the
 // notice appears as soon as there's a name but no secret.
@@ -5939,6 +5941,14 @@ const COMMANDS = [
 				`${code("4")}${code("c")}${code("6")}${code("e")}${code("a")}${code("9")}${code("d")}  ${preview("&4r&ca&6i&en&ab&9o&dw")}\n\n` +
 				`<span class="ts">${esc(t("colors.escape"))}</span>`;
 			pushSystem(html, SYSTEM_TTL_LONG_MS);
+		},
+	},
+	{
+		// the typed way in, so guilds are findable from /help and the command
+		// autocomplete rather than only from the name gate.
+		name: "guilds",
+		run() {
+			openGuildGate();
 		},
 	},
 	{

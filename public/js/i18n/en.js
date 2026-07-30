@@ -13,6 +13,7 @@ export default {
 		input_placeholder: "alias",
 		enter: "enter",
 		settings: "[ settings ]",
+		guilds: "[ guilds ]",
 	},
 
 	settings: {
@@ -152,7 +153,6 @@ export default {
 		exit: "[EXIT]",
 		map: "[MAP]",
 		notes: "[NOTES]",
-		guilds: "[GUILDS]",
 		empty: "no one here yet",
 		present: "present",
 		international: "international",
@@ -274,6 +274,7 @@ export default {
 		users: "who's here",
 		notes: "location notes",
 		settings: "settings",
+		guilds: "encrypted guilds",
 	},
 
 	payment: {
@@ -310,6 +311,7 @@ export default {
 		colors: "show chat formatting codes",
 		format: "style your own chat line (blank = help)",
 		flair: "preset effect for your line (blank = list)",
+		guilds: "open guilds (encrypted group chat)",
 	},
 
 	flair: {

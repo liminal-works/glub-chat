@@ -3244,9 +3244,11 @@ textarea {
 	margin-top: 2px;
 }
 
-/* small accent link tucked into the name gate's bottom-right corner - a more
-   discoverable way into settings than the topbar "relays" readout. */
-.nameGateSettings {
+/* small accent links docked under the gate card's bottom edge - a more
+   discoverable way into settings than the topbar "relays" readout. The name gate
+   carries two of them: guilds on the left, settings on the right. Both are yours
+   rather than a channel's, which is why they live here and not in the user list. */
+.nameGateLink {
 	position: absolute;
 	top: 100%; /* just below the card's bottom edge */
 	right: 0; /* flush with the card's right edge */
@@ -3263,9 +3265,14 @@ textarea {
 	-webkit-tap-highlight-color: transparent;
 }
 
-.nameGateSettings:hover {
+.nameGateLink:hover {
 	opacity: 1;
 	text-shadow: var(--glow);
+}
+
+.nameGateLinkLeft {
+	right: auto;
+	left: 0;
 }
 
 /* boot-sequence lines: the few dim lines the client prints while waking up.

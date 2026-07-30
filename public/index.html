@@ -55,7 +55,10 @@
 						</div>
 						<button type="submit" data-i18n="name_gate.enter">enter</button>
 					</form>
-					<button id="nameGateSettings" class="nameGateSettings" type="button" data-i18n="name_gate.settings">[ settings ]</button>
+					<!-- the two things that belong to YOU rather than to a channel, docked
+					     under the card you reach by tapping your name in the topbar -->
+					<button id="nameGateGuilds" class="nameGateLink nameGateLinkLeft" type="button" data-i18n="name_gate.guilds">[ guilds ]</button>
+					<button id="nameGateSettings" class="nameGateLink" type="button" data-i18n="name_gate.settings">[ settings ]</button>
 				</div>
 			</div>
 
@@ -217,7 +220,7 @@
 						without a password anyone who guesses the name can read this guild.
 					</div>
 					<div id="guildList" class="guildList"></div>
-					<button id="guildClose" class="nameGateSettings" type="button" data-i18n="guild.close">[ close ]</button>
+					<button id="guildClose" class="nameGateLink" type="button" data-i18n="guild.close">[ close ]</button>
 				</div>
 			</div>
 
@@ -228,7 +231,6 @@
 						<span class="usersHeaderBtns">
 							<strong id="usersMap" class="usersExit" data-i18n="users.map">[MAP]</strong>
 							<strong id="usersNotes" class="usersExit" data-i18n="users.notes" hidden>[NOTES]</strong>
-							<strong id="usersGuilds" class="usersExit" data-i18n="users.guilds">[GUILDS]</strong>
 							<strong id="usersClose" class="usersExit" data-i18n="users.exit">[EXIT]</strong>
 						</span>
 					</div>

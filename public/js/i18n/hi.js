@@ -15,6 +15,7 @@ export default {
 		input_placeholder: "उपनाम",
 		enter: "प्रवेश",
 		settings: "[ सेटिंग्स ]",
+		guilds: "[ गिल्ड ]",
 	},
 
 	settings: {
@@ -143,7 +144,6 @@ export default {
 		exit: "[बाहर]",
 		map: "[नक्शा]",
 		notes: "[नोट्स]",
-		guilds: "[गिल्ड]",
 		empty: "यहाँ अभी कोई नहीं",
 		present: "मौजूद",
 		international: "अंतरराष्ट्रीय",
@@ -260,6 +260,7 @@ export default {
 		users: "यहाँ कौन है",
 		notes: "स्थान नोट्स",
 		settings: "सेटिंग्स",
+		guilds: "एन्क्रिप्टेड गिल्ड",
 	},
 
 	payment: {
@@ -294,6 +295,7 @@ export default {
 		colors: "चैट फ़ॉर्मैटिंग कोड दिखाएँ",
 		format: "अपनी चैट लाइन सजाएँ (खाली = मदद)",
 		flair: "लाइन के लिए तैयार इफ़ेक्ट (खाली = सूची)",
+		guilds: "गिल्ड खोलें (एन्क्रिप्टेड ग्रुप चैट)",
 	},
 
 	flair: {

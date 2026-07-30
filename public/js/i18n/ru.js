@@ -15,6 +15,7 @@ export default {
 		input_placeholder: "псевдоним",
 		enter: "войти",
 		settings: "[ настройки ]",
+		guilds: "[ гильдии ]",
 	},
 
 	settings: {
@@ -148,7 +149,6 @@ export default {
 		exit: "[ВЫХОД]",
 		map: "[КАРТА]",
 		notes: "[ЗАМЕТКИ]",
-		guilds: "[ГИЛЬДИИ]",
 		empty: "здесь пока никого",
 		present: "здесь",
 		international: "нейтральные воды",
@@ -275,6 +275,7 @@ export default {
 		users: "кто здесь",
 		notes: "локальные заметки",
 		settings: "настройки",
+		guilds: "зашифрованные гильдии",
 	},
 
 	payment: {
@@ -309,6 +310,7 @@ export default {
 		colors: "коды форматирования чата",
 		format: "оформить свою строку чата (пусто = справка)",
 		flair: "готовый эффект для строки (пусто = список)",
+		guilds: "открыть гильдии (шифрованный групповой чат)",
 	},
 
 	flair: {

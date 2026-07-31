@@ -312,11 +312,13 @@ export function plasmaPuffMarkup() {
 	let html = "";
 	for (let i = 0; i < count; i++) {
 		// larger than the row is tall (a blob small enough to read as a shape stops
-		// reading as volume) but no larger than it needs to be: an oversized blob spans
-		// past the mask's falloff and puts colour where the plume should already be gone.
-		const size = Math.round(rnd(64, 128));
+		// reading as volume) but no larger than it needs to be. Size and position are
+		// now the ONLY things keeping the blobs on the lit side - the layer they live in
+		// dropped its mask so the motes could be seen out in the dark - so an oversized
+		// or right-leaning blob puts colour where the plume should already be gone.
+		const size = Math.round(rnd(54, 108));
 		const style = [
-			`--p-x:${Math.round(rnd(-16, 26))}%`,
+			`--p-x:${Math.round(rnd(-18, 19))}%`,
 			`--p-y:${Math.round(rnd(15, 85))}%`,
 			`--p-size:${size}px`,
 			`--p-tint:${pick(PLASMA_TINTS)}`,
@@ -428,11 +430,15 @@ export function flairVars(raw) {
 			"--plasma-lamp-low": rnd(0.32, 0.5).toFixed(2),
 			"--plasma-lamp-peak": rnd(0.74, 0.98).toFixed(2),
 			// and how far it reaches, on its own period - so length and brightness are
-			// never in step, which is what keeps it from looking like a single throb
+			// never in step, which is what keeps it from looking like a single throb.
+			// `far` is the once-a-cycle long throw (see flairPlasmaReach): several
+			// times the resting length, enough to run most of the way across a line.
+			// The period is long so it stays an event rather than a rhythm.
 			"--plasma-reach-min": rnd(0.6, 0.82).toFixed(2),
 			"--plasma-reach-max": rnd(1.02, 1.24).toFixed(2),
-			"--plasma-reach-dur": `${rnd(7, 15).toFixed(2)}s`,
-			"--plasma-reach-delay": `-${rnd(0, 14).toFixed(2)}s`,
+			"--plasma-reach-far": rnd(1.9, 3.3).toFixed(2),
+			"--plasma-reach-dur": `${rnd(16, 30).toFixed(2)}s`,
+			"--plasma-reach-delay": `-${rnd(0, 30).toFixed(2)}s`,
 			"--plasma-text-dur": `${rnd(4.5, 8.5).toFixed(2)}s`,
 			"--plasma-text-delay": `-${rnd(0, 8).toFixed(2)}s`,
 		};

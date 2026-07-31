@@ -1164,7 +1164,7 @@ textarea {
 	transform-origin: left center;
 	animation:
 		flairPlasmaWash var(--plasma-wash-dur, 9s) ease-in-out var(--plasma-wash-delay, 0s) infinite,
-		flairPlasmaReach var(--plasma-reach-dur, 11s) ease-in-out var(--plasma-reach-delay, 0s) infinite alternate;
+		flairPlasmaReach var(--plasma-reach-dur, 22s) ease-in-out var(--plasma-reach-delay, 0s) infinite;
 }
 
 /* the edge burn, masked by the same left-to-right falloff as everything else so it
@@ -1198,20 +1198,19 @@ textarea {
 	transform-origin: left center;
 	animation:
 		flairPlasmaLamp var(--plasma-lamp-dur, 13s) ease-in-out var(--plasma-lamp-delay, 0s) infinite alternate,
-		flairPlasmaReach var(--plasma-reach-dur, 11s) ease-in-out var(--plasma-reach-delay, 0s) infinite alternate;
+		flairPlasmaReach var(--plasma-reach-dur, 22s) ease-in-out var(--plasma-reach-delay, 0s) infinite;
 }
 
 .flair-plasma > .flairFx {
 	inset: 0;
 	opacity: 1;
 	isolation: isolate; /* confine the screen blending to the puffs */
-	/* the same falloff the wash and the edge burn use, so a puff that drifts right
-	   thins out with the plume instead of floating in the dark half on its own.
-	   Deliberately short: the plume is an accent anchored at the start of the line,
-	   not a background for it, so it's gone by the time the eye is a third of the
-	   way across. */
-	-webkit-mask-image: linear-gradient(90deg, #000 0%, rgba(0, 0, 0, 0.38) 20%, transparent 48%);
-	mask-image: linear-gradient(90deg, #000 0%, rgba(0, 0, 0, 0.38) 20%, transparent 48%);
+	/* deliberately NOT masked, unlike the wash and the edge burn. A mask here would
+	   also hide the motes, which exist precisely to be seen out in the dark before
+	   they reach the glow - they'd fade in halfway across instead of arriving from
+	   nowhere. The puffs don't need it either: they're radial gradients that already
+	   fade to nothing inside their own box, and they're sized and positioned so the
+	   furthest one stops around 40% of the row on its own. */
 }
 
 /* a puff is sized to fill a message row, so in the ~40px preview chip a single one
@@ -1303,14 +1302,41 @@ textarea {
 	}
 }
 
-/* the plume reaching further out and drawing back in. Per-line min/max and period,
-   so no two rows are the same length at the same moment. */
+/* the plume reaching out and drawing back in. The profile is deliberately UNEVEN,
+   the same way fire's huff is: a couple of modest breaths and then, once per cycle,
+   a long throw far past the resting range. An even oscillation between two values
+   reads as a mechanism; occasional large excursions read as something burning.
+   Because the period (16-30s) and the phase are both randomized per line, and the
+   throw sits partway through the cycle, a screenful of rows throws at scattered
+   moments rather than together - which is what makes it feel intermittent rather
+   than scheduled. It's drawn back in slowly: a plume that snaps back reads as a
+   glitch. */
 @keyframes flairPlasmaReach {
-	from {
+	0%,
+	16% {
 		transform: scaleX(var(--plasma-reach-min, 0.72));
 	}
-	to {
+	26% {
 		transform: scaleX(var(--plasma-reach-max, 1.15));
+	}
+	38% {
+		transform: scaleX(var(--plasma-reach-min, 0.72));
+	}
+	48% {
+		transform: scaleX(calc(var(--plasma-reach-max, 1.15) * 0.88));
+	}
+	/* the throw: up fast, then a two-stage fall - most of the distance shed quickly,
+	   the last of it drifting back. Held briefly on purpose. Stretched over a third
+	   of the cycle it stops being an event and becomes the resting state. */
+	58% {
+		transform: scaleX(var(--plasma-reach-far, 2.6));
+	}
+	68% {
+		transform: scaleX(var(--plasma-reach-max, 1.15));
+	}
+	82%,
+	100% {
+		transform: scaleX(var(--plasma-reach-min, 0.72));
 	}
 }
 

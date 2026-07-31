@@ -8,7 +8,8 @@
     "start": "node server/index.mjs",
     "dev": "node --watch server/index.mjs",
     "api": "node api/index.mjs",
-    "api:dev": "node --watch api/index.mjs"
+    "api:dev": "node --watch api/index.mjs",
+    "i18n": "node scripts/i18n-check.mjs"
   },
   "dependencies": {
     "dotenv": "^16.4.5",

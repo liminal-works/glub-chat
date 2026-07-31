@@ -359,11 +359,10 @@ function setPresenceEnabled(on) {
 
 const STORAGE_RETRO_KEY = "glub_retro";
 
-// on by default - the scanlines are part of what glub looks like, not an opt-in
-// novelty. Same "!== false" shape as the other default-on settings, so an explicit
-// opt-out survives reloads while an untouched install gets the CRT.
+// off by default: the CRT layer is a preference, not the house style, and the plain
+// terminal is what most people should meet first. Opt in from settings.
 function getRetroEnabled() {
-	return localStorage.getItem(STORAGE_RETRO_KEY) !== "false";
+	return localStorage.getItem(STORAGE_RETRO_KEY) === "true";
 }
 
 function setRetroEnabled(on) {

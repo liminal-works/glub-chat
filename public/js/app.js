@@ -3427,12 +3427,21 @@ function openActionPopup(pubkey, entry) {
 	// for a reply, act on the reply body (not the raw "> @user: quote" wire form)
 	// so the preview/copy/quote stay clean.
 	const content = entry && entry.reply ? entry.reply.body : (entry && entry.text) || "";
-	// keep the channel + text of the tapped message so copy/reply/hug/slap act on
+	// keep the destination + text of the tapped message so copy/reply/hug/slap act on
 	// the right thing (in global view the message may be from a channel you're not in).
+	//
+	// A guild message carries its guild's NAME in entry.geo, purely as a leftover of
+	// being rebuilt as an ordinary chat event. Leaving it in a field every consumer
+	// reads as "the public channel to post to" is what let a hug from inside a guild
+	// go out in the clear to a geohash channel named after the room. The guild is
+	// named separately, and geo is blanked, so a path that forgets to check simply
+	// has nowhere to send rather than somewhere wrong.
+	const inGuild = !!(entry && entry.guild);
 	actionContext = {
 		pubkey,
 		name,
-		geo: (entry && entry.geo) || focusedGeo || "",
+		guild: inGuild ? entry.guild : "",
+		geo: inGuild ? "" : (entry && entry.geo) || focusedGeo || "",
 		content,
 		entryId: entry && entry.id ? entry.id : null, // translate acts on the stored entry
 	};
@@ -3505,12 +3514,18 @@ async function copyTappedNpub() {
 function sendEmote(kind) {
 	const ctx = actionContext;
 	closeActionPopup();
-	if (!ctx || !ctx.geo) return;
+	if (!ctx || (!ctx.geo && !ctx.guild)) return;
 	const me = clipText(name || "anon", 24);
 	const them = clipText(ctx.name || "anon", 24);
 	const isSelf = ctx.pubkey.toLowerCase() === identity.pk.toLowerCase();
 	const key = `emote.${kind}${isSelf ? "_self" : ""}`;
-	transmit(t(key, { me, them }), ctx.geo);
+	const text = t(key, { me, them });
+	// an emote aimed at someone in a guild stays sealed in the guild - it names both
+	// of you, so publishing it would announce the room's membership as well as its
+	// name. guildSend only reaches the tuned guild, which is the only one whose
+	// messages are on screen to act on.
+	if (ctx.guild && focusedGuild && focusedGuild.freq === ctx.guild) guildSend(text);
+	else if (ctx.geo) transmit(text, ctx.geo);
 }
 
 function closeActionPopup() {
@@ -3539,7 +3554,8 @@ function startMention() {
 function startReply() {
 	const ctx = actionContext;
 	closeActionPopup();
-	if (!ctx || !ctx.geo) return;
+	// a guild reply has no geo (see openActionPopup); send() routes it by focusedGuild
+	if (!ctx || (!ctx.geo && !ctx.guild)) return;
 	const quoted = clipText(String(ctx.content || "").replace(/\s+/g, " ").trim(), 120);
 	pendingReply = { pubkey: ctx.pubkey, name: ctx.name, geo: ctx.geo, quoted };
 	replyBannerText.textContent = t("actions.reply_banner", { name: ctx.name });

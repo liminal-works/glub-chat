@@ -1241,6 +1241,14 @@ textarea {
 	inset: 0;
 	opacity: 1;
 	isolation: isolate; /* confine the screen blending to the puffs */
+	/* The fog builds up instead of arriving. `display: none` cancels animations on a
+	   parked row, so un-parking restarts this one from the top for free - no JS, no
+	   class to add and remove. Fading the WRAPPER rather than the puffs is what makes
+	   it compose: group opacity multiplies with whatever each puff's own density
+	   animation is doing, so they keep churning while the layer as a whole comes up.
+	   The implicit `to` resolves to the element's own opacity, which is how the
+	   preview chip's damped 0.5 keeps working without restating it. */
+	animation: flairPlasmaWake 900ms ease-out;
 	/* deliberately NOT masked, unlike the wash and the edge burn. A mask here would
 	   also hide the motes, which exist precisely to be seen out in the dark before
 	   they reach the glow - they'd fade in halfway across instead of arriving from
@@ -1311,6 +1319,12 @@ textarea {
 	}
 	to {
 		opacity: var(--p-op, 0.7);
+	}
+}
+
+@keyframes flairPlasmaWake {
+	from {
+		opacity: 0;
 	}
 }
 
@@ -1533,9 +1547,34 @@ textarea {
    below. CSS has no way to say "match this class OR this media condition", and the
    media query is worth keeping as a guarantee that doesn't depend on the budget
    pass having run. */
-.flairQuiet::before,
-.flairQuiet::after {
+/* plasma is carved out here rather than overridden below, because `animation: none`
+   would zero animation-NAME, and a later rule that only sets play-state can't bring
+   the name back. */
+.flairQuiet:not(.flair-plasma)::before,
+.flairQuiet:not(.flair-plasma)::after {
 	animation: none;
+}
+
+/* ...plasma's two ambient layers PAUSE instead of stopping.
+   Everything else is uncapped, so it only ever goes quiet well off screen and is
+   running again long before you scroll to it. Plasma is capped at 3, so a row wakes
+   when a SLOT frees up - which happens in front of you, mid-scroll.
+
+   Stopping and restarting can't be made seamless here: every plasma row carries a
+   large NEGATIVE animation-delay to de-sync it from its neighbours, so re-applying
+   the animation drops it at that phase offset rather than at the first keyframe.
+   There is no parked value that matches, because the value it wakes to is a
+   different point on the cycle for every row. Pausing sidesteps the whole problem -
+   the row resumes from exactly where it froze, so there is nothing to jump from,
+   in either direction.
+
+   This is affordable for precisely the reason the fx layer below isn't: these are
+   two plain gradients whose paused animations cost a static composited layer and no
+   per-frame work, where the puffs are blurred and blended and cost a real
+   compositing pass each even standing still. */
+.flair-plasma.flairQuiet::before,
+.flair-plasma.flairQuiet::after {
+	animation-play-state: paused;
 }
 
 .flairQuiet > .flairFx {
@@ -1555,10 +1594,10 @@ textarea {
 	filter: brightness(1);
 }
 
-.flair-plasma.flairQuiet::after {
-	opacity: 0.7;
-	transform: none;
-}
+/* deliberately no parked opacity/transform for plasma here: it freezes on its own
+   animated values (see the pause above), and pinning them would reintroduce exactly
+   the jump that pausing removes. The reduced-motion block still parks it, because
+   there the animation really is off. */
 
 .flair-rain.flairQuiet::after {
 	opacity: 0.4;
@@ -1610,6 +1649,13 @@ textarea {
 	/* the ticker also skips firing under reduced motion; this is the belt-and-braces */
 	.flairFx {
 		display: none;
+		animation: none;
+	}
+	/* plasma is carved out of the generic quiet rule so it can pause; nothing wakes
+	   under reduced motion, so here it stops outright like everything else. */
+	.flair-plasma::before,
+	.flair-plasma::after {
+		animation: none;
 	}
 }
 

@@ -1337,6 +1337,13 @@ textarea {
 	font-size: 0.86em;
 	line-height: 1.5;
 	color: var(--accent);
+	/* A chip is chrome, not message text, so it has to stay legible wherever it
+	   lands. "&g" paints glyphs with a gradient by setting -webkit-text-fill-color
+	   to transparent, and that inherits - so a chip inside a gradient run (every
+	   message, if your /format template wraps {msg} in &g) drew its border and fill
+	   around an invisible label. currentColor re-anchors the fill to the chip's own
+	   color, whichever variant is in play. */
+	-webkit-text-fill-color: currentColor;
 	background: color-mix(in srgb, var(--accent) 8%, transparent);
 	border: 1px solid var(--chrome-border-strong);
 	border-radius: 5px;

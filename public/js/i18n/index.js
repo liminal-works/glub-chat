@@ -45,14 +45,33 @@ function interpolate(str, vars) {
 	return str.replace(/\{(\w+)\}/g, (m, k) => (vars[k] != null ? String(vars[k]) : m));
 }
 
+// pick a form out of a pluralized entry ({ one, other, ... }) for this count,
+// degrading within the entry to "other" then "one". null if it offers neither.
+function selectPlural(entry, vars) {
+	const n = vars && typeof vars.count === "number" ? vars.count : 0;
+	const form = plural.select(n);
+	if (entry[form] != null) return entry[form];
+	if (entry.other != null) return entry.other;
+	return entry.one != null ? entry.one : null;
+}
+
 // translate a key. pluralized entries (objects of { one, other, ... }) are
 // selected via Intl.PluralRules using vars.count; everything supports {placeholder}
 // interpolation from vars.
 export function t(key, vars) {
 	let val = lookup(key);
 	if (val && typeof val === "object") {
-		const n = vars && typeof vars.count === "number" ? vars.count : 0;
-		val = val[plural.select(n)] != null ? val[plural.select(n)] : val.other != null ? val.other : val.one;
+		// a pluralized entry is taken from ONE dictionary whole - the per-key english
+		// fallback in lookup() can't reach inside it. So a locale that ships an
+		// incomplete set (no form for this count and no "other") would land on the raw
+		// key path while every other kind of gap degrades gracefully. Retry against
+		// english, which is complete by definition, so partial plural entries behave
+		// like every other partial translation: english for that one string, the
+		// locale for everything else.
+		const picked = selectPlural(val, vars);
+		if (picked != null) return interpolate(picked, vars);
+		const fallback = get(en, key);
+		val = fallback && typeof fallback === "object" ? selectPlural(fallback, vars) : fallback;
 		if (val == null) return key;
 	}
 	return interpolate(val, vars);

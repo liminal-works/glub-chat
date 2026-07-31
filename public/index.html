@@ -251,8 +251,11 @@
 				<div class="mapPanel">
 					<div class="usersHeader">
 						<!-- the title doubles as the map menu trigger: overlay mode + display toggles -->
-						<button id="mapMenuBtn" class="mapMenuBtn" type="button" aria-haspopup="menu">
+						<button id="mapMenuBtn" class="mapMenuBtn" type="button" aria-haspopup="menu" aria-expanded="false">
 							<span id="mapTitle" data-i18n="map.title">geohash map</span>
+							<!-- a typed "v", not a glyph: the title is the only thing in this
+							     window that opens something, and nothing else said so -->
+							<span class="mapCaret" aria-hidden="true">v</span>
 						</button>
 						<strong id="mapClose" class="usersExit" data-i18n="users.exit">[EXIT]</strong>
 					</div>

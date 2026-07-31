@@ -2300,6 +2300,8 @@ function toggleMapMenu(show) {
 	const on = show !== undefined ? show : mapMenu.hidden;
 	if (on) renderMapMenu();
 	mapMenu.hidden = !on;
+	// drives the caret flip as well as announcing the state to a screen reader
+	mapMenuBtn.setAttribute("aria-expanded", on ? "true" : "false");
 }
 
 // push the current mode into the map + surrounding chrome. safe to call any

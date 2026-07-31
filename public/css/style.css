@@ -1928,6 +1928,27 @@ textarea {
 	cursor: pointer;
 }
 
+/* the "v" that marks the title as a menu. A literal character rather than a drawn
+   caret, so it sits on the same baseline grid as everything else and reads as
+   typed. Dimmer than the title (it's a hint, not a label) and it flips on open -
+   rotating the same glyph rather than swapping in a "^", which would sit at a
+   different height and read as a different mark. */
+.mapCaret {
+	font-size: 0.85em;
+	opacity: 0.55;
+	line-height: 1;
+	transition: transform 0.15s ease, opacity 0.15s ease;
+}
+
+.mapMenuBtn:hover .mapCaret {
+	opacity: 1;
+}
+
+.mapMenuBtn[aria-expanded="true"] .mapCaret {
+	transform: rotate(180deg);
+	opacity: 1;
+}
+
 /* the dropdown itself: floats over the stage's top-left, under the header */
 .mapMenu {
 	position: absolute;

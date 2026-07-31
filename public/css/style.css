@@ -3248,23 +3248,38 @@ textarea {
    discoverable way into settings than the topbar "relays" readout. The name gate
    carries two of them: guilds on the left, settings on the right. Both are yours
    rather than a channel's, which is why they live here and not in the user list. */
-/* the row of links that hangs off the gate card's bottom-right corner. It's the
-   container that's positioned, not the links, so a second one just extends the row
-   leftward instead of needing an offset that tracks its neighbour's width. The gap
-   sits on top of the 4px each link already carries as padding, so the tap targets
-   stay separated without the two reading as unrelated. */
+/* the row of links that hangs off the gate card's bottom edge. It's the container
+   that's positioned, not the links, so adding one doesn't need an offset that
+   tracks its neighbour's width.
+
+   Spanning the card's full width and spacing the links apart, rather than packing
+   them against one edge, does two things: the row reads as belonging to the card
+   (first link under its left edge, last under its right), and the spacing becomes
+   whatever is left over instead of a fixed number that has to be guessed. That
+   second part matters - at 393px the four labels come to 324px in a 359px row, so
+   a hard 12px gap needed 359.9px and wrapped [ close ] onto its own line by less
+   than a pixel. As a minimum rather than a fixed step, the same 12px fits with
+   room to spare. */
 .nameGateLinks {
 	position: absolute;
 	top: 100%; /* just below the card's bottom edge */
-	right: 0; /* flush with the card's right edge */
+	left: 0;
+	right: 0;
 	display: flex;
 	align-items: center;
-	/* four links can outrun a narrow card, and a flex item is allowed to shrink
-	   below its content - which broke each "[ label ]" across three lines. nowrap
-	   keeps a label whole and wrapping moves whole links to a second row instead. */
+	justify-content: space-between;
+	/* a flex item is allowed to shrink below its content, which broke each
+	   "[ label ]" across three lines on a narrow card; wrapping moves whole links to
+	   a second row instead (see .nameGateLink's flex/white-space). */
 	flex-wrap: wrap;
-	justify-content: flex-end;
-	gap: 12px;
+	gap: 8px;
+}
+
+/* space-between puts a lone link at the START of the row, which would swing the
+   guild gate's single [ close ] from the right edge to the left. An auto margin
+   ahead of it keeps it where a one-link row has always sat. */
+.nameGateLinks > .nameGateLink:only-child {
+	margin-left: auto;
 }
 
 .nameGateLink {

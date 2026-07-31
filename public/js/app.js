@@ -1244,6 +1244,13 @@ function renderAudioPreviews(entry) {
 // `animate` plays the arrival fade - live inserts only, so rerenders (channel
 // hops, repaints) never re-animate the whole backlog.
 function renderEntryDom(entry, animate = false) {
+	// an entry that is no longer buffered has nothing to be positioned against: the
+	// sibling scan below would start from index 0 and hang it off the first rendered
+	// line instead, so a run of them stacks up in arrival order. Bail rather than
+	// draw something in the wrong place.
+	const idx = entries.indexOf(entry);
+	if (idx === -1) return;
+
 	const div = document.createElement("div");
 	div.className = entry.mention ? "line mention" : "line";
 	if (animate) div.className += " arrive";
@@ -1266,7 +1273,6 @@ function renderEntryDom(entry, animate = false) {
 	div.innerHTML = messageHtml(entry);
 	entry.el = div;
 
-	const idx = entries.indexOf(entry);
 	let nextEl = null;
 	for (let i = idx + 1; i < entries.length; i++) {
 		if (entries[i].el) {
@@ -1344,7 +1350,28 @@ function insertEntry(entry) {
 	sigBump(entry, 1);
 
 	while (entries.length > MAX_LINES) {
-		const oldest = entries.shift();
+		// Trim the oldest line the current view ISN'T showing, before touching
+		// anything on screen. Trimming strictly by age looks right until you tune
+		// into a guild: the guild's history is older than a buffer full of live
+		// public chat, so every backlog line was dropped by the same call that added
+		// it - and drawn anyway, from an index that no longer existed, which is what
+		// put a whole guild's history on screen in arrival order.
+		//
+		// An unrendered entry is one the current filter hides (public chat while
+		// you're in a guild, a muted channel), so it is the cheapest thing to lose.
+		// The arrival itself is skipped: it hasn't been drawn yet, and evicting it
+		// is the whole bug. If every buffered line is on screen there's nothing
+		// cheap left, and the oldest goes as before.
+		let vi = -1;
+		for (let i = 0; i < entries.length; i++) {
+			if (entries[i] !== entry && !entries[i].el) {
+				vi = i;
+				break;
+			}
+		}
+		if (vi === -1) vi = entries[0] === entry ? 1 : 0;
+		const oldest = entries.splice(vi, 1)[0];
+		if (!oldest) break; // nothing left to give up
 		sigBump(oldest, -1);
 		if (oldest.el) oldest.el.remove();
 	}

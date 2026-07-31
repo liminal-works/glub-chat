@@ -26,7 +26,7 @@ import { isProfane } from "./censor.js";
 import { fetchConditions, wmoDescribe, geocodePlace, parseLatLon } from "./weather.js";
 import { THEMES, themeNames, activeTheme, applyTheme, persistTheme, initTheme, hexToRgb } from "./themes.js";
 import { stripFormat, hasFormat, renderFormat } from "./format.js";
-import { FLAIRS, flairName, flairClass, flairVars, flairHasFx, flairFxInner, lightningStrikeMarkup, rainGustMarkup, plasmaSurgeMarkup } from "./flair.js";
+import { FLAIRS, flairName, flairClass, flairLimit, flairVars, flairHasFx, flairFxInner, lightningStrikeMarkup, rainGustMarkup, plasmaSurgeMarkup } from "./flair.js";
 
 // re-apply the persisted theme before anything renders (module scripts run
 // before first paint, so a saved theme doesn't flash bitchat green first).
@@ -1286,21 +1286,24 @@ function renderAudioPreviews(entry) {
 }
 
 // --- the flair budget ---------------------------------------------------------
-// A flaired row costs real frames: plasma carries two animated pseudo-elements plus
-// several blurred, screen-blended blobs and their motes, each animated separately.
-// One row is nothing. A channel where everyone has flair on, or one person flooding
-// it, is a phone-melting number of composited layers.
+// A flaired row costs real frames, but not equally: see FLAIR_LIMITS in flair.js
+// for why the allowance is PER FLAIR rather than one number for all of them. Four
+// of the five are cheap enough to fill a screen with; plasma starts to tell at
+// about four on an ordinary phone.
 //
-// So only the newest few flaired rows THAT ARE ON SCREEN animate; everything else
-// is parked in the same cheap resting state reduced-motion readers get (see
-// .flairQuiet). The budget follows the viewport rather than the buffer: scroll up
-// into old messages and those become the live ones, because a hard "newest N only"
-// cap would leave you looking at a screen of dead rows.
+// Whatever the allowance, only rows ON SCREEN spend it, and a row that isn't
+// visible is parked regardless - it costs the same as a visible one and nobody is
+// looking at it. Parked means the same cheap resting state reduced-motion readers
+// get (see .flairQuiet): tint kept so the row still reads as flaired, everything
+// that costs a frame dropped.
+//
+// The allowance follows the viewport rather than the buffer: scroll up into old
+// messages and those become the live ones, because a hard "newest N only" rule
+// would leave you looking at a screen of dead rows.
 //
 // Visibility comes from an IntersectionObserver rather than measuring offsetTop on
 // scroll: the whole point is to save work, and reading layout for every flaired row
 // on every scroll frame would hand back what the budget saves.
-const FLAIR_BUDGET = 7;
 const flairVisible = new Set();
 let flairBudgetQueued = false;
 
@@ -1341,15 +1344,14 @@ function queueFlairBudget() {
 }
 
 function applyFlairBudget() {
-	// reduced motion is simply a budget of zero - one rule, not two code paths
+	// reduced motion is simply an allowance of zero for everything
 	const quietAll = !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
-	const budget = quietAll ? 0 : FLAIR_BUDGET;
 
 	// Candidates are split into rows actually on screen and rows only inside the
 	// observer's margin, and the on-screen ones are served first. Ranking purely by
 	// recency looks right at the bottom of the log - newest IS what you're watching -
 	// but breaks the moment you scroll up: the newest candidates are then the ones
-	// just past the fold, and the budget gets spent below the screen on rows you
+	// just past the fold, and the allowance gets spent below the screen on rows you
 	// can't see. Within each band newest still wins.
 	//
 	// Only candidates are measured, and the observer's margin bounds that to roughly
@@ -1359,21 +1361,31 @@ function applyFlairBudget() {
 	const onScreen = [];
 	const nearby = [];
 	for (let i = entries.length - 1; i >= 0; i--) {
-		const el = entries[i].el;
-		if (!el || !el.classList.contains("flair")) continue;
-		if (!flairVisible.has(el)) {
+		const entry = entries[i];
+		const el = entry.el;
+		if (!el || !entry.flair) continue;
+		if (quietAll || !flairVisible.has(el)) {
 			el.classList.add("flairQuiet");
 			continue;
 		}
 		const top = el.offsetTop;
-		(top + el.offsetHeight > viewTop && top < viewBottom ? onScreen : nearby).push(el);
+		(top + el.offsetHeight > viewTop && top < viewBottom ? onScreen : nearby).push(entry);
 	}
 
-	const live = new Set();
-	for (const el of onScreen) if (live.size < budget) live.add(el);
-	for (const el of nearby) if (live.size < budget) live.add(el);
-	for (const el of onScreen) el.classList.toggle("flairQuiet", !live.has(el));
-	for (const el of nearby) el.classList.toggle("flairQuiet", !live.has(el));
+	// each flair spends its own allowance, so a screenful of stars never crowds out
+	// the plasma rows and a flood of plasma never starves anything else
+	const used = new Map();
+	const claim = (entry) => {
+		const cap = flairLimit(entry.flair);
+		if (!cap) return true; // 0 = unlimited
+		const n = used.get(entry.flair) || 0;
+		if (n >= cap) return false;
+		used.set(entry.flair, n + 1);
+		return true;
+	};
+	for (const band of [onScreen, nearby]) {
+		for (const entry of band) entry.el.classList.toggle("flairQuiet", !claim(entry));
+	}
 }
 
 // renders one entry's DOM node into the terminal at the correct chronological

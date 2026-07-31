@@ -20,6 +20,33 @@ export const FLAIRS = ["fire", "lightning", "stars", "rain", "plasma"];
 
 const KNOWN = new Set(FLAIRS);
 
+// How many of THIS flair may animate on screen at once. 0 = no limit.
+//
+// The flairs are nowhere near equally expensive, so one global cap is the wrong
+// knob: it's either too tight for the cheap ones or too loose for the dear ones.
+// Four of these are a couple of pseudo-elements animating opacity and transform,
+// which the compositor eats by the screenful. Plasma is a different animal - two
+// animated pseudo-elements plus half a dozen BLURRED, screen-BLENDED blobs and
+// their motes, each on its own animations. Blur and blend are the expensive words:
+// they can't be composited as cheaply as a transform, and they stack.
+//
+// So the number lives next to the effect that earns it. Anything new starts at 0
+// and only gets a limit if it's measured to need one.
+const FLAIR_LIMITS = {
+	fire: 0,
+	lightning: 0,
+	stars: 0,
+	rain: 0,
+	plasma: 3,
+};
+
+// how many of `raw` may animate at once; 0 for unlimited (and for unknown names,
+// which render nothing anyway).
+export function flairLimit(raw) {
+	const n = flairName(raw);
+	return n && FLAIR_LIMITS[n] > 0 ? FLAIR_LIMITS[n] : 0;
+}
+
 // normalize an untrusted flair name (yours or a peer's) to a known one, or "".
 export function flairName(raw) {
 	const s = String(raw || "").trim().toLowerCase();

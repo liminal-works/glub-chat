@@ -6,9 +6,10 @@
 // expire files), which the caller drops into the note text like any pasted
 // image link.
 //
-// Used for location notes specifically: notes can persist forever, so their
-// media needs a permanent host - unlike chat, whose uploads ride the api's
-// temporary store.
+// Used wherever the content outlives a chat session: location notes, profile
+// images, and guild photos. All three persist indefinitely, so their media needs
+// a host that does too - unlike public geohash chat, whose uploads ride the api's
+// temporary store and are pruned within a day.
 
 import { finalizeEvent } from "https://esm.sh/nostr-tools@2";
 

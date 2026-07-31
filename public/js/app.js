@@ -5133,29 +5133,51 @@ async function uploadAndQueue(blob, marker, target) {
 	deliverToTarget(target, `${marker} ${url}`);
 }
 
+// a canvas re-encode produces a nameless Blob, but an upload form wants a filename
+// with a plausible extension - nostr.build infers the stored type from it.
+function namedImageFile(blob, original) {
+	const ext = blob.type === "image/png" ? "png" : blob.type === "image/gif" ? "gif" : "jpg";
+	const stem = String((original && original.name) || "image").replace(/\.[^.]*$/, "").slice(0, 60) || "image";
+	return new File([blob], `${stem}.${ext}`, { type: blob.type });
+}
+
+// guild images go to nostr.build (permanent) instead of the api's media store
+// (which prunes after a day) - a guild keeps its history, so a photo that outlives
+// the conversation by an afternoon is no use. Everything else about the upload is
+// unchanged, including the EXIF-stripping re-encode, which matters MORE here: this
+// host keeps the file for good.
+async function uploadImageForGuild(blob, original, target) {
+	const { url } = await uploadImageToNostrBuild(namedImageFile(blob, original), identity);
+	deliverToTarget(target, `[image] ${url}`);
+}
+
 async function uploadMedia(file) {
-	if (file.size > MEDIA_MAX_MB * 1024 * 1024) {
-		appendSystem(t("system.upload_too_large", { max: MEDIA_MAX_MB }));
-		return;
-	}
 	// bind the destination NOW (see uploadAndQueue). Uploads are fire-and-forget -
 	// several can run concurrently, the button never blocks.
 	const target = currentSendTarget();
+	// the two hosts have different ceilings, so the check has to know where it's going
+	const toGuild = !!(target && target.guildFreq);
+	const maxMb = toGuild ? NOSTR_BUILD_MAX_MB : MEDIA_MAX_MB;
+	if (file.size > maxMb * 1024 * 1024) {
+		appendSystem(t("system.upload_too_large", { max: maxMb }));
+		return;
+	}
 	try {
 		const blob = await cleanEncodeImage(file);
 		// the re-encode can still exceed the host cap (a big lossless png that even the
 		// jpeg fallback couldn't shrink enough) - catch it here with a clear message
 		// instead of a mystery server rejection.
-		if (blob.size > MEDIA_MAX_MB * 1024 * 1024) {
-			console.warn(`[media] encoded image ${(blob.size / 1048576).toFixed(1)}mb exceeds ${MEDIA_MAX_MB}mb cap`);
-			appendSystem(t("system.upload_too_large", { max: MEDIA_MAX_MB }));
+		if (blob.size > maxMb * 1024 * 1024) {
+			console.warn(`[media] encoded image ${(blob.size / 1048576).toFixed(1)}mb exceeds ${maxMb}mb cap`);
+			appendSystem(t("system.upload_too_large", { max: maxMb }));
 			return;
 		}
-		await uploadAndQueue(blob, "[image]", target); // native bitchat's image marker
+		if (toGuild) await uploadImageForGuild(blob, file, target);
+		else await uploadAndQueue(blob, "[image]", target); // native bitchat's image marker
 	} catch (err) {
 		console.error("[media] image upload failed:", err);
 		// a payload-too-large from the api reads clearer as the size message
-		appendSystem(err && err.status === 413 ? t("system.upload_too_large", { max: MEDIA_MAX_MB }) : t("system.upload_failed"));
+		appendSystem(err && err.status === 413 ? t("system.upload_too_large", { max: maxMb }) : t("system.upload_failed"));
 	}
 }
 

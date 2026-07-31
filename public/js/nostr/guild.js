@@ -55,12 +55,18 @@
 //     waiting. Persistence and deniability are genuinely opposed here, and this
 //     picks persistence - which is the right call for a room you return to, and the
 //     wrong one for anything you'd rather leave no trace of.
-//   * uploaded media (images, voice notes) is hosted UNENCRYPTED by the api, exactly
-//     as it is for public channels. What the seal protects is the link, not the
-//     bytes: only members learn the url, but anyone who obtains it - or who runs the
-//     host - can fetch the file. The filename's 64 bits of randomness make guessing
-//     one impractical, which is a different guarantee from the one the rest of this
-//     module provides, and worth knowing before sending something sensitive.
+//   * uploaded media is hosted UNENCRYPTED, exactly as it is for public channels.
+//     What the seal protects is the link, not the bytes: only members learn the url,
+//     but anyone who obtains it - or who runs the host - can fetch the file. That is
+//     a different guarantee from the one the rest of this module provides, and worth
+//     knowing before sending something sensitive. Two hosts are involved:
+//       - photos go to nostr.build, because a guild keeps its history and media that
+//         evaporates with it is no use. They are permanent and public, and the NIP-98
+//         upload is signed with your identity key, so the host learns which pubkey
+//         posted each one - the same trade the profile and notes uploads already make.
+//       - voice notes stay on glub's api, which prunes within a day. Deliberately
+//         ephemeral rather than unsupported: the api takes audio and nostr.build's
+//         free tier is an image host.
 
 import { finalizeEvent, verifyEvent } from "https://esm.sh/nostr-tools@2";
 import { sha256 } from "https://esm.sh/@noble/hashes@2.0.1/sha2";

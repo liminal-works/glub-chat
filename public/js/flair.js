@@ -16,7 +16,7 @@
 // whitelist here is load-bearing: unknown names resolve to "" rather than being
 // interpolated into markup.
 
-export const FLAIRS = ["fire", "lightning", "stars", "rain"];
+export const FLAIRS = ["fire", "lightning", "stars", "rain", "plasma"];
 
 const KNOWN = new Set(FLAIRS);
 
@@ -49,7 +49,7 @@ const pick = (arr) => arr[(Math.random() * arr.length) | 0];
 // (fire and rain instead use it as a persistent container of individual particles:
 // one element per spark/drop is the only way each gets its own spawn time and path,
 // which a box-shadow field - one element, one animation - cannot give.)
-const FX_FLAIRS = new Set(["stars", "lightning", "fire", "rain"]);
+const FX_FLAIRS = new Set(["stars", "lightning", "fire", "rain", "plasma"]);
 
 export function flairHasFx(raw) {
 	return FX_FLAIRS.has(flairName(raw));
@@ -62,6 +62,7 @@ export function flairFxInner(raw) {
 	const n = flairName(raw);
 	if (n === "fire") return fireEmberMarkup();
 	if (n === "rain") return rainDropMarkup();
+	if (n === "plasma") return plasmaPuffMarkup();
 	return "";
 }
 
@@ -236,6 +237,81 @@ export function rainDropMarkup() {
 	return html;
 }
 
+// --- plasma ---------------------------------------------------------------------
+// A violet plume lit from the LEFT edge of the row, burning out along the top and
+// bottom and dying to black toward the right. Where the other flairs are made of
+// PARTICLES you can count, this one is made of volume: a few very large, very soft
+// blobs drifting and swelling past each other behind the text.
+//
+// Two things carry the look, and neither is the blobs themselves.
+//
+// First, `screen` blending: where two puffs overlap their light ADDS, which is what
+// a camera does when it can't hold the highlights - lit evenly, but wherever the
+// volume is densest the value clips and blows out toward white. Painting those hot
+// spots directly would mean deciding up front where they go; letting overlap decide
+// means they move as the plume moves and land somewhere new on every line, free.
+//
+// Second, everything is masked by one left-to-right falloff (see the stylesheet), so
+// the plume is brightest where a line starts and gone by the time it ends. Puffs are
+// biased to the left half to match, rather than relying on the mask alone to hide
+// blobs that shouldn't have been drawn on the right in the first place.
+//
+// Three animations compose per puff, all with unrelated periods and their own phase:
+//   `translate` - the drift (ease-in-out + alternate: a lazy wander, no corners)
+//   `transform` - the swell (scale, ditto - plasma breathes, it doesn't pulse)
+//   `opacity`   - the density passing through the light
+// Nothing shares a period with anything else, so the field churns rather than
+// looping, and no two lines are ever at the same moment of it.
+const PLASMA_TINTS = ["#a855f7", "#c084fc", "#8b5cf6", "#9333ea", "#b06cf0", "#7e3ff2"];
+// the blown-out centres - near-white with only a hint of the violet left in them
+const PLASMA_CORES = ["#f3e8ff", "#efe0ff", "#ffffff", "#e9d5ff", "#f7efff"];
+const PUFF_MIN = 4;
+const PUFF_MAX = 6;
+
+export function plasmaPuffMarkup() {
+	const count = PUFF_MIN + ((Math.random() * (PUFF_MAX - PUFF_MIN + 1)) | 0);
+	let html = "";
+	for (let i = 0; i < count; i++) {
+		// deliberately larger than the row is tall: a plume has no edge you can see, and
+		// a blob small enough to read as a shape stops reading as volume.
+		const size = Math.round(rnd(90, 190));
+		const style = [
+			`--p-x:${Math.round(rnd(-12, 68))}%`,
+			`--p-y:${Math.round(rnd(15, 85))}%`,
+			`--p-size:${size}px`,
+			`--p-tint:${pick(PLASMA_TINTS)}`,
+			`--p-core:${pick(PLASMA_CORES)}`,
+			`--p-blur:${Math.round(rnd(10, 22))}px`,
+			`--p-op:${rnd(0.42, 0.76).toFixed(2)}`,
+			`--p-dx:${rnd(-26, 26).toFixed(1)}px`,
+			`--p-dy:${rnd(-9, 9).toFixed(1)}px`,
+			`--p-swell:${rnd(1.12, 1.42).toFixed(2)}`,
+			`--p-drift-dur:${rnd(7.5, 15).toFixed(2)}s`,
+			`--p-drift-delay:-${rnd(0, 14).toFixed(2)}s`,
+			`--p-swell-dur:${rnd(4.6, 9.4).toFixed(2)}s`,
+			`--p-swell-delay:-${rnd(0, 9).toFixed(2)}s`,
+			`--p-breathe-dur:${rnd(5.2, 11).toFixed(2)}s`,
+			`--p-breathe-delay:-${rnd(0, 10).toFixed(2)}s`,
+		].join(";");
+		html += `<span class="puff" style="${style}"></span>`;
+	}
+	return html;
+}
+
+// the plume surging: one dense billow that swells out of nowhere and thins away.
+// Appended and removed like the rain squall, so it never disturbs the puffs it
+// passes through - it just briefly gives them something much brighter to overlap.
+// Kept to the lit half of the row, since that's where the plume lives.
+export function plasmaSurgeMarkup() {
+	return (
+		`<span class="surge" style="` +
+		`--ps-x:${Math.round(rnd(4, 55))}%;` +
+		`--ps-tint:${pick(PLASMA_TINTS)};` +
+		`--ps-core:${pick(PLASMA_CORES)}` +
+		`"></span>`
+	);
+}
+
 // a squall: one translucent slanted sheet driven across the row. Appended for the
 // ~600ms it lasts and removed again, so it never disturbs the drops it passes.
 export function rainGustMarkup() {
@@ -293,6 +369,21 @@ export function flairVars(raw) {
 			"--rain-haze-peak": rnd(0.55, 0.9).toFixed(2),
 			"--rain-text-dur": `${rnd(2.4, 4.6).toFixed(2)}s`,
 			"--rain-text-delay": `-${rnd(0, 4).toFixed(2)}s`,
+		};
+	}
+	// the puffs carry their own timing (see plasmaPuffMarkup); these are the row's
+	// ambient layers - the violet wash, the edge burn along the top and bottom, and
+	// the lamp behind the plume, which drifts so the source isn't nailed to one spot.
+	if (n === "plasma") {
+		return {
+			"--plasma-wash-dur": `${rnd(6.5, 12).toFixed(2)}s`,
+			"--plasma-wash-delay": `-${rnd(0, 11).toFixed(2)}s`,
+			"--plasma-wash-peak": rnd(0.62, 0.95).toFixed(2),
+			"--plasma-lamp-x": `${Math.round(rnd(6, 34))}%`,
+			"--plasma-lamp-dur": `${rnd(9, 17).toFixed(2)}s`,
+			"--plasma-lamp-delay": `-${rnd(0, 16).toFixed(2)}s`,
+			"--plasma-text-dur": `${rnd(4.5, 8.5).toFixed(2)}s`,
+			"--plasma-text-delay": `-${rnd(0, 8).toFixed(2)}s`,
 		};
 	}
 	if (n !== "stars") return {};

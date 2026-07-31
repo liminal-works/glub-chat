@@ -26,7 +26,7 @@ import { isProfane } from "./censor.js";
 import { fetchConditions, wmoDescribe, geocodePlace, parseLatLon } from "./weather.js";
 import { THEMES, themeNames, activeTheme, applyTheme, persistTheme, initTheme, hexToRgb } from "./themes.js";
 import { stripFormat, hasFormat, renderFormat } from "./format.js";
-import { FLAIRS, flairName, flairClass, flairVars, flairHasFx, flairFxInner, lightningStrikeMarkup, rainGustMarkup } from "./flair.js";
+import { FLAIRS, flairName, flairClass, flairVars, flairHasFx, flairFxInner, lightningStrikeMarkup, rainGustMarkup, plasmaSurgeMarkup } from "./flair.js";
 
 // re-apply the persisted theme before anything renders (module scripts run
 // before first paint, so a saved theme doesn't flash bitchat green first).
@@ -4873,6 +4873,28 @@ function rainGust(el) {
 	anim.oncancel = () => sheet.remove();
 }
 
+// the plume surging: a dense blob swells out of the lit edge and thins away.
+// Appended like the squall so it leaves the drifting puffs alone - it just gives
+// them something much brighter to overlap for a moment, and `screen` blending turns
+// that overlap into a blown-out highlight on its own.
+function plasmaSurge(el) {
+	if (typeof el.animate !== "function") return;
+	el.insertAdjacentHTML("beforeend", plasmaSurgeMarkup());
+	const billow = el.lastElementChild;
+	const drift = 12 + Math.random() * 30; // always rightward - away from the light
+	const anim = billow.animate(
+		[
+			{ transform: "scale(0.35)", opacity: 0 },
+			{ opacity: 0.62, offset: 0.28 },
+			{ opacity: 0.5, offset: 0.6 },
+			{ transform: `translate3d(${drift.toFixed(0)}px, 0, 0) scale(1.75)`, opacity: 0 },
+		],
+		{ duration: 2200 + Math.random() * 1600, easing: "cubic-bezier(.25,.6,.35,1)" },
+	);
+	anim.onfinish = () => billow.remove();
+	anim.oncancel = () => billow.remove();
+}
+
 // pick a random fx layer for `selector`, preferring rows the reader can actually
 // see so an effect is never "spent" on something scrolled out of view.
 function pickFxTarget(selector) {
@@ -4893,6 +4915,7 @@ function pickFxTarget(selector) {
 const STRIKE_CHANCE = 0.075; // per tick -> roughly one bolt every ~20s on screen
 const GUST_CHANCE = 0.11; // squalls are weather, not events - a little more frequent
 const RAIN_BOLT_CHANCE = 0.03; // ~one thunderclap every ~50s of rain on screen
+const SURGE_CHANCE = 0.13; // the plume is always burning, so this is the busiest of them
 setInterval(() => {
 	if (document.hidden) return;
 	if (window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
@@ -4914,6 +4937,10 @@ setInterval(() => {
 	if (Math.random() < RAIN_BOLT_CHANCE) {
 		const el = pickFxTarget(".flair-rain > .flairFx");
 		if (el) lightningStrike(el);
+	}
+	if (Math.random() < SURGE_CHANCE) {
+		const el = pickFxTarget(".flair-plasma > .flairFx");
+		if (el) plasmaSurge(el);
 	}
 }, SHOOT_TICK_MS);
 

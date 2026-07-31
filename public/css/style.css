@@ -537,6 +537,42 @@ textarea {
 	}
 }
 
+/* plasma's &g runs the same way the flair does: blown-out at the start of the run
+   and falling away to deep violet, with the hot band sweeping along it so the glyphs
+   look lit from the left as the plume moves. The brightness lift is what sells the
+   overexposure - the same clipping the puffs get from overlapping, applied to type.
+   Overrides animation-name, so the reduced-motion block disables it by name too. */
+.flair-plasma .fmtRainbow {
+	background-image: linear-gradient(
+		90deg,
+		#7e3ff2 0%,
+		#a855f7 18%,
+		#d8b4fe 34%,
+		#fbf5ff 46%,
+		#d8b4fe 58%,
+		#a855f7 76%,
+		#7e3ff2 100%
+	);
+	background-size: 220% 100%;
+	background-repeat: repeat;
+	animation: fmtPlasmaText var(--plasma-text-dur, 6.5s) ease-in-out var(--plasma-text-delay, 0s) infinite;
+	text-decoration-color: #d8b4fe;
+}
+
+@keyframes fmtPlasmaText {
+	0% {
+		background-position: 0 0;
+		filter: brightness(0.92);
+	}
+	50% {
+		filter: brightness(1.3);
+	}
+	100% {
+		background-position: 220% 0;
+		filter: brightness(0.92);
+	}
+}
+
 .flair-stars .fmtRainbow {
 	background-image: repeating-linear-gradient(
 		90deg,
@@ -1101,6 +1137,178 @@ textarea {
 	}
 }
 
+/* plasma: a violet plume lit from the LEFT and dying to black toward the right, the
+   same direction the other flairs fade and the same direction the eye already reads.
+   Where they're made of particles you could count, this one is made of volume - a
+   handful of very large, very soft blobs drifting past each other behind the text.
+
+   Two things carry it, and neither is the blobs.
+
+   `mix-blend-mode: screen` on the puffs: where two overlap their light ADDS, which
+   is what a camera does when it can't hold the highlights - lit evenly, but wherever
+   the volume is densest the value clips and blows out toward white. Painting those
+   hot spots directly would mean deciding up front where they go; letting overlap
+   decide means they move as the plume moves and land somewhere different on every
+   line, for free. `isolation` keeps that blending among the puffs - it must not
+   reach the text sitting above them.
+
+   And the EDGE BURN: the light pools where the plume meets the row's top and bottom
+   and thins through the middle, rather than washing the row evenly. That's the
+   detail that makes it read as a lit volume seen edge-on instead of a coloured
+   rectangle. Bright at BOTH edges is also why it doesn't bevel - a bevel is light at
+   one edge and dark at the other, which is the trap that sent fire and rain
+   horizontal in the first place. Symmetry reads as glow. */
+.flair-plasma::before {
+	inset: 0;
+	background: linear-gradient(90deg, rgba(168, 85, 247, 0.42), rgba(124, 58, 237, 0.15) 46%, transparent 84%);
+	animation: flairPlasmaWash var(--plasma-wash-dur, 9s) ease-in-out var(--plasma-wash-delay, 0s) infinite;
+}
+
+/* the edge burn, masked by the same left-to-right falloff as everything else so it
+   dies out with the plume rather than ringing the whole row. */
+.flair-plasma::after {
+	inset: 0;
+	/* the bright bands are given real THICKNESS on purpose. Stops at exactly 0% and
+	   100% put the highlight on a single antialiased pixel of a 22px row, which
+	   disappears; holding the near-white for the first and last sixth is what makes
+	   the burn read as light pooling along an edge. */
+	background: linear-gradient(
+		180deg,
+		rgba(233, 213, 255, 0.34) 0%,
+		rgba(245, 234, 255, 0.6) 7%,
+		rgba(214, 176, 255, 0.4) 20%,
+		rgba(168, 85, 247, 0.15) 38%,
+		rgba(139, 92, 246, 0.07) 50%,
+		rgba(168, 85, 247, 0.16) 62%,
+		rgba(214, 176, 255, 0.42) 80%,
+		rgba(245, 234, 255, 0.58) 93%,
+		rgba(233, 213, 255, 0.32) 100%
+	);
+	-webkit-mask-image: linear-gradient(90deg, #000 0%, rgba(0, 0, 0, 0.45) 48%, transparent 86%);
+	mask-image: linear-gradient(90deg, #000 0%, rgba(0, 0, 0, 0.45) 48%, transparent 86%);
+	animation: flairPlasmaLamp var(--plasma-lamp-dur, 13s) ease-in-out var(--plasma-lamp-delay, 0s) infinite alternate;
+}
+
+.flair-plasma > .flairFx {
+	inset: 0;
+	opacity: 1;
+	isolation: isolate; /* confine the screen blending to the puffs */
+	/* the same falloff the wash and the edge burn use, so a puff that drifts right
+	   thins out with the plume instead of floating in the dark half on its own */
+	-webkit-mask-image: linear-gradient(90deg, #000 0%, rgba(0, 0, 0, 0.55) 50%, transparent 88%);
+	mask-image: linear-gradient(90deg, #000 0%, rgba(0, 0, 0, 0.55) 50%, transparent 88%);
+}
+
+/* a puff is sized to fill a message row, so in the ~40px preview chip a single one
+   covers everything and the label disappears into its hot core. Damping the layer
+   there makes the swatch READ like a row rather than being one, which is what a
+   preview is for. */
+.flairChip.flair-plasma > .flairFx {
+	opacity: 0.5;
+}
+
+/* one puff. Three animations compose: translate (drift), transform (swell) and
+   opacity (density) - each on its own unrelated period and phase, all eased and
+   alternating, so the field churns instead of looping and never shows a corner. */
+.flair-plasma .puff {
+	position: absolute;
+	left: var(--p-x, 40%);
+	top: var(--p-y, 50%);
+	width: var(--p-size, 110px);
+	height: var(--p-size, 110px);
+	margin: calc(var(--p-size, 110px) / -2) 0 0 calc(var(--p-size, 110px) / -2);
+	border-radius: 50%;
+	background: radial-gradient(
+		circle,
+		var(--p-core, #f3e8ff) 0%,
+		var(--p-core, #f3e8ff) 7%,
+		var(--p-tint, #a855f7) 30%,
+		color-mix(in srgb, var(--p-tint, #a855f7) 45%, transparent) 56%,
+		transparent 74%
+	);
+	/* blur is static - only opacity/transform/translate animate, so the expensive
+	   part is rasterized once and the motion stays on the compositor */
+	filter: blur(var(--p-blur, 12px));
+	mix-blend-mode: screen;
+	opacity: var(--p-op, 0.7);
+	animation:
+		plasmaDrift var(--p-drift-dur, 11s) ease-in-out var(--p-drift-delay, 0s) infinite alternate,
+		plasmaSwell var(--p-swell-dur, 7s) ease-in-out var(--p-swell-delay, 0s) infinite alternate,
+		plasmaBreathe var(--p-breathe-dur, 8s) ease-in-out var(--p-breathe-delay, 0s) infinite alternate;
+}
+
+@keyframes plasmaDrift {
+	from {
+		translate: 0 0;
+	}
+	to {
+		translate: var(--p-dx, 18px) var(--p-dy, 6px);
+	}
+}
+
+@keyframes plasmaSwell {
+	from {
+		transform: scale(1);
+	}
+	to {
+		transform: scale(var(--p-swell, 1.28));
+	}
+}
+
+@keyframes plasmaBreathe {
+	from {
+		opacity: calc(var(--p-op, 0.7) * 0.62);
+	}
+	to {
+		opacity: var(--p-op, 0.7);
+	}
+}
+
+@keyframes flairPlasmaWash {
+	0%,
+	100% {
+		opacity: calc(var(--plasma-wash-peak, 0.85) * 0.55);
+	}
+	50% {
+		opacity: var(--plasma-wash-peak, 0.85);
+	}
+}
+
+/* the edge burn breathes rather than travelling: the plume's brightness rises and
+   falls, but the direction it comes from is fixed - that's what makes a row read as
+   lit from one side rather than as something sweeping past. */
+@keyframes flairPlasmaLamp {
+	from {
+		opacity: 0.6;
+	}
+	to {
+		opacity: 1;
+	}
+}
+
+/* the machine pumping a fresh billow: injected, swelled, removed (hazeSurge in
+   app.js). It blends like the puffs, so while it passes it gives them something far
+   brighter to overlap and the row briefly blows out. */
+.flair-plasma > .flairFx .surge {
+	position: absolute;
+	left: var(--ps-x, 50%);
+	top: 50%;
+	width: 200px;
+	height: 200px;
+	margin: -100px 0 0 -100px;
+	border-radius: 50%;
+	background: radial-gradient(
+		circle,
+		var(--ps-core, #f3e8ff) 0%,
+		var(--ps-tint, #a855f7) 30%,
+		color-mix(in srgb, var(--ps-tint, #a855f7) 38%, transparent) 55%,
+		transparent 74%
+	);
+	filter: blur(16px);
+	mix-blend-mode: screen;
+	opacity: 0;
+}
+
 /* the squall sheet: injected, swept across, removed (see rainGust in app.js) */
 .flair-rain > .flairFx .gust {
 	position: absolute;
@@ -1194,9 +1402,15 @@ textarea {
 	   reduced-motion readers. */
 	.flair-lightning .fmtRainbow,
 	.flair-fire .fmtRainbow,
-	.flair-rain .fmtRainbow {
+	.flair-rain .fmtRainbow,
+	.flair-plasma .fmtRainbow {
 		animation: none;
 		filter: brightness(1);
+	}
+	/* haze keeps its violet, parked at a readable density rather than mid-breath */
+	.flair-plasma::after {
+		opacity: 0.7;
+		translate: 0 0;
 	}
 	/* rain's ambient layers are opacity-animated, so parking them needs a value */
 	.flair-rain::after {

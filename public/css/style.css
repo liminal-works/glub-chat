@@ -573,12 +573,12 @@ textarea {
 	}
 }
 
-/* plasma's &g runs the same way the flair does: blown-out at the start of the run
+/* plume's &g runs the same way the flair does: blown-out at the start of the run
    and falling away to deep violet, with the hot band sweeping along it so the glyphs
    look lit from the left as the plume moves. The brightness lift is what sells the
    overexposure - the same clipping the puffs get from overlapping, applied to type.
    Overrides animation-name, so the reduced-motion block disables it by name too. */
-.flair-plasma .fmtRainbow {
+.flair-plume .fmtRainbow {
 	background-image: linear-gradient(
 		90deg,
 		#7e3ff2 0%,
@@ -591,11 +591,11 @@ textarea {
 	);
 	background-size: 220% 100%;
 	background-repeat: repeat;
-	animation: fmtPlasmaText var(--plasma-text-dur, 6.5s) ease-in-out var(--plasma-text-delay, 0s) infinite;
+	animation: fmtPlumeText var(--plume-text-dur, 6.5s) ease-in-out var(--plume-text-delay, 0s) infinite;
 	text-decoration-color: #d8b4fe;
 }
 
-@keyframes fmtPlasmaText {
+@keyframes fmtPlumeText {
 	0% {
 		background-position: 0 0;
 		filter: brightness(0.92);
@@ -1173,7 +1173,7 @@ textarea {
 	}
 }
 
-/* plasma: a violet plume lit from the LEFT and dying to black toward the right, the
+/* plume: violet exhaust lit from the LEFT and dying to black toward the right, the
    same direction the other flairs fade and the same direction the eye already reads.
    Where they're made of particles you could count, this one is made of volume - a
    handful of very large, very soft blobs drifting past each other behind the text.
@@ -1194,18 +1194,18 @@ textarea {
    rectangle. Bright at BOTH edges is also why it doesn't bevel - a bevel is light at
    one edge and dark at the other, which is the trap that sent fire and rain
    horizontal in the first place. Symmetry reads as glow. */
-.flair-plasma::before {
+.flair-plume::before {
 	inset: 0;
 	background: linear-gradient(90deg, rgba(168, 85, 247, 0.3), rgba(124, 58, 237, 0.1) 20%, transparent 46%);
 	transform-origin: left center;
 	animation:
-		flairPlasmaWash var(--plasma-wash-dur, 9s) ease-in-out var(--plasma-wash-delay, 0s) infinite,
-		flairPlasmaReach var(--plasma-reach-dur, 22s) ease-in-out var(--plasma-reach-delay, 0s) infinite;
+		flairPlumeWash var(--plume-wash-dur, 9s) ease-in-out var(--plume-wash-delay, 0s) infinite,
+		flairPlumeReach var(--plume-reach-dur, 22s) ease-in-out var(--plume-reach-delay, 0s) infinite;
 }
 
 /* the edge burn, masked by the same left-to-right falloff as everything else so it
    dies out with the plume rather than ringing the whole row. */
-.flair-plasma::after {
+.flair-plume::after {
 	inset: 0;
 	/* The bands need thickness to survive antialiasing on a 22px row - a stop at
 	   exactly 0% puts the highlight on one pixel and it vanishes - but only just.
@@ -1233,11 +1233,11 @@ textarea {
 	   a scale is handed straight to the compositor. */
 	transform-origin: left center;
 	animation:
-		flairPlasmaLamp var(--plasma-lamp-dur, 13s) ease-in-out var(--plasma-lamp-delay, 0s) infinite alternate,
-		flairPlasmaReach var(--plasma-reach-dur, 22s) ease-in-out var(--plasma-reach-delay, 0s) infinite;
+		flairPlumeLamp var(--plume-lamp-dur, 13s) ease-in-out var(--plume-lamp-delay, 0s) infinite alternate,
+		flairPlumeReach var(--plume-reach-dur, 22s) ease-in-out var(--plume-reach-delay, 0s) infinite;
 }
 
-.flair-plasma > .flairFx {
+.flair-plume > .flairFx {
 	inset: 0;
 	opacity: 1;
 	isolation: isolate; /* confine the screen blending to the puffs */
@@ -1248,7 +1248,7 @@ textarea {
 	   animation is doing, so they keep churning while the layer as a whole comes up.
 	   The implicit `to` resolves to the element's own opacity, which is how the
 	   preview chip's damped 0.5 keeps working without restating it. */
-	animation: flairPlasmaWake 900ms ease-out;
+	animation: flairPlumeWake 900ms ease-out;
 	/* deliberately NOT masked, unlike the wash and the edge burn. A mask here would
 	   also hide the motes, which exist precisely to be seen out in the dark before
 	   they reach the glow - they'd fade in halfway across instead of arriving from
@@ -1261,14 +1261,14 @@ textarea {
    covers everything and the label disappears into its hot core. Damping the layer
    there makes the swatch READ like a row rather than being one, which is what a
    preview is for. */
-.flairChip.flair-plasma > .flairFx {
+.flairChip.flair-plume > .flairFx {
 	opacity: 0.5;
 }
 
 /* one puff. Three animations compose: translate (drift), transform (swell) and
    opacity (density) - each on its own unrelated period and phase, all eased and
    alternating, so the field churns instead of looping and never shows a corner. */
-.flair-plasma .puff {
+.flair-plume .puff {
 	position: absolute;
 	left: var(--p-x, 40%);
 	top: var(--p-y, 50%);
@@ -1290,12 +1290,12 @@ textarea {
 	mix-blend-mode: screen;
 	opacity: var(--p-op, 0.7);
 	animation:
-		plasmaDrift var(--p-drift-dur, 11s) ease-in-out var(--p-drift-delay, 0s) infinite alternate,
-		plasmaSwell var(--p-swell-dur, 7s) ease-in-out var(--p-swell-delay, 0s) infinite alternate,
-		plasmaBreathe var(--p-breathe-dur, 8s) ease-in-out var(--p-breathe-delay, 0s) infinite alternate;
+		plumeDrift var(--p-drift-dur, 11s) ease-in-out var(--p-drift-delay, 0s) infinite alternate,
+		plumeSwell var(--p-swell-dur, 7s) ease-in-out var(--p-swell-delay, 0s) infinite alternate,
+		plumeBreathe var(--p-breathe-dur, 8s) ease-in-out var(--p-breathe-delay, 0s) infinite alternate;
 }
 
-@keyframes plasmaDrift {
+@keyframes plumeDrift {
 	from {
 		translate: 0 0;
 	}
@@ -1304,7 +1304,7 @@ textarea {
 	}
 }
 
-@keyframes plasmaSwell {
+@keyframes plumeSwell {
 	from {
 		transform: scale(1);
 	}
@@ -1313,7 +1313,7 @@ textarea {
 	}
 }
 
-@keyframes plasmaBreathe {
+@keyframes plumeBreathe {
 	from {
 		opacity: calc(var(--p-op, 0.7) * 0.62);
 	}
@@ -1322,19 +1322,19 @@ textarea {
 	}
 }
 
-@keyframes flairPlasmaWake {
+@keyframes flairPlumeWake {
 	from {
 		opacity: 0;
 	}
 }
 
-@keyframes flairPlasmaWash {
+@keyframes flairPlumeWash {
 	0%,
 	100% {
-		opacity: calc(var(--plasma-wash-peak, 0.85) * 0.55);
+		opacity: calc(var(--plume-wash-peak, 0.85) * 0.55);
 	}
 	50% {
-		opacity: var(--plasma-wash-peak, 0.85);
+		opacity: var(--plume-wash-peak, 0.85);
 	}
 }
 
@@ -1343,12 +1343,12 @@ textarea {
    lit from one side rather than as something sweeping past. The swing is wide (a
    plume at 45% is genuinely dim) because an even glow reads as a painted shape;
    uneven brightness is most of what makes it read as burning. */
-@keyframes flairPlasmaLamp {
+@keyframes flairPlumeLamp {
 	from {
-		opacity: var(--plasma-lamp-low, 0.45);
+		opacity: var(--plume-lamp-low, 0.45);
 	}
 	to {
-		opacity: var(--plasma-lamp-peak, 0.9);
+		opacity: var(--plume-lamp-peak, 0.9);
 	}
 }
 
@@ -1361,45 +1361,45 @@ textarea {
    moments rather than together - which is what makes it feel intermittent rather
    than scheduled. It's drawn back in slowly: a plume that snaps back reads as a
    glitch. */
-@keyframes flairPlasmaReach {
+@keyframes flairPlumeReach {
 	0%,
 	16% {
-		transform: scaleX(var(--plasma-reach-min, 0.72));
+		transform: scaleX(var(--plume-reach-min, 0.72));
 	}
 	26% {
-		transform: scaleX(var(--plasma-reach-max, 1.15));
+		transform: scaleX(var(--plume-reach-max, 1.15));
 	}
 	38% {
-		transform: scaleX(var(--plasma-reach-min, 0.72));
+		transform: scaleX(var(--plume-reach-min, 0.72));
 	}
 	48% {
-		transform: scaleX(calc(var(--plasma-reach-max, 1.15) * 0.88));
+		transform: scaleX(calc(var(--plume-reach-max, 1.15) * 0.88));
 	}
 	/* the throw: up fast, then a two-stage fall - most of the distance shed quickly,
 	   the last of it drifting back. Held briefly on purpose. Stretched over a third
 	   of the cycle it stops being an event and becomes the resting state. */
 	58% {
-		transform: scaleX(var(--plasma-reach-far, 2.6));
+		transform: scaleX(var(--plume-reach-far, 2.6));
 	}
 	68% {
-		transform: scaleX(var(--plasma-reach-max, 1.15));
+		transform: scaleX(var(--plume-reach-max, 1.15));
 	}
 	82%,
 	100% {
-		transform: scaleX(var(--plasma-reach-min, 0.72));
+		transform: scaleX(var(--plume-reach-min, 0.72));
 	}
 }
 
 /* motes: sparse specks that fade up out in the dark - past where the plume's glow
    has already tapered off - and drift LEFT into it, dying as they reach the bright
    edge. Arriving from the dark and never coming out the other side is what makes
-   the plasma read as drawing them IN rather than shedding them.
+   the plume read as drawing them IN rather than shedding them.
 
    `left` is animated rather than a transform because the travel is expressed in
    percentages of a row whose width isn't known here, and this is two or three
    1.4px dots on a slow period - not a particle system. The vertical drift rides
    `translate` so the path arcs instead of tracking a ruled line. */
-.flair-plasma .mote {
+.flair-plume .mote {
 	position: absolute;
 	top: var(--m-y, 50%);
 	left: var(--m-from, 90%);
@@ -1409,10 +1409,10 @@ textarea {
 	background: var(--m-tint, #e9d5ff);
 	box-shadow: 0 0 4px var(--m-tint, #e9d5ff);
 	opacity: 0;
-	animation: plasmaMote var(--m-dur, 7s) linear var(--m-delay, 0s) infinite;
+	animation: plumeMote var(--m-dur, 7s) linear var(--m-delay, 0s) infinite;
 }
 
-@keyframes plasmaMote {
+@keyframes plumeMote {
 	0% {
 		left: var(--m-from, 90%);
 		translate: 0 0;
@@ -1434,10 +1434,10 @@ textarea {
 	}
 }
 
-/* the plume surging: injected, swelled, removed (plasmaSurge in app.js). It blends
+/* the plume surging: injected, swelled, removed (plumeSurge in app.js). It blends
    like the puffs, so while it passes it gives them something far brighter to
    overlap and the row briefly blows out. */
-.flair-plasma > .flairFx .surge {
+.flair-plume > .flairFx .surge {
 	position: absolute;
 	left: var(--ps-x, 50%);
 	top: 50%;
@@ -1533,7 +1533,7 @@ textarea {
 }
 
 /* --- the flair budget --------------------------------------------------------
-   A flaired row is not free: plasma alone carries two animated pseudo-elements
+   A flaired row is not free: plume alone carries two animated pseudo-elements
    plus a handful of blurred, screen-blended blobs and their motes, each with its
    own animations. A screenful is fine; a flood of them on a phone is not.
 
@@ -1547,20 +1547,20 @@ textarea {
    below. CSS has no way to say "match this class OR this media condition", and the
    media query is worth keeping as a guarantee that doesn't depend on the budget
    pass having run. */
-/* plasma is carved out here rather than overridden below, because `animation: none`
+/* plume is carved out here rather than overridden below, because `animation: none`
    would zero animation-NAME, and a later rule that only sets play-state can't bring
    the name back. */
-.flairQuiet:not(.flair-plasma)::before,
-.flairQuiet:not(.flair-plasma)::after {
+.flairQuiet:not(.flair-plume)::before,
+.flairQuiet:not(.flair-plume)::after {
 	animation: none;
 }
 
-/* ...plasma's two ambient layers PAUSE instead of stopping.
+/* ...plume's two ambient layers PAUSE instead of stopping.
    Everything else is uncapped, so it only ever goes quiet well off screen and is
-   running again long before you scroll to it. Plasma is capped at 3, so a row wakes
+   running again long before you scroll to it. Plume is capped at 3, so a row wakes
    when a SLOT frees up - which happens in front of you, mid-scroll.
 
-   Stopping and restarting can't be made seamless here: every plasma row carries a
+   Stopping and restarting can't be made seamless here: every plume row carries a
    large NEGATIVE animation-delay to de-sync it from its neighbours, so re-applying
    the animation drops it at that phase offset rather than at the first keyframe.
    There is no parked value that matches, because the value it wakes to is a
@@ -1572,8 +1572,8 @@ textarea {
    two plain gradients whose paused animations cost a static composited layer and no
    per-frame work, where the puffs are blurred and blended and cost a real
    compositing pass each even standing still. */
-.flair-plasma.flairQuiet::before,
-.flair-plasma.flairQuiet::after {
+.flair-plume.flairQuiet::before,
+.flair-plume.flairQuiet::after {
 	animation-play-state: paused;
 }
 
@@ -1589,12 +1589,12 @@ textarea {
 .flair-lightning.flairQuiet .fmtRainbow,
 .flair-fire.flairQuiet .fmtRainbow,
 .flair-rain.flairQuiet .fmtRainbow,
-.flair-plasma.flairQuiet .fmtRainbow {
+.flair-plume.flairQuiet .fmtRainbow {
 	animation: none;
 	filter: brightness(1);
 }
 
-/* deliberately no parked opacity/transform for plasma here: it freezes on its own
+/* deliberately no parked opacity/transform for plume here: it freezes on its own
    animated values (see the pause above), and pinning them would reintroduce exactly
    the jump that pausing removes. The reduced-motion block still parks it, because
    there the animation really is off. */
@@ -1628,12 +1628,12 @@ textarea {
 	.flair-lightning .fmtRainbow,
 	.flair-fire .fmtRainbow,
 	.flair-rain .fmtRainbow,
-	.flair-plasma .fmtRainbow {
+	.flair-plume .fmtRainbow {
 		animation: none;
 		filter: brightness(1);
 	}
 	/* haze keeps its violet, parked at a readable density rather than mid-breath */
-	.flair-plasma::after {
+	.flair-plume::after {
 		opacity: 0.7;
 		translate: 0 0;
 	}
@@ -1651,10 +1651,10 @@ textarea {
 		display: none;
 		animation: none;
 	}
-	/* plasma is carved out of the generic quiet rule so it can pause; nothing wakes
+	/* plume is carved out of the generic quiet rule so it can pause; nothing wakes
 	   under reduced motion, so here it stops outright like everything else. */
-	.flair-plasma::before,
-	.flair-plasma::after {
+	.flair-plume::before,
+	.flair-plume::after {
 		animation: none;
 	}
 }

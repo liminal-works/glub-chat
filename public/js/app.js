@@ -26,7 +26,7 @@ import { isProfane } from "./censor.js";
 import { fetchConditions, wmoDescribe, geocodePlace, parseLatLon } from "./weather.js";
 import { THEMES, themeNames, activeTheme, applyTheme, persistTheme, initTheme, hexToRgb } from "./themes.js";
 import { stripFormat, hasFormat, renderFormat } from "./format.js";
-import { FLAIRS, flairName, flairClass, flairLimit, flairVars, flairHasFx, flairFxInner, lightningStrikeMarkup, rainGustMarkup, plasmaSurgeMarkup } from "./flair.js";
+import { FLAIRS, flairName, flairClass, flairLimit, flairVars, flairHasFx, flairFxInner, lightningStrikeMarkup, rainGustMarkup, plumeSurgeMarkup } from "./flair.js";
 
 // re-apply the persisted theme before anything renders (module scripts run
 // before first paint, so a saved theme doesn't flash bitchat green first).
@@ -493,7 +493,13 @@ const STORAGE_FLAIR_KEY = "glub_flair";
 
 function getFlair() {
 	try {
-		return flairName(localStorage.getItem(STORAGE_FLAIR_KEY) || "");
+		const stored = localStorage.getItem(STORAGE_FLAIR_KEY) || "";
+		const n = flairName(stored);
+		// canonicalize a renamed flair in place, so the stored value matches what's
+		// actually on screen. The alias itself has to stay regardless - peers on older
+		// builds keep sending the old name - but there's no reason OUR copy stays stale.
+		if (n && n !== stored) setFlair(n);
+		return n;
 	} catch {
 		return "";
 	}
@@ -1288,7 +1294,7 @@ function renderAudioPreviews(entry) {
 // --- the flair budget ---------------------------------------------------------
 // A flaired row costs real frames, but not equally: see FLAIR_LIMITS in flair.js
 // for why the allowance is PER FLAIR rather than one number for all of them. Four
-// of the five are cheap enough to fill a screen with; plasma starts to tell at
+// of the five are cheap enough to fill a screen with; plume starts to tell at
 // about four on an ordinary phone.
 //
 // Whatever the allowance, only rows ON SCREEN spend it, and a row that isn't
@@ -1373,7 +1379,7 @@ function applyFlairBudget() {
 	}
 
 	// each flair spends its own allowance, so a screenful of stars never crowds out
-	// the plasma rows and a flood of plasma never starves anything else
+	// the plume rows and a flood of plume never starves anything else
 	const used = new Map();
 	const claim = (entry) => {
 		const cap = flairLimit(entry.flair);
@@ -5039,9 +5045,9 @@ function rainGust(el) {
 // Appended like the squall so it leaves the drifting puffs alone - it just gives
 // them something much brighter to overlap for a moment, and `screen` blending turns
 // that overlap into a blown-out highlight on its own.
-function plasmaSurge(el) {
+function plumeSurge(el) {
 	if (typeof el.animate !== "function") return;
-	el.insertAdjacentHTML("beforeend", plasmaSurgeMarkup());
+	el.insertAdjacentHTML("beforeend", plumeSurgeMarkup());
 	const billow = el.lastElementChild;
 	const drift = 12 + Math.random() * 30; // always rightward - away from the light
 	const anim = billow.animate(
@@ -5101,8 +5107,8 @@ setInterval(() => {
 		if (el) lightningStrike(el);
 	}
 	if (Math.random() < SURGE_CHANCE) {
-		const el = pickFxTarget(".flair-plasma > .flairFx");
-		if (el) plasmaSurge(el);
+		const el = pickFxTarget(".flair-plume > .flairFx");
+		if (el) plumeSurge(el);
 	}
 }, SHOOT_TICK_MS);
 

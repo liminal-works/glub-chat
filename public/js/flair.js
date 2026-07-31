@@ -16,7 +16,7 @@
 // whitelist here is load-bearing: unknown names resolve to "" rather than being
 // interpolated into markup.
 
-export const FLAIRS = ["fire", "lightning", "stars", "rain", "plasma"];
+export const FLAIRS = ["fire", "lightning", "stars", "rain", "plume"];
 
 const KNOWN = new Set(FLAIRS);
 
@@ -25,7 +25,7 @@ const KNOWN = new Set(FLAIRS);
 // The flairs are nowhere near equally expensive, so one global cap is the wrong
 // knob: it's either too tight for the cheap ones or too loose for the dear ones.
 // Four of these are a couple of pseudo-elements animating opacity and transform,
-// which the compositor eats by the screenful. Plasma is a different animal - two
+// which the compositor eats by the screenful. Plume is a different animal - two
 // animated pseudo-elements plus half a dozen BLURRED, screen-BLENDED blobs and
 // their motes, each on its own animations. Blur and blend are the expensive words:
 // they can't be composited as cheaply as a transform, and they stack.
@@ -37,7 +37,7 @@ const FLAIR_LIMITS = {
 	lightning: 0,
 	stars: 0,
 	rain: 0,
-	plasma: 3,
+	plume: 3,
 };
 
 // how many of `raw` may animate at once; 0 for unlimited (and for unknown names,
@@ -47,10 +47,19 @@ export function flairLimit(raw) {
 	return n && FLAIR_LIMITS[n] > 0 ? FLAIR_LIMITS[n] : 0;
 }
 
+// names this flair used to answer to. Renaming a flair is not free: the choice is
+// persisted in localStorage indefinitely, and it rides along on every message as
+// ["glub","flair",...], so a peer on an older build is still sending the old name
+// right now. Without this table both would fall through the whitelist below and
+// resolve to "" - a saved preference would silently vanish and their rows would
+// render bare. One line each is cheaper than either failure.
+const ALIASES = { plasma: "plume" };
+
 // normalize an untrusted flair name (yours or a peer's) to a known one, or "".
 export function flairName(raw) {
 	const s = String(raw || "").trim().toLowerCase();
-	return KNOWN.has(s) ? s : "";
+	const n = ALIASES[s] || s;
+	return KNOWN.has(n) ? n : "";
 }
 
 // the class pair a flaired element needs: the shared base plus the effect itself.
@@ -76,7 +85,7 @@ const pick = (arr) => arr[(Math.random() * arr.length) | 0];
 // (fire and rain instead use it as a persistent container of individual particles:
 // one element per spark/drop is the only way each gets its own spawn time and path,
 // which a box-shadow field - one element, one animation - cannot give.)
-const FX_FLAIRS = new Set(["stars", "lightning", "fire", "rain", "plasma"]);
+const FX_FLAIRS = new Set(["stars", "lightning", "fire", "rain", "plume"]);
 
 export function flairHasFx(raw) {
 	return FX_FLAIRS.has(flairName(raw));
@@ -89,7 +98,7 @@ export function flairFxInner(raw) {
 	const n = flairName(raw);
 	if (n === "fire") return fireEmberMarkup();
 	if (n === "rain") return rainDropMarkup();
-	if (n === "plasma") return plasmaPuffMarkup();
+	if (n === "plume") return plumePuffMarkup();
 	return "";
 }
 
@@ -264,7 +273,7 @@ export function rainDropMarkup() {
 	return html;
 }
 
-// --- plasma ---------------------------------------------------------------------
+// --- plume ---------------------------------------------------------------------
 // A violet plume lit from the LEFT edge of the row, burning out along the top and
 // bottom and dying to black toward the right. Where the other flairs are made of
 // PARTICLES you can count, this one is made of volume: a few very large, very soft
@@ -286,7 +295,7 @@ export function rainDropMarkup() {
 //
 // Three animations compose per puff, all with unrelated periods and their own phase:
 //   `translate` - the drift (ease-in-out + alternate: a lazy wander, no corners)
-//   `transform` - the swell (scale, ditto - plasma breathes, it doesn't pulse)
+//   `transform` - the swell (scale, ditto - plume breathes, it doesn't pulse)
 //   `opacity`   - the density passing through the light
 // Nothing shares a period with anything else, so the field churns rather than
 // looping, and no two lines are ever at the same moment of it.
@@ -297,7 +306,7 @@ const PUFF_MIN = 4;
 const PUFF_MAX = 6;
 
 // Motes: a few specks that spawn out in the dark, where the plume's glow has
-// already tapered off, and drift LEFT into it - so the plasma reads as drawing them
+// already tapered off, and drift LEFT into it - so the plume reads as drawing them
 // in rather than shedding them. They fade up out of nothing at the far end and are
 // swallowed (fading again) as they reach the bright edge, which is what sells the
 // direction: something that arrives from the dark and doesn't come out the other
@@ -311,7 +320,7 @@ const MOTE_TINTS = ["#e9d5ff", "#c084fc", "#f3e8ff", "#d8b4fe", "#a855f7"];
 const MOTE_MIN = 2;
 const MOTE_MAX = 4;
 
-function plasmaMoteMarkup() {
+function plumeMoteMarkup() {
 	const count = MOTE_MIN + ((Math.random() * (MOTE_MAX - MOTE_MIN + 1)) | 0);
 	let html = "";
 	for (let i = 0; i < count; i++) {
@@ -334,7 +343,7 @@ function plasmaMoteMarkup() {
 	return html;
 }
 
-export function plasmaPuffMarkup() {
+export function plumePuffMarkup() {
 	const count = PUFF_MIN + ((Math.random() * (PUFF_MAX - PUFF_MIN + 1)) | 0);
 	let html = "";
 	for (let i = 0; i < count; i++) {
@@ -365,14 +374,14 @@ export function plasmaPuffMarkup() {
 		html += `<span class="puff" style="${style}"></span>`;
 	}
 	// the motes ride in the same layer, so they're masked and blended with the plume
-	return html + plasmaMoteMarkup();
+	return html + plumeMoteMarkup();
 }
 
 // the plume surging: one dense billow that swells out of nowhere and thins away.
 // Appended and removed like the rain squall, so it never disturbs the puffs it
 // passes through - it just briefly gives them something much brighter to overlap.
 // Kept to the lit half of the row, since that's where the plume lives.
-export function plasmaSurgeMarkup() {
+export function plumeSurgeMarkup() {
 	return (
 		`<span class="surge" style="` +
 		`--ps-x:${Math.round(rnd(1, 20))}%;` +
@@ -441,33 +450,33 @@ export function flairVars(raw) {
 			"--rain-text-delay": `-${rnd(0, 4).toFixed(2)}s`,
 		};
 	}
-	// the puffs carry their own timing (see plasmaPuffMarkup); these are the row's
+	// the puffs carry their own timing (see plumePuffMarkup); these are the row's
 	// ambient layers - the violet wash, the edge burn along the top and bottom, and
 	// the lamp behind the plume, which drifts so the source isn't nailed to one spot.
-	if (n === "plasma") {
+	if (n === "plume") {
 		return {
-			"--plasma-wash-dur": `${rnd(6.5, 12).toFixed(2)}s`,
-			"--plasma-wash-delay": `-${rnd(0, 11).toFixed(2)}s`,
-			"--plasma-wash-peak": rnd(0.5, 0.8).toFixed(2),
-			"--plasma-lamp-x": `${Math.round(rnd(4, 22))}%`,
-			"--plasma-lamp-dur": `${rnd(9, 17).toFixed(2)}s`,
-			"--plasma-lamp-delay": `-${rnd(0, 16).toFixed(2)}s`,
+			"--plume-wash-dur": `${rnd(6.5, 12).toFixed(2)}s`,
+			"--plume-wash-delay": `-${rnd(0, 11).toFixed(2)}s`,
+			"--plume-wash-peak": rnd(0.5, 0.8).toFixed(2),
+			"--plume-lamp-x": `${Math.round(rnd(4, 22))}%`,
+			"--plume-lamp-dur": `${rnd(9, 17).toFixed(2)}s`,
+			"--plume-lamp-delay": `-${rnd(0, 16).toFixed(2)}s`,
 			// how dim and how bright THIS line's plume burns between. A wide, per-line
 			// swing is most of what stops a screenful of them pulsing as one organism.
-			"--plasma-lamp-low": rnd(0.32, 0.5).toFixed(2),
-			"--plasma-lamp-peak": rnd(0.74, 0.98).toFixed(2),
+			"--plume-lamp-low": rnd(0.32, 0.5).toFixed(2),
+			"--plume-lamp-peak": rnd(0.74, 0.98).toFixed(2),
 			// and how far it reaches, on its own period - so length and brightness are
 			// never in step, which is what keeps it from looking like a single throb.
-			// `far` is the once-a-cycle long throw (see flairPlasmaReach): several
+			// `far` is the once-a-cycle long throw (see flairPlumeReach): several
 			// times the resting length, enough to run most of the way across a line.
 			// The period is long so it stays an event rather than a rhythm.
-			"--plasma-reach-min": rnd(0.6, 0.82).toFixed(2),
-			"--plasma-reach-max": rnd(1.02, 1.24).toFixed(2),
-			"--plasma-reach-far": rnd(1.9, 3.3).toFixed(2),
-			"--plasma-reach-dur": `${rnd(16, 30).toFixed(2)}s`,
-			"--plasma-reach-delay": `-${rnd(0, 30).toFixed(2)}s`,
-			"--plasma-text-dur": `${rnd(4.5, 8.5).toFixed(2)}s`,
-			"--plasma-text-delay": `-${rnd(0, 8).toFixed(2)}s`,
+			"--plume-reach-min": rnd(0.6, 0.82).toFixed(2),
+			"--plume-reach-max": rnd(1.02, 1.24).toFixed(2),
+			"--plume-reach-far": rnd(1.9, 3.3).toFixed(2),
+			"--plume-reach-dur": `${rnd(16, 30).toFixed(2)}s`,
+			"--plume-reach-delay": `-${rnd(0, 30).toFixed(2)}s`,
+			"--plume-text-dur": `${rnd(4.5, 8.5).toFixed(2)}s`,
+			"--plume-text-delay": `-${rnd(0, 8).toFixed(2)}s`,
 		};
 	}
 	if (n !== "stars") return {};

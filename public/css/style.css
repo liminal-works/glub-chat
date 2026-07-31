@@ -1518,6 +1518,58 @@ textarea {
 	stroke-linecap: round;
 }
 
+/* --- the flair budget --------------------------------------------------------
+   A flaired row is not free: plasma alone carries two animated pseudo-elements
+   plus a handful of blurred, screen-blended blobs and their motes, each with its
+   own animations. A screenful is fine; a flood of them on a phone is not.
+
+   So only a few rows animate at once (see FLAIR_BUDGET in app.js) and the rest are
+   parked here - exactly the same resting state reduced-motion readers get, and for
+   the same reason: keep the tint so the row still reads as flaired, drop everything
+   that costs a frame. `display: none` on the fx layer rather than a paused
+   animation, because paused blobs still cost a composited, blended layer each.
+
+   The rules are spelled out twice, once here and once in the reduced-motion block
+   below. CSS has no way to say "match this class OR this media condition", and the
+   media query is worth keeping as a guarantee that doesn't depend on the budget
+   pass having run. */
+.flairQuiet::before,
+.flairQuiet::after {
+	animation: none;
+}
+
+.flairQuiet > .flairFx {
+	display: none;
+}
+
+.flair-fire.flairQuiet::after,
+.flair-lightning.flairQuiet::after {
+	opacity: 0;
+}
+
+.flair-lightning.flairQuiet .fmtRainbow,
+.flair-fire.flairQuiet .fmtRainbow,
+.flair-rain.flairQuiet .fmtRainbow,
+.flair-plasma.flairQuiet .fmtRainbow {
+	animation: none;
+	filter: brightness(1);
+}
+
+.flair-plasma.flairQuiet::after {
+	opacity: 0.7;
+	transform: none;
+}
+
+.flair-rain.flairQuiet::after {
+	opacity: 0.4;
+}
+
+.flair-stars.flairQuiet::before,
+.flair-stars.flairQuiet::after {
+	opacity: 0.55;
+	transform: none;
+}
+
 @media (prefers-reduced-motion: reduce) {
 	/* keep each flair's ambient tint (so a flaired line still reads as flaired)
 	   but stop the motion, parking the moving parts out of sight rather than

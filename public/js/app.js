@@ -1285,6 +1285,97 @@ function renderAudioPreviews(entry) {
 		.join("");
 }
 
+// --- the flair budget ---------------------------------------------------------
+// A flaired row costs real frames: plasma carries two animated pseudo-elements plus
+// several blurred, screen-blended blobs and their motes, each animated separately.
+// One row is nothing. A channel where everyone has flair on, or one person flooding
+// it, is a phone-melting number of composited layers.
+//
+// So only the newest few flaired rows THAT ARE ON SCREEN animate; everything else
+// is parked in the same cheap resting state reduced-motion readers get (see
+// .flairQuiet). The budget follows the viewport rather than the buffer: scroll up
+// into old messages and those become the live ones, because a hard "newest N only"
+// cap would leave you looking at a screen of dead rows.
+//
+// Visibility comes from an IntersectionObserver rather than measuring offsetTop on
+// scroll: the whole point is to save work, and reading layout for every flaired row
+// on every scroll frame would hand back what the budget saves.
+const FLAIR_BUDGET = 7;
+const flairVisible = new Set();
+let flairBudgetQueued = false;
+
+const flairObserver =
+	typeof IntersectionObserver === "function"
+		? new IntersectionObserver(
+				(obs) => {
+					for (const o of obs) {
+						if (o.isIntersecting) flairVisible.add(o.target);
+						else flairVisible.delete(o.target);
+					}
+					queueFlairBudget();
+				},
+				// a margin so a row entering from below is already animating by the time
+				// it's actually on screen, instead of visibly switching on
+				{ root: terminal, rootMargin: "150px 0px" },
+			)
+		: null;
+
+function observeFlair(el) {
+	if (flairObserver && el.classList.contains("flair")) flairObserver.observe(el);
+}
+
+function unobserveFlair(el) {
+	if (!el) return;
+	flairVisible.delete(el);
+	if (flairObserver) flairObserver.unobserve(el);
+}
+
+// coalesce to one pass per frame: a scroll can fire dozens of observer callbacks
+function queueFlairBudget() {
+	if (flairBudgetQueued) return;
+	flairBudgetQueued = true;
+	requestAnimationFrame(() => {
+		flairBudgetQueued = false;
+		applyFlairBudget();
+	});
+}
+
+function applyFlairBudget() {
+	// reduced motion is simply a budget of zero - one rule, not two code paths
+	const quietAll = !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+	const budget = quietAll ? 0 : FLAIR_BUDGET;
+
+	// Candidates are split into rows actually on screen and rows only inside the
+	// observer's margin, and the on-screen ones are served first. Ranking purely by
+	// recency looks right at the bottom of the log - newest IS what you're watching -
+	// but breaks the moment you scroll up: the newest candidates are then the ones
+	// just past the fold, and the budget gets spent below the screen on rows you
+	// can't see. Within each band newest still wins.
+	//
+	// Only candidates are measured, and the observer's margin bounds that to roughly
+	// a screenful, so this stays a small read rather than a walk of the whole buffer.
+	const viewTop = terminal.scrollTop;
+	const viewBottom = viewTop + terminal.clientHeight;
+	const onScreen = [];
+	const nearby = [];
+	for (let i = entries.length - 1; i >= 0; i--) {
+		const el = entries[i].el;
+		if (!el || !el.classList.contains("flair")) continue;
+		if (!flairVisible.has(el)) {
+			el.classList.add("flairQuiet");
+			continue;
+		}
+		const top = el.offsetTop;
+		(top + el.offsetHeight > viewTop && top < viewBottom ? onScreen : nearby).push(el);
+	}
+
+	const live = new Set();
+	for (const el of onScreen) if (live.size < budget) live.add(el);
+	for (const el of nearby) if (live.size < budget) live.add(el);
+	for (const el of onScreen) el.classList.toggle("flairQuiet", !live.has(el));
+	for (const el of nearby) el.classList.toggle("flairQuiet", !live.has(el));
+}
+
 // renders one entry's DOM node into the terminal at the correct chronological
 // position among the other currently-visible (filter-matching) entries.
 // `animate` plays the arrival fade - live inserts only, so rerenders (channel
@@ -1327,8 +1418,14 @@ function renderEntryDom(entry, animate = false) {
 		}
 	}
 
+	// parked on arrival: the budget pass runs a frame later, and a burst of rows
+	// animating at full cost for that frame is exactly what this is here to stop.
+	// Whichever of them the budget picks is un-parked immediately after.
+	if (div.classList.contains("flair")) div.classList.add("flairQuiet");
+
 	if (nextEl) terminal.insertBefore(div, nextEl);
 	else terminal.appendChild(div);
+	observeFlair(div);
 }
 
 function isNearBottom() {
@@ -1362,6 +1459,7 @@ function jumpToBottom() {
 // rebuilds the visible terminal from `entries` under the current filter -
 // used when entering/exiting a focused channel.
 function rerenderTerminal() {
+	for (const entry of entries) if (entry.el) unobserveFlair(entry.el);
 	terminal.innerHTML = "";
 	for (const entry of entries) entry.el = null;
 	for (const entry of entries) {
@@ -1419,7 +1517,10 @@ function insertEntry(entry) {
 		const oldest = entries.splice(vi, 1)[0];
 		if (!oldest) break; // nothing left to give up
 		sigBump(oldest, -1);
-		if (oldest.el) oldest.el.remove();
+		if (oldest.el) {
+			unobserveFlair(oldest.el);
+			oldest.el.remove();
+		}
 	}
 
 	// the moment a cluster crosses into broadcast-spam territory, pull its already-
@@ -1431,6 +1532,7 @@ function insertEntry(entry) {
 		if (flaggedSpamSigs.size > 500) flaggedSpamSigs.clear();
 		for (const e of entries) {
 			if (e.sig === entry.sig && e.el) {
+				unobserveFlair(e.el);
 				e.el.remove();
 				e.el = null;
 			}
@@ -1482,6 +1584,7 @@ function dismissEntry(entry) {
 	const el = entry.el;
 	if (!el) return;
 	el.classList.add("fading");
+	unobserveFlair(el);
 	setTimeout(() => el.remove(), SYSTEM_FADE_MS);
 }
 

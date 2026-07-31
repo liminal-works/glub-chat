@@ -682,6 +682,46 @@ function isActionMessage(text) {
 	return /^\*\s+[\s\S]+?\s+\*$/.test(String(text || "").trim());
 }
 
+// --- emoji-only messages ---------------------------------------------------
+// A message that is nothing but emoji renders large, the way most chat apps do it:
+// at body size a lone reaction reads as a typographic accessory, at three or four
+// times that it reads as the gesture it was meant to be. Purely a local render
+// choice - the wire content is untouched, so native bitchat shows it as ever.
+//
+// Matching counts SEQUENCES rather than code points, because what a reader calls
+// one emoji routinely isn't one: a flag is two regional indicators, a family is
+// several pictographs joined by ZWJ, a skin tone is a modifier, and a keycap is a
+// digit plus U+20E3. Counting code points would size "👨‍👩‍👧‍👦" as if it were four.
+const EMOJI_SEQ_RE =
+	/\p{Extended_Pictographic}(?:️|\p{Emoji_Modifier})*(?:‍\p{Extended_Pictographic}(?:️|\p{Emoji_Modifier})*)*|[\u{1F1E6}-\u{1F1FF}]{2}|[0-9#*]️?⃣/gu;
+
+// how many emoji the message is made of, or 0 if it isn't made only of emoji.
+// Deliberately strict: every sequence is consumed and whatever is left must be
+// whitespace, so "ok 👍" stays normal size. Anything else would blow up messages
+// that merely CONTAIN an emoji, which is most of them.
+function emojiOnlyCount(text) {
+	const s = String(text || "").trim();
+	if (!s) return 0;
+	let n = 0;
+	const rest = s.replace(EMOJI_SEQ_RE, () => {
+		n++;
+		return "";
+	});
+	return n > 0 && !/\S/.test(rest) ? n : 0;
+}
+
+// two sizes and a ceiling. One or two emoji are the reaction case and get the most
+// room; up to eight still reads as a gesture at a smaller bump. Past that it's a
+// wall, and scaling a wall just costs the reader their screen.
+const EMOJI_BIG_MAX = 2;
+const EMOJI_MED_MAX = 8;
+
+function emojiScaleClass(text) {
+	const n = emojiOnlyCount(text);
+	if (!n || n > EMOJI_MED_MAX) return "";
+	return n <= EMOJI_BIG_MAX ? "emojiBig" : "emojiMed";
+}
+
 // a glub reply: a message whose content quotes the message it answers, in the
 // form "> @user: quoted text\n\nreply body" (an optional leading "#geo " channel
 // prefix is tolerated so replies from the old prototype still parse). native
@@ -1099,7 +1139,13 @@ function messageInnerHtml(entry) {
 	} else {
 		const who = expanded ? entry.who : clipWithEllipsis(entry.who, MAX_NAME_LEN);
 		needsToggle = needsToggle || entry.who.length > MAX_NAME_LEN;
-		const msgHtml = isRich ? renderFormat(entry.rich, richBody) : richBody(text);
+		// an emoji-only message scales up. Wrapped around the finished body rather
+		// than applied to .msg, so it works identically under a /format template
+		// (where the body is spliced into {msg}) and doesn't scale the name or tag
+		// with it. The check runs on the plaintext, so a "&"-coded emoji still counts.
+		const scale = emojiScaleClass(entry.text);
+		const rawMsgHtml = isRich ? renderFormat(entry.rich, richBody) : richBody(text);
+		const msgHtml = scale ? `<span class="${scale}">${rawMsgHtml}</span>` : rawMsgHtml;
 		// the whole message (name + body) is one tap target: tapping anywhere on it
 		// opens the per-user action popup (DM, copy, hug/slap...). data-user carries
 		// the full pubkey; links/geo/toggles inside keep their own behavior via the

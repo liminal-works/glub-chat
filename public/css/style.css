@@ -353,6 +353,42 @@ textarea {
 	color: var(--fg);
 }
 
+/* a message made of nothing but emoji renders large - at body size a lone reaction
+   reads as a typographic accessory rather than the gesture it was meant to be.
+   Two sizes (see emojiScaleClass): fewer emoji, more room.
+
+   inline-block + line-height:1 is what keeps the row from ballooning. Left inline,
+   the glyph's own leading is added on top of the line's, so a 2.4em emoji pushes
+   the row far taller than the emoji itself; taking it out of the inline flow and
+   giving it a tight line box means the row grows by the glyph and nothing more.
+   The small vertical-align nudge sits it on the run of text rather than hanging it
+   off the baseline, so the "<@name#tag>" beside it stays visually attached. */
+.emojiBig,
+.emojiMed {
+	display: inline-block;
+	line-height: 1;
+	vertical-align: -0.12em;
+	/* emoji are colour glyphs, and "&g" paints text by clipping a gradient to it -
+	   which turns them into gradient silhouettes. Barely noticeable at body size,
+	   glaring at 2.4em, and it throws away the only thing a jumbo emoji is for. The
+	   fill is re-anchored so they always render as themselves.
+
+	   An explicit colour, not currentColor: "&g" sets `color: transparent` as well
+	   as the fill, and colour is inherited - so currentColor here resolves to the
+	   very transparency being undone. (The pay/ui chips can use currentColor safely
+	   because they declare a colour of their own.) */
+	color: var(--fg);
+	-webkit-text-fill-color: var(--fg);
+}
+
+.emojiBig {
+	font-size: 2.4em;
+}
+
+.emojiMed {
+	font-size: 1.6em;
+}
+
 /* Minecraft "&"-code animated formatting (see format.js). &g rainbow: a hue
    gradient clipped to the text that flows sideways. background-clip:text needs
    transparent fill; the gradient repeats so the scroll loops seamlessly. */

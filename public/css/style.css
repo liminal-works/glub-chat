@@ -1160,7 +1160,7 @@ textarea {
    horizontal in the first place. Symmetry reads as glow. */
 .flair-plasma::before {
 	inset: 0;
-	background: linear-gradient(90deg, rgba(168, 85, 247, 0.42), rgba(124, 58, 237, 0.15) 46%, transparent 84%);
+	background: linear-gradient(90deg, rgba(168, 85, 247, 0.44), rgba(124, 58, 237, 0.13) 20%, transparent 46%);
 	animation: flairPlasmaWash var(--plasma-wash-dur, 9s) ease-in-out var(--plasma-wash-delay, 0s) infinite;
 }
 
@@ -1184,8 +1184,8 @@ textarea {
 		rgba(245, 234, 255, 0.58) 93%,
 		rgba(233, 213, 255, 0.32) 100%
 	);
-	-webkit-mask-image: linear-gradient(90deg, #000 0%, rgba(0, 0, 0, 0.45) 48%, transparent 86%);
-	mask-image: linear-gradient(90deg, #000 0%, rgba(0, 0, 0, 0.45) 48%, transparent 86%);
+	-webkit-mask-image: linear-gradient(90deg, #000 0%, rgba(0, 0, 0, 0.34) 19%, transparent 47%);
+	mask-image: linear-gradient(90deg, #000 0%, rgba(0, 0, 0, 0.34) 19%, transparent 47%);
 	animation: flairPlasmaLamp var(--plasma-lamp-dur, 13s) ease-in-out var(--plasma-lamp-delay, 0s) infinite alternate;
 }
 
@@ -1194,9 +1194,12 @@ textarea {
 	opacity: 1;
 	isolation: isolate; /* confine the screen blending to the puffs */
 	/* the same falloff the wash and the edge burn use, so a puff that drifts right
-	   thins out with the plume instead of floating in the dark half on its own */
-	-webkit-mask-image: linear-gradient(90deg, #000 0%, rgba(0, 0, 0, 0.55) 50%, transparent 88%);
-	mask-image: linear-gradient(90deg, #000 0%, rgba(0, 0, 0, 0.55) 50%, transparent 88%);
+	   thins out with the plume instead of floating in the dark half on its own.
+	   Deliberately short: the plume is an accent anchored at the start of the line,
+	   not a background for it, so it's gone by the time the eye is a third of the
+	   way across. */
+	-webkit-mask-image: linear-gradient(90deg, #000 0%, rgba(0, 0, 0, 0.38) 20%, transparent 48%);
+	mask-image: linear-gradient(90deg, #000 0%, rgba(0, 0, 0, 0.38) 20%, transparent 48%);
 }
 
 /* a puff is sized to fill a message row, so in the ~40px preview chip a single one

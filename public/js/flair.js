@@ -253,8 +253,9 @@ export function rainDropMarkup() {
 //
 // Second, everything is masked by one left-to-right falloff (see the stylesheet), so
 // the plume is brightest where a line starts and gone by the time it ends. Puffs are
-// biased to the left half to match, rather than relying on the mask alone to hide
-// blobs that shouldn't have been drawn on the right in the first place.
+// biased to the left THIRD to match, rather than relying on the mask alone to hide
+// blobs that shouldn't have been drawn further out in the first place. The plume is
+// an accent on the start of a line, not a background behind the whole of it.
 //
 // Three animations compose per puff, all with unrelated periods and their own phase:
 //   `translate` - the drift (ease-in-out + alternate: a lazy wander, no corners)
@@ -272,18 +273,19 @@ export function plasmaPuffMarkup() {
 	const count = PUFF_MIN + ((Math.random() * (PUFF_MAX - PUFF_MIN + 1)) | 0);
 	let html = "";
 	for (let i = 0; i < count; i++) {
-		// deliberately larger than the row is tall: a plume has no edge you can see, and
-		// a blob small enough to read as a shape stops reading as volume.
-		const size = Math.round(rnd(90, 190));
+		// larger than the row is tall (a blob small enough to read as a shape stops
+		// reading as volume) but no larger than it needs to be: an oversized blob spans
+		// past the mask's falloff and puts colour where the plume should already be gone.
+		const size = Math.round(rnd(64, 128));
 		const style = [
-			`--p-x:${Math.round(rnd(-12, 68))}%`,
+			`--p-x:${Math.round(rnd(-16, 26))}%`,
 			`--p-y:${Math.round(rnd(15, 85))}%`,
 			`--p-size:${size}px`,
 			`--p-tint:${pick(PLASMA_TINTS)}`,
 			`--p-core:${pick(PLASMA_CORES)}`,
 			`--p-blur:${Math.round(rnd(10, 22))}px`,
 			`--p-op:${rnd(0.42, 0.76).toFixed(2)}`,
-			`--p-dx:${rnd(-26, 26).toFixed(1)}px`,
+			`--p-dx:${rnd(-16, 16).toFixed(1)}px`,
 			`--p-dy:${rnd(-9, 9).toFixed(1)}px`,
 			`--p-swell:${rnd(1.12, 1.42).toFixed(2)}`,
 			`--p-drift-dur:${rnd(7.5, 15).toFixed(2)}s`,
@@ -305,7 +307,7 @@ export function plasmaPuffMarkup() {
 export function plasmaSurgeMarkup() {
 	return (
 		`<span class="surge" style="` +
-		`--ps-x:${Math.round(rnd(4, 55))}%;` +
+		`--ps-x:${Math.round(rnd(1, 20))}%;` +
 		`--ps-tint:${pick(PLASMA_TINTS)};` +
 		`--ps-core:${pick(PLASMA_CORES)}` +
 		`"></span>`
@@ -379,7 +381,7 @@ export function flairVars(raw) {
 			"--plasma-wash-dur": `${rnd(6.5, 12).toFixed(2)}s`,
 			"--plasma-wash-delay": `-${rnd(0, 11).toFixed(2)}s`,
 			"--plasma-wash-peak": rnd(0.62, 0.95).toFixed(2),
-			"--plasma-lamp-x": `${Math.round(rnd(6, 34))}%`,
+			"--plasma-lamp-x": `${Math.round(rnd(4, 22))}%`,
 			"--plasma-lamp-dur": `${rnd(9, 17).toFixed(2)}s`,
 			"--plasma-lamp-delay": `-${rnd(0, 16).toFixed(2)}s`,
 			"--plasma-text-dur": `${rnd(4.5, 8.5).toFixed(2)}s`,

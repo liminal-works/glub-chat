@@ -269,6 +269,44 @@ const PLASMA_CORES = ["#f3e8ff", "#efe0ff", "#ffffff", "#e9d5ff", "#f7efff"];
 const PUFF_MIN = 4;
 const PUFF_MAX = 6;
 
+// Motes: a few specks that spawn out in the dark, where the plume's glow has
+// already tapered off, and drift LEFT into it - so the plasma reads as drawing them
+// in rather than shedding them. They fade up out of nothing at the far end and are
+// swallowed (fading again) as they reach the bright edge, which is what sells the
+// direction: something that arrives from the dark and doesn't come out the other
+// side has been consumed.
+//
+// Sparse on purpose. A dense stream would read as rain blowing sideways; two or
+// three at a time, on long unrelated periods, reads as the odd particle being
+// pulled in. They travel with a slight vertical drift so they arc rather than
+// tracking a ruled line.
+const MOTE_TINTS = ["#e9d5ff", "#c084fc", "#f3e8ff", "#d8b4fe", "#a855f7"];
+const MOTE_MIN = 2;
+const MOTE_MAX = 4;
+
+function plasmaMoteMarkup() {
+	const count = MOTE_MIN + ((Math.random() * (MOTE_MAX - MOTE_MIN + 1)) | 0);
+	let html = "";
+	for (let i = 0; i < count; i++) {
+		const style = [
+			// starts beyond where the glow has faded out, ends inside the bright edge
+			`--m-from:${Math.round(rnd(62, 108))}%`,
+			`--m-to:${Math.round(rnd(4, 20))}%`,
+			`--m-y:${Math.round(rnd(12, 88))}%`,
+			`--m-rise:${rnd(-7, 7).toFixed(1)}px`,
+			`--m-size:${Math.random() < 0.3 ? 2 : 1.4}px`,
+			`--m-tint:${pick(MOTE_TINTS)}`,
+			`--m-op:${rnd(0.4, 0.85).toFixed(2)}`,
+			// slow, and long gaps between: the delay is a big negative so most motes
+			// spend most of the cycle already gone
+			`--m-dur:${rnd(4.5, 9.5).toFixed(2)}s`,
+			`--m-delay:-${rnd(0, 9).toFixed(2)}s`,
+		].join(";");
+		html += `<span class="mote" style="${style}"></span>`;
+	}
+	return html;
+}
+
 export function plasmaPuffMarkup() {
 	const count = PUFF_MIN + ((Math.random() * (PUFF_MAX - PUFF_MIN + 1)) | 0);
 	let html = "";
@@ -284,7 +322,7 @@ export function plasmaPuffMarkup() {
 			`--p-tint:${pick(PLASMA_TINTS)}`,
 			`--p-core:${pick(PLASMA_CORES)}`,
 			`--p-blur:${Math.round(rnd(10, 22))}px`,
-			`--p-op:${rnd(0.42, 0.76).toFixed(2)}`,
+			`--p-op:${rnd(0.28, 0.55).toFixed(2)}`,
 			`--p-dx:${rnd(-16, 16).toFixed(1)}px`,
 			`--p-dy:${rnd(-9, 9).toFixed(1)}px`,
 			`--p-swell:${rnd(1.12, 1.42).toFixed(2)}`,
@@ -297,7 +335,8 @@ export function plasmaPuffMarkup() {
 		].join(";");
 		html += `<span class="puff" style="${style}"></span>`;
 	}
-	return html;
+	// the motes ride in the same layer, so they're masked and blended with the plume
+	return html + plasmaMoteMarkup();
 }
 
 // the plume surging: one dense billow that swells out of nowhere and thins away.
@@ -380,10 +419,20 @@ export function flairVars(raw) {
 		return {
 			"--plasma-wash-dur": `${rnd(6.5, 12).toFixed(2)}s`,
 			"--plasma-wash-delay": `-${rnd(0, 11).toFixed(2)}s`,
-			"--plasma-wash-peak": rnd(0.62, 0.95).toFixed(2),
+			"--plasma-wash-peak": rnd(0.5, 0.8).toFixed(2),
 			"--plasma-lamp-x": `${Math.round(rnd(4, 22))}%`,
 			"--plasma-lamp-dur": `${rnd(9, 17).toFixed(2)}s`,
 			"--plasma-lamp-delay": `-${rnd(0, 16).toFixed(2)}s`,
+			// how dim and how bright THIS line's plume burns between. A wide, per-line
+			// swing is most of what stops a screenful of them pulsing as one organism.
+			"--plasma-lamp-low": rnd(0.32, 0.5).toFixed(2),
+			"--plasma-lamp-peak": rnd(0.74, 0.98).toFixed(2),
+			// and how far it reaches, on its own period - so length and brightness are
+			// never in step, which is what keeps it from looking like a single throb
+			"--plasma-reach-min": rnd(0.6, 0.82).toFixed(2),
+			"--plasma-reach-max": rnd(1.02, 1.24).toFixed(2),
+			"--plasma-reach-dur": `${rnd(7, 15).toFixed(2)}s`,
+			"--plasma-reach-delay": `-${rnd(0, 14).toFixed(2)}s`,
 			"--plasma-text-dur": `${rnd(4.5, 8.5).toFixed(2)}s`,
 			"--plasma-text-delay": `-${rnd(0, 8).toFixed(2)}s`,
 		};

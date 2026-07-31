@@ -1160,33 +1160,45 @@ textarea {
    horizontal in the first place. Symmetry reads as glow. */
 .flair-plasma::before {
 	inset: 0;
-	background: linear-gradient(90deg, rgba(168, 85, 247, 0.44), rgba(124, 58, 237, 0.13) 20%, transparent 46%);
-	animation: flairPlasmaWash var(--plasma-wash-dur, 9s) ease-in-out var(--plasma-wash-delay, 0s) infinite;
+	background: linear-gradient(90deg, rgba(168, 85, 247, 0.3), rgba(124, 58, 237, 0.1) 20%, transparent 46%);
+	transform-origin: left center;
+	animation:
+		flairPlasmaWash var(--plasma-wash-dur, 9s) ease-in-out var(--plasma-wash-delay, 0s) infinite,
+		flairPlasmaReach var(--plasma-reach-dur, 11s) ease-in-out var(--plasma-reach-delay, 0s) infinite alternate;
 }
 
 /* the edge burn, masked by the same left-to-right falloff as everything else so it
    dies out with the plume rather than ringing the whole row. */
 .flair-plasma::after {
 	inset: 0;
-	/* the bright bands are given real THICKNESS on purpose. Stops at exactly 0% and
-	   100% put the highlight on a single antialiased pixel of a 22px row, which
-	   disappears; holding the near-white for the first and last sixth is what makes
-	   the burn read as light pooling along an edge. */
+	/* The bands need thickness to survive antialiasing on a 22px row - a stop at
+	   exactly 0% puts the highlight on one pixel and it vanishes - but only just.
+	   Reaching further in leaves no dim middle, and the middle is what the text is
+	   read against: the falloff from bright edge to dark centre happens inside the
+	   first and last EIGHTH, so the middle 60% of the row stays genuinely dark and
+	   the bands stay the brightest thing in it. Defined rather than fused. */
 	background: linear-gradient(
 		180deg,
-		rgba(233, 213, 255, 0.34) 0%,
-		rgba(245, 234, 255, 0.6) 7%,
-		rgba(214, 176, 255, 0.4) 20%,
-		rgba(168, 85, 247, 0.15) 38%,
-		rgba(139, 92, 246, 0.07) 50%,
-		rgba(168, 85, 247, 0.16) 62%,
-		rgba(214, 176, 255, 0.42) 80%,
-		rgba(245, 234, 255, 0.58) 93%,
-		rgba(233, 213, 255, 0.32) 100%
+		rgba(233, 213, 255, 0.3) 0%,
+		rgba(240, 224, 255, 0.44) 5%,
+		rgba(196, 148, 250, 0.2) 12%,
+		rgba(139, 92, 246, 0.05) 22%,
+		rgba(124, 58, 237, 0.03) 50%,
+		rgba(139, 92, 246, 0.05) 78%,
+		rgba(196, 148, 250, 0.21) 88%,
+		rgba(240, 224, 255, 0.43) 95%,
+		rgba(233, 213, 255, 0.28) 100%
 	);
 	-webkit-mask-image: linear-gradient(90deg, #000 0%, rgba(0, 0, 0, 0.34) 19%, transparent 47%);
 	mask-image: linear-gradient(90deg, #000 0%, rgba(0, 0, 0, 0.34) 19%, transparent 47%);
-	animation: flairPlasmaLamp var(--plasma-lamp-dur, 13s) ease-in-out var(--plasma-lamp-delay, 0s) infinite alternate;
+	/* scaled from the lit edge, so "reach" grows and shrinks the plume's LENGTH
+	   without touching the height of the bands. Done with a transform rather than an
+	   animated mask-size: the mask would have to be re-rasterized every frame, where
+	   a scale is handed straight to the compositor. */
+	transform-origin: left center;
+	animation:
+		flairPlasmaLamp var(--plasma-lamp-dur, 13s) ease-in-out var(--plasma-lamp-delay, 0s) infinite alternate,
+		flairPlasmaReach var(--plasma-reach-dur, 11s) ease-in-out var(--plasma-reach-delay, 0s) infinite alternate;
 }
 
 .flair-plasma > .flairFx {
@@ -1224,8 +1236,8 @@ textarea {
 	background: radial-gradient(
 		circle,
 		var(--p-core, #f3e8ff) 0%,
-		var(--p-core, #f3e8ff) 7%,
-		var(--p-tint, #a855f7) 30%,
+		var(--p-core, #f3e8ff) 5%,
+		var(--p-tint, #a855f7) 26%,
 		color-mix(in srgb, var(--p-tint, #a855f7) 45%, transparent) 56%,
 		transparent 74%
 	);
@@ -1279,19 +1291,76 @@ textarea {
 
 /* the edge burn breathes rather than travelling: the plume's brightness rises and
    falls, but the direction it comes from is fixed - that's what makes a row read as
-   lit from one side rather than as something sweeping past. */
+   lit from one side rather than as something sweeping past. The swing is wide (a
+   plume at 45% is genuinely dim) because an even glow reads as a painted shape;
+   uneven brightness is most of what makes it read as burning. */
 @keyframes flairPlasmaLamp {
 	from {
-		opacity: 0.6;
+		opacity: var(--plasma-lamp-low, 0.45);
 	}
 	to {
-		opacity: 1;
+		opacity: var(--plasma-lamp-peak, 0.9);
 	}
 }
 
-/* the machine pumping a fresh billow: injected, swelled, removed (hazeSurge in
-   app.js). It blends like the puffs, so while it passes it gives them something far
-   brighter to overlap and the row briefly blows out. */
+/* the plume reaching further out and drawing back in. Per-line min/max and period,
+   so no two rows are the same length at the same moment. */
+@keyframes flairPlasmaReach {
+	from {
+		transform: scaleX(var(--plasma-reach-min, 0.72));
+	}
+	to {
+		transform: scaleX(var(--plasma-reach-max, 1.15));
+	}
+}
+
+/* motes: sparse specks that fade up out in the dark - past where the plume's glow
+   has already tapered off - and drift LEFT into it, dying as they reach the bright
+   edge. Arriving from the dark and never coming out the other side is what makes
+   the plasma read as drawing them IN rather than shedding them.
+
+   `left` is animated rather than a transform because the travel is expressed in
+   percentages of a row whose width isn't known here, and this is two or three
+   1.4px dots on a slow period - not a particle system. The vertical drift rides
+   `translate` so the path arcs instead of tracking a ruled line. */
+.flair-plasma .mote {
+	position: absolute;
+	top: var(--m-y, 50%);
+	left: var(--m-from, 90%);
+	width: var(--m-size, 1.4px);
+	height: var(--m-size, 1.4px);
+	border-radius: 50%;
+	background: var(--m-tint, #e9d5ff);
+	box-shadow: 0 0 4px var(--m-tint, #e9d5ff);
+	opacity: 0;
+	animation: plasmaMote var(--m-dur, 7s) linear var(--m-delay, 0s) infinite;
+}
+
+@keyframes plasmaMote {
+	0% {
+		left: var(--m-from, 90%);
+		translate: 0 0;
+		opacity: 0;
+	}
+	/* fades up in the dark rather than arriving at full strength - a speck that pops
+	   into existence reads as a rendering glitch, not a particle */
+	18% {
+		opacity: var(--m-op, 0.6);
+	}
+	/* gone before it lands: swallowed by the glow, not sitting on top of it */
+	82% {
+		opacity: var(--m-op, 0.6);
+	}
+	100% {
+		left: var(--m-to, 12%);
+		translate: 0 var(--m-rise, 3px);
+		opacity: 0;
+	}
+}
+
+/* the plume surging: injected, swelled, removed (plasmaSurge in app.js). It blends
+   like the puffs, so while it passes it gives them something far brighter to
+   overlap and the row briefly blows out. */
 .flair-plasma > .flairFx .surge {
 	position: absolute;
 	left: var(--ps-x, 50%);

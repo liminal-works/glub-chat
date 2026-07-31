@@ -17,6 +17,7 @@ const STORAGE_KEY = "glub_locale"; // optional manual override (no UI yet)
 const LOADERS = {
 	ru: () => import("./ru.js").then((m) => m.default),
 	hi: () => import("./hi.js").then((m) => m.default),
+	zh: () => import("./zh.js").then((m) => m.default),
 };
 
 // scripts that read right-to-left, so we can flip <html dir> for them

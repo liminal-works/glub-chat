@@ -277,6 +277,7 @@ export default {
 		notes: "location notes",
 		settings: "settings",
 		guilds: "encrypted guilds",
+		dms: "direct messages",
 	},
 
 	payment: {
@@ -314,6 +315,7 @@ export default {
 		format: "style your own chat line (blank = help)",
 		flair: "preset effect for your line (blank = list)",
 		guilds: "open guilds (encrypted group chat)",
+		dms: "open direct messages (encrypted)",
 	},
 
 	flair: {

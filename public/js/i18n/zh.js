@@ -264,6 +264,7 @@ export default {
 		notes: "位置便签",
 		settings: "设置",
 		guilds: "加密公会",
+		dms: "私信",
 	},
 
 	payment: {
@@ -299,6 +300,7 @@ export default {
 		format: "自定义你的聊天行样式（留空看说明）",
 		flair: "为你的聊天行选一种特效（留空则列出）",
 		guilds: "打开公会（加密群聊）",
+		dms: "打开私信（加密）",
 	},
 
 	flair: {

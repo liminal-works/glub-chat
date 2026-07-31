@@ -851,6 +851,7 @@ const UI_CHIPS = {
 	notes: { label: "uichip.notes", run: () => (notesEnabledGeo() ? openNotes() : appendSystem(t("system.needs_channel"))) },
 	settings: { label: "uichip.settings", run: () => openSettings() },
 	guilds: { label: "uichip.guilds", run: () => openGuildGate() },
+	dms: { label: "uichip.dms", run: () => openDmList() },
 };
 const UI_CHIP_RE = /\{\{([a-z]+(?::[a-z]+)?)\}\}/g;
 const UI_CHIP_MAX = 4; // cap per message, so a chip spam wall isn't a thing
@@ -6119,6 +6120,15 @@ const COMMANDS = [
 		name: "guilds",
 		run() {
 			openGuildGate();
+		},
+	},
+	{
+		// the DM pill only appears while something is unread, so without this there
+		// was no way to reach the inbox at all once you'd caught up - your existing
+		// conversations were still there, just unreachable.
+		name: "dms",
+		run() {
+			openDmList();
 		},
 	},
 	{

@@ -185,9 +185,14 @@ export function openGuildPayload(key, b64) {
 }
 
 export function buildGuildEvent({ payload, guild, pk }) {
+	// created_at is derived FROM the payload's millisecond stamp rather than read
+	// from the clock again, so the two can never straddle a second boundary - the
+	// reader clamps the sealed stamp to its event's second and would otherwise throw
+	// away a perfectly good one whenever the two calls landed either side of a tick.
+	const ms = Number(payload && payload.t);
 	return {
 		kind: GUILD_KIND,
-		created_at: Math.floor(Date.now() / 1000),
+		created_at: Math.floor((Number.isFinite(ms) ? ms : Date.now()) / 1000),
 		// the ONLY plaintext: which frequency this belongs to
 		tags: [["g", guild.freq]],
 		content: sealGuildPayload(guild.key, payload),

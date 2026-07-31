@@ -1318,14 +1318,26 @@ function rerenderTerminal() {
 	jumpToBottom();
 }
 
-// inserts a new entry in chronological order by ts (relay backlog can arrive
-// out of order), renders it if it matches the current channel filter, and
-// evicts the oldest entry once the buffer exceeds MAX_LINES.
+// the key entries are ordered by: milliseconds, not the seconds nostr's created_at
+// carries. A relay answering a backlog query returns the most recent events and
+// commonly sends them newest-first, so anything that shares a created_at second
+// with its neighbours - a normal fast exchange - would otherwise land in arrival
+// order, i.e. backwards. Guild messages seal a millisecond stamp inside their
+// payload for exactly this; everything else falls back to its second, which leaves
+// live chat ordered by arrival as before.
+function entryOrd(entry) {
+	return entry.ms || entry.ts * 1000;
+}
+
+// inserts a new entry in chronological order (relay backlog can arrive out of
+// order), renders it if it matches the current channel filter, and evicts the
+// oldest entry once the buffer exceeds MAX_LINES.
 function insertEntry(entry) {
+	const ord = entryOrd(entry);
 	let lo = 0, hi = entries.length;
 	while (lo < hi) {
 		const mid = (lo + hi) >> 1;
-		if (entries[mid].ts <= entry.ts) lo = mid + 1;
+		if (entryOrd(entries[mid]) <= ord) lo = mid + 1;
 		else hi = mid;
 	}
 	entries.splice(lo, 0, entry);
@@ -1515,7 +1527,9 @@ function pubkeyTint(pubkey) {
 	return `rgba(${r}, ${g}, ${b}, 0.16)`;
 }
 
-function renderEvent(ev, guildFreq = "") {
+// `ms` is an optional millisecond send-time, carried only by guild messages (see
+// entryOrd) - it orders a burst that shares one created_at second.
+function renderEvent(ev, guildFreq = "", ms = 0) {
 	const geo = getGeohash(ev) || "?";
 	const who = getName(ev) || "anon";
 	const tag = ev.pubkey.slice(-4);
@@ -1570,6 +1584,7 @@ function renderEvent(ev, guildFreq = "") {
 
 	const entry = {
 		ts: ev.created_at,
+		ms, // 0 unless the sender sealed a millisecond stamp; see entryOrd
 		geo,
 		system: false,
 		pubkey: ev.pubkey,
@@ -2517,7 +2532,21 @@ function renderGuildMessage({ id, pubkey, createdAt, freq, payload }) {
 	if (payload.r) tags.push(["glub", "rich", String(payload.r)]);
 	if (payload.f) tags.push(["glub", "fmt", String(payload.f)]);
 	if (payload.l) tags.push(["glub", "flair", String(payload.l)]);
-	renderEvent({ id, pubkey, created_at: createdAt, kind: CHAT_KIND, content: String(payload.m || ""), tags }, freq);
+	// the sealed millisecond stamp, used only to order a same-second burst. Trusted
+	// no further than that: it's clamped to its event's created_at second, so a
+	// sender can't hoist their message to the top of a room by claiming a wild time.
+	const ms = guildStampMs(payload.t, createdAt);
+	renderEvent({ id, pubkey, created_at: createdAt, kind: CHAT_KIND, content: String(payload.m || ""), tags }, freq, ms);
+}
+
+// a sender-supplied millisecond time is only meaningful as a sub-second refinement
+// of the created_at the relay and every reader can already see, so anything that
+// doesn't land inside that second is discarded rather than believed.
+function guildStampMs(raw, createdAt) {
+	const ms = Number(raw);
+	if (!Number.isFinite(ms)) return 0;
+	const floor = createdAt * 1000;
+	return ms >= floor && ms < floor + 1000 ? ms : 0;
 }
 
 // send into the tuned guild. Mirrors transmit()'s formatting handling, but the
@@ -2530,7 +2559,11 @@ function guildSend(content) {
 		return;
 	}
 	const rich = hasFormat(content) ? content : undefined;
-	const payload = { n: name || "anon", m: rich ? stripFormat(content) : content };
+	// `t` is the send time in milliseconds. created_at only has seconds, and a
+	// relay replays a backlog newest-first, so without this a fast exchange comes
+	// back reversed within each second. Sealed like everything else, so it tells an
+	// observer nothing the second-resolution created_at didn't already.
+	const payload = { n: name || "anon", m: rich ? stripFormat(content) : content, t: Date.now() };
 	if (rich) payload.r = rich;
 	const fmt = getFormatTemplate();
 	if (fmt) payload.f = fmt;

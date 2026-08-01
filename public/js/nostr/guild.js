@@ -79,6 +79,8 @@ const PBKDF2_ITER = 300_000; // ~a quarter second on a phone; paid once per join
 const NONCE_BYTES = 24; // xchacha
 const MAX_NAME_LEN = 40;
 const SUB_LIMIT = 200; // messages of backlog replayed on tuning in
+const HISTORY_LIMIT = 150; // one page of older messages, fetched on scroll-to-top
+const HISTORY_TIMEOUT_MS = 4000; // a relay that never EOSEs must not wedge the pager
 const MAX_BACKOFF_MS = 30_000;
 const RELAY_COUNT = 8; // a guild is not geographic, so this is just breadth
 
@@ -224,6 +226,14 @@ export function createGuildClient({ getIdentity, getRelays, onMessage, onState, 
 	let gen = 0; // bumped on open/close so stale sockets and timers no-op
 	let guild = null;
 	let sub = null;
+	// one page of older history at a time. A relay answers a REQ once, so reaching
+	// further back means asking again with a different `until` - hence a separate
+	// subscription rather than widening the live one.
+	let histSub = null;
+	let histWaiting = 0; // sockets still to EOSE this page
+	let histCount = 0; // messages this page actually contributed (post-dedup)
+	let histResolve = null;
+	let histTimer = null;
 	const seen = new Set();
 	// target event id -> the pubkey that asked for it to go. Deliberately NOT cleared
 	// when a guild is reopened, unlike `seen`: rejoining refetches the backlog, and
@@ -252,7 +262,16 @@ export function createGuildClient({ getIdentity, getRelays, onMessage, onState, 
 		} catch {
 			return;
 		}
-		if (!Array.isArray(frame) || frame[0] !== "EVENT" || frame[1] !== sub) return;
+		if (!Array.isArray(frame)) return;
+		// a history page is finished when every socket it was sent to has EOSE'd
+		if (frame[0] === "EOSE" && histSub && frame[1] === histSub) {
+			histWaiting--;
+			if (histWaiting <= 0) finishHistory();
+			return;
+		}
+		if (frame[0] !== "EVENT") return;
+		const fromHistory = !!histSub && frame[1] === histSub;
+		if (frame[1] !== sub && !fromHistory) return;
 		const ev = frame[2];
 		if (!ev || (ev.kind !== GUILD_KIND && ev.kind !== DELETE_KIND)) return;
 		if (seen.has(ev.id)) return;
@@ -294,7 +313,21 @@ export function createGuildClient({ getIdentity, getRelays, onMessage, onState, 
 		if (!payload) return; // not ours to read
 		seen.add(ev.id);
 		if (seen.size > 4000) seen.clear();
+		// counted only after the dedup above, so a page that returns nothing but
+		// messages we already had reports 0 - which is how the caller knows it has
+		// reached the end rather than just asked badly.
+		if (fromHistory) histCount++;
 		onMessage?.({ id: ev.id, pubkey: ev.pubkey, createdAt: ev.created_at, freq: guild.freq, payload });
+	}
+
+	function finishHistory() {
+		clearTimeout(histTimer);
+		histTimer = null;
+		histSub = null;
+		histWaiting = 0;
+		const resolve = histResolve;
+		histResolve = null;
+		resolve?.(histCount);
 	}
 
 	function connect(url, attempt = 0) {
@@ -335,6 +368,9 @@ export function createGuildClient({ getIdentity, getRelays, onMessage, onState, 
 	function open(next) {
 		gen++;
 		closeAll();
+		// a page in flight belongs to the guild we're leaving; let its promise settle
+		// rather than stranding a caller awaiting it forever.
+		if (histResolve) finishHistory();
 		seen.clear();
 		guild = next;
 		if (!guild) return void emitState();
@@ -390,6 +426,40 @@ export function createGuildClient({ getIdentity, getRelays, onMessage, onState, 
 	// honoring it: a tombstone sealed inside an ordinary guild message would hide the
 	// intent, but the original would sit on every relay forever, which is the opposite
 	// of what deleting is for.
+	// Fetch one page of messages at or older than `until` (unix seconds), resolving
+	// with how many NEW ones it produced - or null if the page could not be asked for
+	// at all (a page already in flight, or nothing connected right now). The caller
+	// treats 0 as "that's the end of the history" and latches it, so "couldn't ask"
+	// has to be a different answer or a reconnecting socket would permanently convince
+	// it there is nothing older. `until` is inclusive and the page overlaps
+	// the messages we already hold on purpose: created_at is second-resolution, so
+	// asking for strictly-older would silently skip anything sharing its second with
+	// the oldest line we have. Dedup absorbs the overlap; the count reports the rest.
+	function loadOlder(until) {
+		if (!guild || histSub) return Promise.resolve(null);
+		histSub = `guildh-${Math.random().toString(36).slice(2, 10)}`;
+		histCount = 0;
+		const filter = { kinds: [GUILD_KIND, DELETE_KIND], "#g": [guild.freq], until, limit: HISTORY_LIMIT };
+		const msg = JSON.stringify(["REQ", histSub, filter]);
+		histWaiting = 0;
+		for (const ws of sockets.values()) {
+			if (ws.readyState !== WebSocket.OPEN) continue;
+			try {
+				ws.send(msg);
+				histWaiting++;
+			} catch {}
+		}
+		if (!histWaiting) {
+			histSub = null;
+			return Promise.resolve(null); // nothing open to ask
+		}
+		return new Promise((resolve) => {
+			histResolve = resolve;
+			// a relay that accepts the REQ and never EOSEs must not wedge the pager
+			histTimer = setTimeout(finishHistory, HISTORY_TIMEOUT_MS);
+		});
+	}
+
 	function remove(eventId) {
 		if (!guild || !eventId) return null;
 		const { sk, pk } = getIdentity();
@@ -406,5 +476,5 @@ export function createGuildClient({ getIdentity, getRelays, onMessage, onState, 
 		return { event, relays: broadcast(event) };
 	}
 
-	return { open, close, post, remove, get guild() { return guild; } };
+	return { open, close, post, remove, loadOlder, get guild() { return guild; } };
 }

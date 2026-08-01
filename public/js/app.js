@@ -356,6 +356,7 @@ const recTime = document.getElementById("recTime");
 const recStop = document.getElementById("recStop");
 const recCancel = document.getElementById("recCancel");
 const newMessagesBar = document.getElementById("newMessagesBar");
+const historyHint = document.getElementById("historyHint");
 const suggestBox = document.getElementById("suggestBox");
 const dmPill = document.getElementById("dmPill");
 const actionGate = document.getElementById("actionGate");
@@ -1699,7 +1700,9 @@ function insertEntry(entry) {
 		renderEntryDom(entry, true);
 		if (autoScroll) {
 			scrollToBottom();
-		} else {
+		} else if (!guildHistoryLoading) {
+			// a page of history lands ABOVE the reader, not below: counting it as
+			// unread would announce "150 new messages" for a backlog they asked for.
 			unreadCount += 1;
 			updateNewMessagesBar();
 		}
@@ -2897,6 +2900,102 @@ function honorGuildDelete({ id, by }) {
 	dismissEntry(entry);
 }
 
+// --- guild history paging -------------------------------------------------------
+// Scrolling to the top of a guild fetches the page before it. Guilds are a stored
+// kind, so unlike public chat there IS more to fetch - the initial tune-in just takes
+// the newest SUB_LIMIT of it.
+const HISTORY_TRIGGER_PX = 120; // how close to the top counts as "asking for more"
+let guildHistoryLoading = false;
+let guildHistoryDone = false; // relay has no more, or the buffer can't hold more
+let guildHistoryBarrier = false;
+// A single fruitless page is not proof of anything. The likeliest time to ask for one
+// is right after tuning in - which is exactly when the initial backlog is still
+// streaming, so the page can come back as pure duplicates of messages that hadn't
+// landed yet. A relay blinking at the wrong moment does the same. Since `done` latches
+// and silently kills the pager for the rest of the session, it takes two misses in a
+// row; the cost of being wrong the other way is one extra REQ.
+const HISTORY_MISSES_TO_END = 2;
+let guildHistoryMisses = 0;
+
+// the oldest guild line still buffered - the anchor a page is requested against, and
+// the thing we check afterwards to see whether the page actually got us anywhere.
+function oldestGuildEntry() {
+	for (const entry of entries) if (entry.guild && !entry.system) return entry;
+	return null;
+}
+
+function markGuildHistoryEnd() {
+	if (guildHistoryBarrier) return;
+	const oldest = oldestGuildEntry();
+	if (!oldest) return;
+	guildHistoryBarrier = true;
+	insertEntry({
+		historyBarrier: true, // so leaving can take it back out again
+		ts: oldest.ts - 1,
+		ms: entryOrd(oldest) - 1, // sorts above it even within the same second
+		geo: null,
+		guild: focusedGuild ? focusedGuild.name : "",
+		system: true,
+		pubkey: null,
+		html: `<span class="barrier">——— ** ${escapeHtml(t("guild.history_end"))} ** ———</span>`,
+		el: null,
+	});
+}
+
+function resetGuildHistory() {
+	guildHistoryLoading = false;
+	guildHistoryDone = false;
+	guildHistoryBarrier = false;
+	guildHistoryMisses = 0;
+	historyHint.hidden = true;
+	// the marker belongs to the session that paged its way down to it. Leaving and
+	// coming back starts the scrollback over, and a stale "beginning of history"
+	// sitting above a fresh window would be a claim we haven't earned again.
+	for (const entry of entries.filter((e) => e.historyBarrier)) dismissEntry(entry);
+}
+
+async function loadOlderGuild() {
+	if (!focusedGuild || !guildClient || guildHistoryLoading || guildHistoryDone) return;
+	const anchor = oldestGuildEntry();
+	if (!anchor) return;
+	guildHistoryLoading = true;
+	historyHint.style.top = `${terminal.offsetTop}px`; // just under the topbar, measured
+	historyHint.hidden = false;
+	// where the reader is, measured from the BOTTOM: prepending grows the scrollable
+	// area above them, so the distance to the bottom is the thing that stays constant
+	// while scrollTop doesn't.
+	const fromBottom = terminal.scrollHeight - terminal.scrollTop;
+	let count = null;
+	try {
+		count = await guildClient.loadOlder(anchor.ts);
+	} catch {
+		count = null;
+	}
+	guildHistoryLoading = false;
+	historyHint.hidden = true;
+	if (!focusedGuild) return; // left the guild mid-page
+
+	terminal.scrollTop = terminal.scrollHeight - fromBottom;
+
+	// null means we never got to ask - a page already running, or nothing connected.
+	// Retryable, so leave the pager armed rather than declaring the history over.
+	if (count === null) return;
+
+	// Two different ends, one test. Either the relay had nothing older, or it did and
+	// the buffer immediately evicted it to stay under MAX_LINES - in which case paging
+	// again would loop forever making no progress. Both look identical from here: the
+	// oldest line we hold is no older than it was.
+	const now = oldestGuildEntry();
+	if (!count || !now || entryOrd(now) >= entryOrd(anchor)) {
+		if (++guildHistoryMisses >= HISTORY_MISSES_TO_END) {
+			guildHistoryDone = true;
+			markGuildHistoryEnd();
+		}
+		return;
+	}
+	guildHistoryMisses = 0; // it moved, so whatever that was, it wasn't the end
+}
+
 // withdraw one of our own guild messages. Local removal is unconditional once the
 // event is away: relays honor NIP-09 at their own discretion, and a message that
 // reappears on the sender's own screen after they deleted it is worse than one that
@@ -2950,6 +3049,9 @@ function guildSend(content) {
 function focusGuild(g) {
 	focusedGuild = g;
 	focusedGeo = null;
+	// a fresh room means a fresh scrollback: whatever we'd paged (or run out of) in
+	// the last one says nothing about this one.
+	resetGuildHistory();
 	closeNotes();
 	closeUsers();
 	closeGuildGate();
@@ -2967,6 +3069,7 @@ function focusGuild(g) {
 function leaveGuild() {
 	if (!focusedGuild) return;
 	focusedGuild = null;
+	resetGuildHistory();
 	guildClient?.close();
 	updatePlaceholder();
 	updateNotesButton();
@@ -4573,6 +4676,7 @@ profileNpub.addEventListener("click", async () => {
 terminal.addEventListener("scroll", () => {
 	autoScroll = isNearBottom();
 	if (autoScroll) clearUnread();
+	if (focusedGuild && terminal.scrollTop <= HISTORY_TRIGGER_PX) loadOlderGuild();
 });
 
 newMessagesBar.addEventListener("click", jumpToBottom);

@@ -1882,6 +1882,32 @@ textarea {
 	position: relative;
 }
 
+/* the mirror of #newMessagesBar at the other end of the feed: a quiet strip over the
+   top of the terminal while a page of older history is being fetched. Same neutral
+   fill and blur, so the two read as one family. */
+#historyHint {
+	/* absolute rather than a flex row: taking layout space would shrink the feed the
+	   moment it appears, moving the very content the scroll restore works to hold
+	   still. `top` is set from the terminal's own offset when shown, so it lands just
+	   under the topbar without anything hardcoded. */
+	position: absolute;
+	left: 0;
+	right: 0;
+	padding: 6px 12px;
+	background: var(--field-bg);
+	backdrop-filter: blur(3px);
+	-webkit-backdrop-filter: blur(3px);
+	color: var(--muted);
+	font-size: 0.85em;
+	text-align: center;
+	pointer-events: none;
+	z-index: 5;
+}
+
+#historyHint[hidden] {
+	display: none;
+}
+
 #newMessagesBar {
 	position: absolute;
 	left: 0;

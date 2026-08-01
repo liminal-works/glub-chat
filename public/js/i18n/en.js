@@ -182,6 +182,8 @@ export default {
 		warn_nopass: "without a password anyone who guesses the name can read this guild.",
 		upload_left: "left {name} before the upload finished - nothing was sent",
 		deleted: "message withdrawn",
+		history_loading: "loading older messages...",
+		history_end: "beginning of this guild's history",
 		delete_failed: "couldn't withdraw that message",
 	},
 

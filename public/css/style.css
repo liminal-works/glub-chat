@@ -2088,7 +2088,8 @@ textarea {
 /* media upload "+": sits on the right, just left of "send" but with a generous
    gap so the two don't read as one control. only shown in a focused channel with
    assist live (js toggles [hidden]). */
-#mediaBtn {
+#mediaBtn,
+#dmMediaBtn {
 	border: 0;
 	background: transparent;
 	color: var(--accent);
@@ -2102,16 +2103,19 @@ textarea {
 	-webkit-tap-highlight-color: transparent;
 }
 
-#mediaBtn:hover {
+#mediaBtn:hover,
+#dmMediaBtn:hover {
 	text-shadow: var(--glow);
 	filter: brightness(1.15);
 }
 
-#mediaBtn:active {
+#mediaBtn:active,
+#dmMediaBtn:active {
 	transform: translateY(1px);
 }
 
-#mediaBtn[hidden] {
+#mediaBtn[hidden],
+#dmMediaBtn[hidden] {
 	display: none;
 }
 
@@ -2471,6 +2475,22 @@ textarea {
 }
 #recordBar[hidden] {
 	display: none;
+}
+
+/* Both shared media surfaces get MOVED into the DM panel rather than duplicated
+   (see mountMediaUi). Inside the panel they sit within its own padding and against
+   its own background, so they drop the side padding and chrome fill that only make
+   sense out at the app floor. The menu's right offset goes with it - the DM "+" sits
+   flush to the panel edge, not 14px in from the window. */
+#recordBar.inDm {
+	padding-left: 0;
+	padding-right: 0;
+	background: transparent;
+	margin-top: 8px;
+}
+
+.mediaMenu.inDm {
+	right: 0;
 }
 .recDot {
 	width: 10px;
@@ -4130,6 +4150,9 @@ textarea {
 	display: flex;
 	align-items: center;
 	gap: 12px;
+	/* the relocated "+" menu anchors here, the way the main one anchors to
+	   #composerWrap - so it floats just above this row rather than the whole panel */
+	position: relative;
 	/* matches #inputbar: 6px top, safe-area-aware bottom so text clears the home
 	   indicator instead of clipping into the floor */
 	padding: 6px 0 calc(6px + var(--inset-b));

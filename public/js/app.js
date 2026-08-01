@@ -329,6 +329,8 @@ const dmPeerName = document.getElementById("dmPeerName");
 const dmClose = document.getElementById("dmClose");
 const dmThread = document.getElementById("dmThread");
 const dmInput = document.getElementById("dmInput");
+const dmInputbar = document.getElementById("dmInputbar");
+const dmMediaBtn = document.getElementById("dmMediaBtn");
 const dmSendBtn = document.getElementById("dmSendBtn");
 
 // pick the locale and fill the static markup before anything renders. en is the
@@ -3899,7 +3901,13 @@ function dmMessageHtml(m) {
 	const meta = m.mine
 		? `<span class="dmMeta">${escapeHtml(formatTime(m.ts))} · <span class="dmStatus ${m.status}">${escapeHtml(dmStatusLabel(m.status))}</span></span>`
 		: `<span class="dmMeta">${escapeHtml(formatTime(m.ts))}</span>`;
-	return `<div class="dmMsg ${m.mine ? "mine" : "theirs"}">${linkify(escapeHtml(m.content))}${meta}</div>`;
+	// "[image] {url}" / "[voice] {url}" render inline here the same way they do in
+	// chat. The preview helpers only read .id/.images/.audio, so the notes list's
+	// lightweight shim works just as well for a DM message.
+	const media =
+		renderImagePreviews({ id: m.id, images: extractImageUrls(m.content) }) +
+		renderAudioPreviews({ audio: extractAudioUrls(m.content) });
+	return `<div class="dmMsg ${m.mine ? "mine" : "theirs"}">${linkify(escapeHtml(m.content))}${media}${meta}</div>`;
 }
 
 function renderDmThread() {
@@ -3944,6 +3952,7 @@ function openDmConversation(pubkey) {
 	dmGate.classList.add("show");
 	markConversationRead(conv);
 	updateDmPill();
+	syncMediaBtn(); // the thread has its own "+"
 	setTimeout(() => dmInput.focus(), 0);
 }
 
@@ -3954,26 +3963,36 @@ function openDmConversation(pubkey) {
 function closeDm() {
 	dmGate.classList.remove("show");
 	activeDmPubkey = null;
+	syncMediaBtn();
 	openDmList();
+}
+
+// send `text` to `pubkey` and record it in that thread. Split out of the composer so
+// a finished upload can use it too - which is why it re-renders only when the thread
+// it wrote to is the one on screen, and never touches the composer's input.
+function sendDmText(pubkey, text) {
+	if (!pubkey || !text) return false;
+	if (new TextEncoder().encode(text).length > DM_MAX_CONTENT_BYTES) {
+		appendSystem(t("dm.too_long", { max: DM_MAX_CONTENT_BYTES }));
+		return false;
+	}
+	const messageID = dmClient.sendDm(text, pubkey);
+	if (!messageID) {
+		appendSystem(t("dm.send_failed"));
+		return false;
+	}
+	const conv = ensureConversation(pubkey);
+	conv.messages.push({ id: messageID, mine: true, content: text, ts: Math.floor(Date.now() / 1000), status: "sent" });
+	if (activeDmPubkey === pubkey && dmGate.classList.contains("show")) renderDmThread();
+	scheduleSaveDms();
+	return true;
 }
 
 function sendDmFromComposer() {
 	const text = dmInput.value.trim();
 	if (!text || !activeDmPubkey) return;
-	if (new TextEncoder().encode(text).length > DM_MAX_CONTENT_BYTES) {
-		appendSystem(t("dm.too_long", { max: DM_MAX_CONTENT_BYTES }));
-		return;
-	}
-	const messageID = dmClient.sendDm(text, activeDmPubkey);
-	if (!messageID) {
-		appendSystem(t("dm.send_failed"));
-		return;
-	}
-	dmInput.value = "";
-	const conv = ensureConversation(activeDmPubkey);
-	conv.messages.push({ id: messageID, mine: true, content: text, ts: Math.floor(Date.now() / 1000), status: "sent" });
-	renderDmThread();
-	scheduleSaveDms();
+	// cleared only once it's actually away, so a rejected send doesn't eat what you typed
+	if (sendDmText(activeDmPubkey, text)) dmInput.value = "";
 }
 
 // --- inbox (conversation list) ---------------------------------------------
@@ -4153,6 +4172,17 @@ dmList.addEventListener("click", (e) => {
 });
 
 dmClose.addEventListener("click", closeDm);
+// tap a blurred image in a thread to reveal it. The terminal has its own copy of
+// this because it re-renders a single entry in place; a thread just redraws.
+dmThread.addEventListener("click", (e) => {
+	const toggle = e.target.closest("[data-img-toggle]");
+	if (!toggle || !toggle.dataset.imgToggle) return;
+	const key = toggle.dataset.imgToggle;
+	if (revealedImages.has(key)) revealedImages.delete(key);
+	else revealedImages.add(key);
+	renderDmThread();
+});
+
 dmSendBtn.addEventListener("click", sendDmFromComposer);
 dmInput.addEventListener("keydown", (e) => {
 	if (e.key === "Enter") {
@@ -4295,7 +4325,8 @@ mapMenu.addEventListener("click", (e) => {
 // any click outside the open menu dismisses it (canvas taps included)
 document.addEventListener("click", (e) => {
 	if (!mapMenu.hidden && !mapMenu.contains(e.target) && !mapMenuBtn.contains(e.target)) toggleMapMenu(false);
-	if (!mediaMenu.hidden && !mediaMenu.contains(e.target) && !mediaBtn.contains(e.target)) toggleMediaMenu(false);
+	if (!mediaMenu.hidden && !mediaMenu.contains(e.target) && !mediaBtn.contains(e.target) && !dmMediaBtn.contains(e.target))
+		toggleMediaMenu(false);
 });
 usersNotes.addEventListener("click", openNotes);
 nameGateMap.addEventListener("click", openMap);
@@ -5364,9 +5395,42 @@ async function transmit(content, geo, displayName = name) {
 // the "+" button shows only while assist mode is live (uploads go to the api)
 // AND you're somewhere with a destination - a focused channel or a guild;
 // otherwise it's hidden and the feature effectively doesn't exist.
+// The "+" menu and the recording bar are one element each, shared by both composers
+// (the main one and the DM panel's) rather than duplicated. Both are positioned
+// against their offset parent - the menu floats above its composer, the bar replaces
+// it - so MOVING them is all it takes to re-anchor them, and there's only ever one
+// menu open and one recording in flight to move.
+function mountMediaUi(inDm) {
+	// the menu floats above its row, so it goes INSIDE the nearest positioned box
+	// (#composerWrap out here, the DM composer itself in there); the bar replaces its
+	// row, so it has to be a sibling of it either way.
+	const menuHost = inDm ? dmInputbar : inputbar.parentNode;
+	const barAnchor = inDm ? dmInputbar : inputbar;
+	if (mediaMenu.parentNode !== menuHost) menuHost.appendChild(mediaMenu);
+	mediaMenu.classList.toggle("inDm", inDm);
+	// the bar is left exactly where it is while a recording is on screen - moving it
+	// then would strand the composer it replaced in a hidden state, since showRecordBar
+	// restores whichever one the class says it took over.
+	if (recordBar.hidden) {
+		if (recordBar.parentNode !== barAnchor.parentNode) barAnchor.after(recordBar);
+		recordBar.classList.toggle("inDm", inDm);
+	}
+}
+
+function inDmThread() {
+	return !!(activeDmPubkey && dmGate.classList.contains("show"));
+}
+
+// the "+" shows only while assist mode is live (uploads go to the api) AND you're
+// somewhere with a destination - a channel, a guild, or a DM thread. Each composer
+// owns its own button; whichever is showing is the one that can be open.
 function syncMediaBtn() {
-	mediaBtn.hidden = liveSource !== "assist" || !(focusedGeo || focusedGuild);
-	if (mediaBtn.hidden) toggleMediaMenu(false); // don't leave the "+" menu orphaned when the button goes away
+	const assist = liveSource === "assist";
+	const dm = inDmThread();
+	mediaBtn.hidden = !assist || dm || !(focusedGeo || focusedGuild);
+	dmMediaBtn.hidden = !assist || !dm;
+	// don't leave the "+" menu orphaned when the button it belongs to goes away
+	if (mediaBtn.hidden && dmMediaBtn.hidden) toggleMediaMenu(false);
 }
 
 // clean-slate a static image client-side: repaint onto a canvas and export fresh
@@ -5400,6 +5464,10 @@ async function cleanEncodeImage(file) {
 // posted to while you're still tuned to it, so it's remembered by frequency and
 // re-checked on arrival.
 function currentSendTarget() {
+	// the DM panel OVERLAYS whatever channel or guild you were in - focusedGeo and
+	// focusedGuild are both still set underneath it - so it has to be tested first or
+	// an upload started from a DM would land in the room behind it.
+	if (activeDmPubkey && dmGate.classList.contains("show")) return { dm: activeDmPubkey };
 	if (focusedGuild) return { guildFreq: focusedGuild.freq, name: focusedGuild.name };
 	if (focusedGeo) return { geo: focusedGeo };
 	return null;
@@ -5410,6 +5478,13 @@ function currentSendTarget() {
 // falling back to transmit() would publish it to the open network - so it's
 // dropped with a notice rather than quietly redirected.
 function deliverToTarget(target, content) {
+	// unlike a guild, a DM needs no open panel to reach the right person - the pubkey
+	// IS the destination - so an upload that finishes after you've closed the thread
+	// still delivers correctly instead of being dropped.
+	if (target && target.dm) {
+		sendDmText(target.dm, content);
+		return;
+	}
 	if (target && target.guildFreq) {
 		if (focusedGuild && focusedGuild.freq === target.guildFreq) guildSend(content);
 		else appendSystem(t("guild.upload_left", { name: clipText(target.name, 16) }));
@@ -5539,10 +5614,13 @@ function fmtRecTime(ms) {
 	return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 }
 
-// swap the compose row for the recording row (and back)
+// swap the compose row for the recording row (and back). Which row it replaces
+// follows wherever mountMediaUi() last put the bar, so stopping restores the same
+// composer that started - even if you've since moved.
 function showRecordBar(on) {
+	const dm = recordBar.classList.contains("inDm");
 	recordBar.hidden = !on;
-	inputbar.hidden = on;
+	(dm ? dmInputbar : inputbar).hidden = on;
 }
 
 async function startVoiceRecording() {
@@ -5630,8 +5708,15 @@ function toggleMediaMenu(show) {
 	mediaMenu.hidden = !on;
 }
 
+// each composer's "+" mounts the shared menu next to itself before opening it
 mediaBtn.addEventListener("click", (e) => {
 	e.stopPropagation(); // don't let the document handler immediately re-close it
+	mountMediaUi(false);
+	toggleMediaMenu();
+});
+dmMediaBtn.addEventListener("click", (e) => {
+	e.stopPropagation();
+	mountMediaUi(true);
 	toggleMediaMenu();
 });
 mediaMenu.addEventListener("click", (e) => {

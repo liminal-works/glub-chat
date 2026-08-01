@@ -113,6 +113,47 @@ function cacheDelete(id) {
 	if (!cacheSaveTimer) cacheSaveTimer = setTimeout(cacheFlush, CACHE_SAVE_DELAY_MS);
 }
 
+// --- tombstones ------------------------------------------------------------------
+// Notes you've deleted, remembered for good rather than for the life of the sheet.
+// Dropping one from `notes` and from the cache isn't enough to keep it gone: the
+// note may genuinely still be out there, because relays honor NIP-09 at their own
+// discretion, so the very next fetch re-ingests it. The per-sheet `seen` set can't
+// carry that weight either - open() clears it on every reopen, which is precisely
+// when a deleted note came back.
+//
+// So this is deliberately the outermost layer: whatever the relays, the api cache,
+// or a page reload decide to hand back, a note you deleted does not reappear on
+// YOUR screen. What it can't do is delete it from anyone else's - that's the kind-5's
+// job, and whether it lands is up to each relay.
+const TOMB_KEY = "glub_note_tombs_v1";
+const MAX_TOMBS = 500;
+
+function loadTombs() {
+	try {
+		const raw = JSON.parse(localStorage.getItem(TOMB_KEY) || "[]");
+		if (!Array.isArray(raw)) return [];
+		return raw.filter((id) => typeof id === "string" && /^[0-9a-f]{64}$/.test(id));
+	} catch {
+		return []; // malformed - better to show a deleted note than to lose the sheet
+	}
+}
+
+const tombs = new Set(loadTombs());
+
+function tombstone(id) {
+	tombs.add(id);
+	// oldest go first: a note deleted long ago has almost certainly aged off the
+	// relays too, where a recent one is exactly what's still being replayed.
+	if (tombs.size > MAX_TOMBS) {
+		const keep = [...tombs].slice(-MAX_TOMBS);
+		tombs.clear();
+		for (const k of keep) tombs.add(k);
+	}
+	try {
+		localStorage.setItem(TOMB_KEY, JSON.stringify([...tombs]));
+	} catch {} // quota/private-mode: the in-memory set still holds for this session
+}
+
 // `assist` (optional) routes reads/writes through the server-assist API instead
 // of relays when active: { isActive(), fetchNotes(geohash) -> [event], publish(event) }.
 // The API keeps a persistent cache and answers a geohash PREFIX query, so in
@@ -125,7 +166,8 @@ export function createNotesClient({ getIdentity, getRelays, onChange, assist } =
 	let cells = []; // channel + its 8 neighbors; a note counts if its g-tag starts with any
 	let relaySpares = []; // sorted distinct relays beyond the initial picks (failover pool)
 	let notes = []; // reverse-chron [{ id, pubkey, content, createdAt, name, geohash, expiresAt, mine }]
-	const seen = new Set(); // note ids (dedupe + tombstone so deletes can't resurrect)
+	const seen = new Set(); // note ids, for dedupe only - cleared per sheet by open().
+	// (deletions are NOT tracked here; they need to outlive the sheet - see `tombs`)
 	let state = "idle"; // idle | loading | ready | empty | no_relays
 	// two subscriptions per socket: an exact #g filter so the channel's OWN notes
 	// + neighbors are always guaranteed, and a broad recent-kind-1 sample we
@@ -152,8 +194,10 @@ export function createNotesClient({ getIdentity, getRelays, onChange, assist } =
 	}
 
 	// insert if new + unexpired; keep reverse-chron and capped. returns true if added.
+	// The single chokepoint every source funnels through - relay ingest, the cache
+	// seed, and our own posts - so the tombstone check belongs here and nowhere else.
 	function insert(note) {
-		if (seen.has(note.id)) return false;
+		if (seen.has(note.id) || tombs.has(note.id)) return false;
 		if (note.expiresAt && note.expiresAt <= nowSecs()) return false;
 		seen.add(note.id);
 		notes.push(note);
@@ -471,8 +515,9 @@ export function createNotesClient({ getIdentity, getRelays, onChange, assist } =
 		return { ok: true, event, relays };
 	}
 
-	// NIP-09 delete one of our own notes: emit a kind-5 and drop it locally. the
-	// id stays in `seen` so a relay replay can't bring it back.
+	// NIP-09 delete one of our own notes: emit a kind-5, drop it locally, and tombstone
+	// the id so nothing can hand it back - not a relay that ignored the request, not
+	// the api's own note cache, not a reload.
 	function remove(noteId) {
 		const note = notes.find((n) => n.id === noteId);
 		if (!note || !note.mine) return false;
@@ -486,6 +531,7 @@ export function createNotesClient({ getIdentity, getRelays, onChange, assist } =
 		}
 		notes = notes.filter((n) => n.id !== noteId);
 		cacheDelete(noteId); // the cache must not resurrect a deleted note next open
+		tombstone(noteId); // ...and neither may a relay, the api, or a reload
 		if (notes.length === 0 && eosed) setState("empty");
 		emit();
 		return true;

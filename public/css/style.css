@@ -1888,7 +1888,11 @@ textarea {
 	right: 0;
 	bottom: 100%;
 	padding: 8px 12px;
-	background: color-mix(in srgb, var(--accent) 14%, transparent);
+	/* neutral fill rather than an accent tint: the label is already the accent colour,
+	   and a green bar under green text made the whole strip read as one solid block of
+	   colour instead of a notice sitting over the feed. --field-bg is the themed
+	   neutral every other inset surface uses, so this follows a light theme too. */
+	background: var(--field-bg);
 	backdrop-filter: blur(3px);
 	-webkit-backdrop-filter: blur(3px);
 	color: var(--accent);

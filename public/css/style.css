@@ -2464,6 +2464,85 @@ textarea {
 	min-width: 150px;
 }
 
+/* a full-height panel like the inbox it sits beside, not a centered card - .gate
+   centers by default, which left the grid floating mid-screen with chat showing
+   under it. */
+#galleryGate {
+	position: absolute;
+	inset: 0;
+	align-items: stretch;
+	padding: calc(16px + env(safe-area-inset-top)) 16px calc(16px + var(--inset-b));
+}
+
+/* --- the saved-media gallery ---------------------------------------------------
+   A grid rather than a list, because the picture is the label - there are no urls in
+   here to read. auto-fill with a minimum tile means a phone gets three columns and a
+   wide window gets more, without a breakpoint. */
+.galleryGrid {
+	flex: 1;
+	min-height: 0;
+	overflow-y: auto;
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(88px, 1fr));
+	gap: 6px;
+	padding: 8px 0;
+	align-content: start;
+}
+
+/* square tiles: a saved grid of mixed aspect ratios reads as a mess, and a consistent
+   cell is what makes the grid scannable. The image covers it and gets cropped. */
+.galleryItem {
+	position: relative;
+	aspect-ratio: 1;
+	overflow: hidden;
+	border: 1px solid var(--chrome-border);
+	background: var(--chrome-bg);
+	cursor: pointer;
+}
+
+.galleryImg {
+	width: 100%;
+	height: 100%;
+	object-fit: cover;
+	display: block;
+}
+
+.galleryItem:hover {
+	border-color: var(--accent);
+}
+
+/* the remove affordance sits ON the tile, small and dim until you're over it - it
+   should be reachable without being the first thing you see on every picture. */
+.galleryDrop {
+	position: absolute;
+	top: 2px;
+	right: 2px;
+	width: 20px;
+	height: 20px;
+	line-height: 1;
+	border: 0;
+	padding: 0;
+	background: rgba(0, 0, 0, 0.6);
+	color: var(--fg);
+	font: inherit;
+	font-size: 12px;
+	cursor: pointer;
+	opacity: 0.45;
+	-webkit-tap-highlight-color: transparent;
+}
+
+.galleryDrop:hover {
+	opacity: 1;
+	color: var(--danger);
+}
+
+.galleryEmpty {
+	grid-column: 1 / -1;
+	padding: 24px 8px;
+	text-align: center;
+	color: var(--muted);
+}
+
 /* voice recording bar: mirrors #inputbar's box so swapping them doesn't jump */
 #recordBar {
 	display: flex;

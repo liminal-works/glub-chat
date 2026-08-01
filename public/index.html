@@ -346,10 +346,23 @@
 						</div>
 						<button id="actionTranslate" class="actionBtn" type="button" data-i18n="actions.translate">translate message</button>
 						<button id="actionCopy" class="actionBtn" type="button" data-i18n="actions.copy">copy message</button>
+						<button id="actionSaveMedia" class="actionBtn" type="button" data-i18n="actions.save_media" hidden>save to gallery</button>
 						<button id="actionDelete" class="actionBtn danger" type="button" data-i18n="actions.delete" hidden>delete message</button>
 						<button id="actionBlock" class="actionBtn danger" type="button" data-i18n="actions.block">block</button>
 					</div>
 					<button id="actionClose" class="actionCancel" type="button" data-i18n="actions.cancel">cancel</button>
+				</div>
+			</div>
+
+			<!-- saved media: a grid of urls you've kept, tapped to drop one back into
+			     the composer. No urls shown - the picture IS the label. -->
+			<div id="galleryGate" class="gate">
+				<div class="usersPanel">
+					<div class="usersHeader">
+						<span id="galleryTitle" data-i18n="gallery.title">gallery</span>
+						<strong id="galleryClose" class="usersExit" data-i18n="users.exit">[EXIT]</strong>
+					</div>
+					<div id="galleryGrid" class="galleryGrid"></div>
 				</div>
 			</div>
 
@@ -406,11 +419,13 @@
 					<button id="sendBtn" type="button" data-i18n="composer.send">send</button>
 				</div>
 
-				<!-- the "+" menu: photo (file picker) or voice (mic recording) -->
+				<!-- the "+" menu: upload a photo, record audio, or re-send something saved -->
 				<div id="mediaMenu" class="mapMenu mediaMenu" hidden>
-					<button type="button" class="mapMenuItem" data-media="photo"><span data-i18n="composer.media_photo">photo</span></button>
-					<div class="mapMenuSep"></div>
-					<button type="button" class="mapMenuItem" data-media="voice"><span data-i18n="composer.media_voice">voice note</span></button>
+					<button type="button" class="mapMenuItem" data-media="photo"><span data-i18n="composer.media_photo">photo upload</span></button>
+					<div class="mapMenuSep" data-media-sep></div>
+					<button type="button" class="mapMenuItem" data-media="voice"><span data-i18n="composer.media_voice">audio upload</span></button>
+					<div class="mapMenuSep" data-media-sep></div>
+					<button type="button" class="mapMenuItem" data-media="gallery"><span data-i18n="composer.media_gallery">gallery</span></button>
 				</div>
 
 				<!-- voice recording bar: replaces the input row while recording -->

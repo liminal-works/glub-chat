@@ -72,6 +72,61 @@ const FLOOD_NOTIFY_COOLDOWN_MS = 10 * 60_000; // at most one "hid a flood in #ge
 const seen = new Set();
 const entries = []; // [{ ts, geo, system, pubkey, html, el }], ascending by ts - all received messages
 
+// --- saved media ("gallery") ---------------------------------------------------
+// A private, local list of image urls you've kept, so a picture you like can be
+// re-sent without re-uploading it. Only the URL is stored - the bytes stay on
+// whatever host already serves them - which is what makes this cheap enough to keep
+// in localStorage and why it's a favourites list rather than an album.
+const STORAGE_GALLERY_KEY = "glub_gallery_v1";
+const GALLERY_MAX = 60;
+
+function loadGallery() {
+	try {
+		const raw = JSON.parse(localStorage.getItem(STORAGE_GALLERY_KEY) || "[]");
+		if (!Array.isArray(raw)) return [];
+		return raw.filter((u) => typeof u === "string" && /^https?:\/\//i.test(u)).slice(0, GALLERY_MAX);
+	} catch {
+		return [];
+	}
+}
+
+let gallery = loadGallery();
+
+function saveGallery() {
+	try {
+		localStorage.setItem(STORAGE_GALLERY_KEY, JSON.stringify(gallery.slice(0, GALLERY_MAX)));
+	} catch {} // quota/private-mode: the in-memory list still works for this session
+}
+
+// Our own media host prunes after a day, so a url from it is guaranteed to rot.
+// Saving one would leave a permanent hole in a grid whose whole point is that
+// everything in it still works, and the user would have no way to know why. Refusing
+// it once, with a reason, is a smaller cost than a broken tile they have to identify
+// and clean up later. Nostr.build (where guild photos and avatars go) is permanent
+// and saves fine.
+function isEphemeralMedia(url) {
+	try {
+		const origin = new URL(url, location.href).origin;
+		if (API_BASE && origin === new URL(API_BASE, location.href).origin) return true;
+		return origin === location.origin; // same-origin api deployment
+	} catch {
+		return false;
+	}
+}
+
+// newest first, delivering the "most recently saved is easiest to reach" ordering a
+// favourites grid wants. Re-saving something you already have moves it to the front
+// rather than duplicating it.
+function galleryAdd(url) {
+	gallery = [url, ...gallery.filter((u) => u !== url)].slice(0, GALLERY_MAX);
+	saveGallery();
+}
+
+function galleryRemove(url) {
+	gallery = gallery.filter((u) => u !== url);
+	saveGallery();
+}
+
 // client-only block list (lowercased pubkeys), persisted to localStorage so a
 // block survives a reload - having to re-block the same account every visit was
 // worse than the cost of storing it. blocked = their messages are filtered out of
@@ -318,6 +373,10 @@ const actionHug = document.getElementById("actionHug");
 const actionSlap = document.getElementById("actionSlap");
 const actionBlock = document.getElementById("actionBlock");
 const actionDelete = document.getElementById("actionDelete");
+const actionSaveMedia = document.getElementById("actionSaveMedia");
+const galleryGate = document.getElementById("galleryGate");
+const galleryGrid = document.getElementById("galleryGrid");
+const galleryClose = document.getElementById("galleryClose");
 const actionClose = document.getElementById("actionClose");
 const replyBanner = document.getElementById("replyBanner");
 const replyBannerText = document.getElementById("replyBannerText");
@@ -3745,6 +3804,10 @@ function openActionPopup(pubkey, entry) {
 	// ephemeral and already gone. Self-only because a withdrawal is signed: a kind 5
 	// naming someone else's event is one every honest client, and every relay, ignores.
 	actionDelete.hidden = !(inGuild && isSelf && actionContext.entryId);
+	// offered whenever the tapped message actually carries an image - yours or anyone
+	// else's, chat or a note. Saving keeps only the url, so there's nothing to own.
+	actionContext.media = extractImageUrls(content);
+	actionSaveMedia.hidden = actionContext.media.length === 0;
 	// restore the chat-only actions (a preceding note popup may have hidden them)
 	actionReply.hidden = false;
 	actionHug.hidden = false;
@@ -4194,6 +4257,22 @@ actionCopy.addEventListener("click", copyTappedMessage);
 actionHug.addEventListener("click", () => sendEmote("hug"));
 actionSlap.addEventListener("click", () => sendEmote("slap"));
 actionBlock.addEventListener("click", blockUser);
+actionSaveMedia.addEventListener("click", () => {
+	const urls = (actionContext && actionContext.media) || [];
+	closeActionPopup();
+	if (!urls.length) return;
+	const keep = urls.filter((u) => !isEphemeralMedia(u));
+	for (const u of keep) galleryAdd(u);
+	syncMediaBtn(); // the first save can be what puts the "+" on screen
+	if (!keep.length) {
+		appendSystem(t("gallery.ephemeral"));
+		return;
+	}
+	appendSystem(t("gallery.saved", { count: keep.length }));
+	// a mixed message shouldn't look like a clean success
+	if (keep.length < urls.length) appendSystem(t("gallery.ephemeral"));
+});
+
 actionDelete.addEventListener("click", () => {
 	const id = actionContext && actionContext.entryId;
 	closeActionPopup();
@@ -5464,10 +5543,13 @@ function inDmThread() {
 // somewhere with a destination - a channel, a guild, or a DM thread. Each composer
 // owns its own button; whichever is showing is the one that can be open.
 function syncMediaBtn() {
-	const assist = liveSource === "assist";
+	// uploads need the api, but the gallery is local - so a client with assist off
+	// and something saved still has a reason to open the menu. With neither, there's
+	// nothing behind the button and it stays hidden.
+	const usable = liveSource === "assist" || gallery.length > 0;
 	const dm = inDmThread();
-	mediaBtn.hidden = !assist || dm || !(focusedGeo || focusedGuild);
-	dmMediaBtn.hidden = !assist || !dm;
+	mediaBtn.hidden = !usable || dm || !(focusedGeo || focusedGuild);
+	dmMediaBtn.hidden = !usable || !dm;
 	// don't leave the "+" menu orphaned when the button it belongs to goes away
 	if (mediaBtn.hidden && dmMediaBtn.hidden) toggleMediaMenu(false);
 }
@@ -5741,10 +5823,57 @@ function stopRecStream() {
 	}
 }
 
-// the "+" opens a small photo / voice-note menu (reusing the map-menu look).
+// the "+" opens a small upload / gallery menu (reusing the map-menu look). The two
+// upload rows need the api; the gallery is pure localStorage and works without it,
+// which is why they're toggled separately rather than the whole menu being gated.
 function toggleMediaMenu(show) {
 	const on = show !== undefined ? show : mediaMenu.hidden;
+	const canUpload = liveSource === "assist";
+	for (const el of mediaMenu.querySelectorAll("[data-media='photo'],[data-media='voice'],[data-media-sep]")) {
+		el.hidden = !canUpload;
+	}
 	mediaMenu.hidden = !on;
+}
+
+// --- the gallery panel -----------------------------------------------------------
+
+function renderGallery() {
+	if (!gallery.length) {
+		galleryGrid.innerHTML = `<div class="galleryEmpty">${escapeHtml(t("gallery.empty"))}</div>`;
+		return;
+	}
+	// no urls anywhere in here: the picture is the label, and a wall of hostnames is
+	// exactly the clutter a grid is meant to replace.
+	galleryGrid.innerHTML = gallery
+		.map(
+			(url) =>
+				`<div class="galleryItem" data-gallery-url="${escapeHtml(url)}">` +
+				`<img class="galleryImg" src="${escapeHtml(url)}" alt="" loading="lazy">` +
+				`<button class="galleryDrop" type="button" data-gallery-del="${escapeHtml(url)}" aria-label="${escapeHtml(t("gallery.remove"))}">&#10005;</button>` +
+				`</div>`,
+		)
+		.join("");
+}
+
+function openGallery() {
+	renderGallery();
+	galleryGate.classList.add("show");
+}
+
+function closeGallery() {
+	galleryGate.classList.remove("show");
+}
+
+// tapping a tile drops "[image] {url}" into whichever composer is live and closes up.
+// Deliberately NOT sent: pasting leaves room for a caption, and it's the same shape
+// an upload produces, so the receiving side needs to know nothing about galleries.
+function galleryPick(url) {
+	closeGallery();
+	const target = currentSendTarget();
+	const text = `[image] ${url}`;
+	const box = target && target.dm ? dmInput : chatInput;
+	box.value = box.value ? `${box.value} ${text}` : text;
+	box.focus();
 }
 
 // each composer's "+" mounts the shared menu next to itself before opening it
@@ -5764,6 +5893,24 @@ mediaMenu.addEventListener("click", (e) => {
 	toggleMediaMenu(false);
 	if (btn.dataset.media === "photo") mediaFile.click();
 	else if (btn.dataset.media === "voice") startVoiceRecording();
+	else if (btn.dataset.media === "gallery") openGallery();
+});
+
+galleryClose.addEventListener("click", closeGallery);
+galleryGate.addEventListener("click", (e) => {
+	if (e.target === galleryGate) closeGallery(); // tap the backdrop to dismiss
+});
+galleryGrid.addEventListener("click", (e) => {
+	// the remove button sits on top of the tile, so it has to be checked first
+	const drop = e.target.closest("[data-gallery-del]");
+	if (drop) {
+		galleryRemove(drop.getAttribute("data-gallery-del"));
+		renderGallery();
+		syncMediaBtn(); // emptying the gallery can remove the only reason for the "+"
+		return;
+	}
+	const tile = e.target.closest("[data-gallery-url]");
+	if (tile) galleryPick(tile.getAttribute("data-gallery-url"));
 });
 recStop.addEventListener("click", () => stopVoiceRecording(true));
 recCancel.addEventListener("click", () => stopVoiceRecording(false));

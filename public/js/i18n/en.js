@@ -99,6 +99,7 @@ export default {
 		copy_npub: "copy npub",
 		reply: "reply",
 		block: "block",
+		save_media: "save to gallery",
 		delete: "delete message",
 		copy: "copy",
 		translate: "translate",
@@ -240,14 +241,24 @@ export default {
 		placeholder_reply: "reply to @{name}...",
 		send: "send",
 		join: "join",
-		media_photo: "photo",
-		media_voice: "voice note",
+		media_photo: "photo upload",
+		media_voice: "audio upload",
+		media_gallery: "gallery",
 		rec_hint: "recording voice note",
 		rec_cancel: "cancel",
 		rec_send: "send",
 	},
 
 	// the composer's channel-picker suggestions (global mode)
+	// your private, local list of saved media urls
+	gallery: {
+		title: "gallery",
+		empty: "nothing saved yet — tap a picture in chat to keep it",
+		remove: "remove",
+		saved: { one: "saved to gallery", other: "saved {count} to gallery" },
+		ephemeral: "glub.chat media is deleted after a day — nothing to save",
+	},
+
 	suggest: {
 		here: "{count} here",
 		unblock_all: "all",

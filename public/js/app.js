@@ -1976,10 +1976,11 @@ function renderTopbar() {
 		brandEl.innerHTML =
 			`<strong class="chan">${escapeHtml(clipText(focusedGuild.name, 12))}</strong>` +
 			`/<span class="handle">@${escapeHtml(clipText(name || "anon", 12))}</span>${cursor}`;
-		// the guild's own sockets, read exactly like the global view's relay counter -
-		// same dot, same "RELAYS: n/n", same tap-for-settings - so the readout means
-		// one thing everywhere rather than one thing per mode.
-		statusEl.innerHTML = `${relayReadoutHtml(guildRelayState.connected, guildRelayState.total)} - <strong>${escapeHtml(t("topbar.exit"))}</strong>`;
+		// deliberately just the exit: no relay counter in here. A guild is a room you're
+		// either in or not, and a socket tally next to a room name is one more number to
+		// parse for something you can't act on from inside. The global view still carries
+		// the readout, which is where it means something.
+		statusEl.innerHTML = `<strong>${escapeHtml(t("topbar.exit"))}</strong>`;
 		statusEl.classList.add("tapExit");
 		return;
 	}
@@ -2773,7 +2774,6 @@ const notesAssistBridge = {
 
 // --- guild client + plumbing --------------------------------------------------
 let guildClient = null;
-let guildRelayState = { connected: 0, total: 0 };
 
 function ensureGuildClient() {
 	if (!guildClient) {
@@ -2783,10 +2783,8 @@ function ensureGuildClient() {
 			// just take breadth from the global relay set.
 			getRelays: () => allRelays.map((r) => r.url),
 			onMessage: renderGuildMessage,
-			onState: (st) => {
-				guildRelayState = st;
-				if (focusedGuild) renderTopbar();
-			},
+			// no onState: nothing in the guild view reports socket counts any more, so
+			// there's nothing to re-render when they change.
 		});
 	}
 	return guildClient;

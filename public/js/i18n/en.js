@@ -99,6 +99,7 @@ export default {
 		copy_npub: "copy npub",
 		reply: "reply",
 		block: "block",
+		delete: "delete message",
 		copy: "copy",
 		translate: "translate",
 		untranslate: "hide translation",
@@ -179,6 +180,8 @@ export default {
 		placeholder: "encrypted -> {name}...",
 		warn_nopass: "without a password anyone who guesses the name can read this guild.",
 		upload_left: "left {name} before the upload finished - nothing was sent",
+		deleted: "message withdrawn",
+		delete_failed: "couldn't withdraw that message",
 	},
 
 	origin: {

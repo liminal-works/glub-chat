@@ -105,9 +105,18 @@ export function makeNote({ content, geohash, name, expiresAt, sk, pk, client, ri
 
 // a NIP-09 deletion request for one of your own notes (relays that honor it drop
 // the referenced event; we also drop it locally regardless).
-export function makeDeleteEvent({ eventId, sk, pk }) {
+// `extraTags` rides alongside the mandatory ["e", target]. Guilds use it to carry the
+// frequency tag, without which members - who subscribe by frequency, not by event id -
+// would never see that a message had been withdrawn.
+export function makeDeleteEvent({ eventId, sk, pk, extraTags = [] }) {
 	return signEvent(
-		{ kind: DELETE_KIND, created_at: Math.floor(Date.now() / 1000), tags: [["e", eventId]], content: "", pubkey: pk },
+		{
+			kind: DELETE_KIND,
+			created_at: Math.floor(Date.now() / 1000),
+			tags: [["e", eventId], ...extraTags],
+			content: "",
+			pubkey: pk,
+		},
 		sk,
 	);
 }

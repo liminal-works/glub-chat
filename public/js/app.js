@@ -317,6 +317,7 @@ const actionCopy = document.getElementById("actionCopy");
 const actionHug = document.getElementById("actionHug");
 const actionSlap = document.getElementById("actionSlap");
 const actionBlock = document.getElementById("actionBlock");
+const actionDelete = document.getElementById("actionDelete");
 const actionClose = document.getElementById("actionClose");
 const replyBanner = document.getElementById("replyBanner");
 const replyBannerText = document.getElementById("replyBannerText");
@@ -2783,6 +2784,9 @@ function ensureGuildClient() {
 			// just take breadth from the global relay set.
 			getRelays: () => allRelays.map((r) => r.url),
 			onMessage: renderGuildMessage,
+			// the client hands us the REQUEST; whether to honor it is ours to decide,
+			// because only we know who wrote the message being withdrawn.
+			onDelete: honorGuildDelete,
 			// no onState: nothing in the guild view reports socket counts any more, so
 			// there's nothing to re-render when they change.
 		});
@@ -2819,6 +2823,33 @@ function guildStampMs(raw, createdAt) {
 	if (!Number.isFinite(ms)) return 0;
 	const floor = createdAt * 1000;
 	return ms >= floor && ms < floor + 1000 ? ms : 0;
+}
+
+// A peer withdrew a message. The client verified the signature and the frequency;
+// what it can't check is AUTHORSHIP, since only we hold the decrypted backlog - so
+// that check lives here. Without it, anyone who can see a guild event id (it's public)
+// could sign a kind 5 naming it and delete other people's messages from every member's
+// screen. The pubkeys must match, and nothing else is honored.
+function honorGuildDelete({ id, by }) {
+	if (!id || !by) return;
+	const entry = entries.find((e) => e.id === id);
+	if (!entry || !entry.pubkey) return;
+	if (entry.pubkey.toLowerCase() !== String(by).toLowerCase()) return;
+	dismissEntry(entry);
+}
+
+// withdraw one of our own guild messages. Local removal is unconditional once the
+// event is away: relays honor NIP-09 at their own discretion, and a message that
+// reappears on the sender's own screen after they deleted it is worse than one that
+// quietly persists on a relay that ignored the request.
+function guildDeleteMessage(entryId) {
+	if (!focusedGuild || !guildClient || !entryId) return false;
+	const entry = entries.find((e) => e.id === entryId);
+	if (!entry || !entry.pubkey || entry.pubkey.toLowerCase() !== identity.pk.toLowerCase()) return false;
+	const res = guildClient.remove(entryId);
+	if (!res) return false;
+	dismissEntry(entry);
+	return true;
 }
 
 // send into the tuned guild. Mirrors transmit()'s formatting handling, but the
@@ -3709,6 +3740,11 @@ function openActionPopup(pubkey, entry) {
 	const isSelf = pubkey.toLowerCase() === identity.pk.toLowerCase();
 	actionDm.hidden = isSelf;
 	actionBlock.hidden = isSelf;
+	// Withdrawing is guild-only and self-only. Guild-only because a guild is a stored
+	// kind - the message is sitting on relays to be deleted, where public chat is
+	// ephemeral and already gone. Self-only because a withdrawal is signed: a kind 5
+	// naming someone else's event is one every honest client, and every relay, ignores.
+	actionDelete.hidden = !(inGuild && isSelf && actionContext.entryId);
 	// restore the chat-only actions (a preceding note popup may have hidden them)
 	actionReply.hidden = false;
 	actionHug.hidden = false;
@@ -4158,6 +4194,11 @@ actionCopy.addEventListener("click", copyTappedMessage);
 actionHug.addEventListener("click", () => sendEmote("hug"));
 actionSlap.addEventListener("click", () => sendEmote("slap"));
 actionBlock.addEventListener("click", blockUser);
+actionDelete.addEventListener("click", () => {
+	const id = actionContext && actionContext.entryId;
+	closeActionPopup();
+	appendSystem(guildDeleteMessage(id) ? t("guild.deleted") : t("guild.delete_failed"));
+});
 replyBannerCancel.addEventListener("click", cancelReply);
 
 dmListClose.addEventListener("click", closeDmList);

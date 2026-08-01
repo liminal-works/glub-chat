@@ -69,6 +69,7 @@
 //         free tier is an image host.
 
 import { finalizeEvent, verifyEvent } from "https://esm.sh/nostr-tools@2";
+import { DELETE_KIND, makeDeleteEvent } from "./protocol.js";
 import { sha256 } from "https://esm.sh/@noble/hashes@2.0.1/sha2";
 import { xchacha20poly1305 } from "https://esm.sh/@noble/ciphers@2.1.1/chacha";
 
@@ -210,16 +211,24 @@ export function buildGuildEvent({ payload, guild, pk }) {
 // Owns its own sockets, exactly like the notes and DM clients, so guilds keep
 // working with server assist off - the whole point is that this needs no server.
 //
-// createGuildClient({ getIdentity, getRelays, onMessage, onState })
+// createGuildClient({ getIdentity, getRelays, onMessage, onState, onDelete })
 //   getRelays() -> [wssUrl]        the global relay set (a guild has no geography)
 //   onMessage({ id, pubkey, createdAt, freq, payload })
 //   onState({ connected, total })
-export function createGuildClient({ getIdentity, getRelays, onMessage, onState } = {}) {
+//   onDelete({ id, by })           a REQUEST to withdraw `id`, made by `by`. Honoring
+//                                  it is the caller's call: only the author of the
+//                                  target may withdraw it, and only the caller knows
+//                                  who wrote what.
+export function createGuildClient({ getIdentity, getRelays, onMessage, onState, onDelete } = {}) {
 	const sockets = new Map(); // url -> WebSocket
 	let gen = 0; // bumped on open/close so stale sockets and timers no-op
 	let guild = null;
 	let sub = null;
 	const seen = new Set();
+	// target event id -> the pubkey that asked for it to go. Deliberately NOT cleared
+	// when a guild is reopened, unlike `seen`: rejoining refetches the backlog, and
+	// forgetting the withdrawals would resurrect every deleted message on re-entry.
+	const deletions = new Map();
 
 	const emitState = () => {
 		let connected = 0;
@@ -245,7 +254,7 @@ export function createGuildClient({ getIdentity, getRelays, onMessage, onState }
 		}
 		if (!Array.isArray(frame) || frame[0] !== "EVENT" || frame[1] !== sub) return;
 		const ev = frame[2];
-		if (!ev || ev.kind !== GUILD_KIND || typeof ev.content !== "string") return;
+		if (!ev || (ev.kind !== GUILD_KIND && ev.kind !== DELETE_KIND)) return;
 		if (seen.has(ev.id)) return;
 		// relays are untrusted transport: check the signature before doing anything
 		// with the payload, exactly as the chat and notes paths do.
@@ -258,6 +267,29 @@ export function createGuildClient({ getIdentity, getRelays, onMessage, onState }
 		if (!ok) return;
 		const tag = (ev.tags || []).find((t) => Array.isArray(t) && t[0] === "g");
 		if (!tag || tag[1] !== guild.freq) return;
+
+		if (ev.kind === DELETE_KIND) {
+			seen.add(ev.id);
+			for (const t of ev.tags || []) {
+				if (!Array.isArray(t) || t[0] !== "e" || !t[1]) continue;
+				// recorded even when the target hasn't arrived yet - relays replay in no
+				// guaranteed order, and a withdrawal that lands first must still take
+				// effect when the message it withdraws shows up behind it.
+				deletions.set(t[1], ev.pubkey);
+				if (deletions.size > 2000) deletions.clear();
+				onDelete?.({ id: t[1], by: ev.pubkey });
+			}
+			return;
+		}
+
+		if (typeof ev.content !== "string") return;
+		// a message already withdrawn BY ITS OWN AUTHOR never renders. The pubkey match
+		// is the whole check: anyone can publish a kind 5 naming someone else's event id,
+		// and a relay will happily hand it to us.
+		if (deletions.get(ev.id) === ev.pubkey) {
+			seen.add(ev.id);
+			return;
+		}
 		const payload = openGuildPayload(guild.key, ev.content);
 		if (!payload) return; // not ours to read
 		seen.add(ev.id);
@@ -276,7 +308,9 @@ export function createGuildClient({ getIdentity, getRelays, onMessage, onState }
 		sockets.set(url, ws);
 		ws.onopen = () => {
 			if (myGen !== gen) return void ws.close();
-			ws.send(JSON.stringify(["REQ", sub, { kinds: [GUILD_KIND], "#g": [guild.freq], limit: SUB_LIMIT }]));
+			// deletions ride the same frequency filter as the messages, so one
+			// subscription carries both and a withdrawal reaches every member.
+			ws.send(JSON.stringify(["REQ", sub, { kinds: [GUILD_KIND, DELETE_KIND], "#g": [guild.freq], limit: SUB_LIMIT }]));
 			emitState();
 		};
 		ws.onmessage = (e) => {
@@ -329,6 +363,10 @@ export function createGuildClient({ getIdentity, getRelays, onMessage, onState }
 			return null;
 		}
 		seen.add(event.id); // our own echo shouldn't render twice
+		return { event, relays: broadcast(event) };
+	}
+
+	function broadcast(event) {
 		const msg = JSON.stringify(["EVENT", event]);
 		let sent = 0;
 		for (const ws of sockets.values()) {
@@ -338,8 +376,35 @@ export function createGuildClient({ getIdentity, getRelays, onMessage, onState }
 				sent++;
 			} catch {}
 		}
-		return { event, relays: sent };
+		return sent;
 	}
 
-	return { open, close, post, get guild() { return guild; } };
+	// Withdraw one of our own messages: a NIP-09 kind 5 carrying the guild's frequency
+	// tag beside the usual `e` reference. The tag is what makes it reachable - members
+	// subscribe by frequency, so a bare delete request would be published into a void
+	// nobody is listening to. It discloses nothing new either: every guild message
+	// already carries that same tag, signed by the same key, in the clear.
+	//
+	// What it does disclose is the ACT - anyone watching the relay sees that this pubkey
+	// withdrew that event id, though not what either said. That's the price of relays
+	// honoring it: a tombstone sealed inside an ordinary guild message would hide the
+	// intent, but the original would sit on every relay forever, which is the opposite
+	// of what deleting is for.
+	function remove(eventId) {
+		if (!guild || !eventId) return null;
+		const { sk, pk } = getIdentity();
+		let event;
+		try {
+			event = makeDeleteEvent({ eventId, sk, pk, extraTags: [["g", guild.freq]] });
+		} catch {
+			return null;
+		}
+		// remember locally too, so our own backlog refetch can't bring it back even if
+		// no relay honored the request.
+		deletions.set(eventId, pk);
+		seen.add(event.id);
+		return { event, relays: broadcast(event) };
+	}
+
+	return { open, close, post, remove, get guild() { return guild; } };
 }

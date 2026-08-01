@@ -5864,16 +5864,14 @@ function closeGallery() {
 	galleryGate.classList.remove("show");
 }
 
-// tapping a tile drops "[image] {url}" into whichever composer is live and closes up.
-// Deliberately NOT sent: pasting leaves room for a caption, and it's the same shape
-// an upload produces, so the receiving side needs to know nothing about galleries.
+// tapping a tile SENDS "[image] {url}" and closes up - the same one-tap flow as
+// picking a photo to upload, minus the upload. It goes through deliverToTarget so a
+// pick lands wherever you're talking (channel, guild, or DM thread) rather than
+// needing a separate path per destination; with no destination at all that falls back
+// to dropping it in the composer, which is the only sensible thing left to do with it.
 function galleryPick(url) {
 	closeGallery();
-	const target = currentSendTarget();
-	const text = `[image] ${url}`;
-	const box = target && target.dm ? dmInput : chatInput;
-	box.value = box.value ? `${box.value} ${text}` : text;
-	box.focus();
+	deliverToTarget(currentSendTarget(), `[image] ${url}`);
 }
 
 // each composer's "+" mounts the shared menu next to itself before opening it

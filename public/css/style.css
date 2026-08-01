@@ -2502,6 +2502,11 @@ textarea {
 	inset: 0;
 	align-items: stretch;
 	padding: calc(16px + env(safe-area-inset-top)) 16px calc(16px + var(--inset-b));
+	/* Every other gate is a first-level overlay and they never coexist, so sharing one
+	   z-index and letting DOM order decide is fine for them. The gallery is the
+	   exception: it opens FROM a composer, including the DM thread's, so it has to
+	   land on top of a gate that is already showing rather than behind it. */
+	z-index: 1010;
 }
 
 /* --- the saved-media gallery ---------------------------------------------------

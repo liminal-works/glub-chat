@@ -28,6 +28,10 @@ let locale = FALLBACK;
 let dict = en;
 let plural = new Intl.PluralRules(FALLBACK);
 let rtf = new Intl.RelativeTimeFormat(FALLBACK, { numeric: "always", style: "narrow" });
+// a second formatter for whole days, on "auto" so 1 comes out as the word
+// ("yesterday") rather than "1d ago" - the one case where the word is shorter AND
+// clearer than the number.
+let rtfDay = new Intl.RelativeTimeFormat(FALLBACK, { numeric: "auto", style: "narrow" });
 const changeCbs = [];
 
 function get(obj, key) {
@@ -88,6 +92,26 @@ export function formatAgo(tsSeconds) {
 	else if (s < 86400) [value, unit] = [Math.floor(s / 3600), "hour"];
 	else [value, unit] = [Math.floor(s / 86400), "day"];
 	return rtf.format(-value, unit);
+}
+
+// How many whole LOCAL calendar days back a timestamp falls. Deliberately not the
+// same question formatAgo answers: 23:50 yesterday is only "8h ago" by elapsed time,
+// but it's still a different day, and "which day was this" is exactly what a wall of
+// [hh:mm:ss] stamps leaves you guessing. Compared as UTC midnights of the local
+// dates so DST shifts can't turn a day boundary into 23 or 25 hours.
+export function daysAgo(tsSeconds) {
+	const then = new Date(tsSeconds * 1000);
+	const now = new Date();
+	const a = Date.UTC(then.getFullYear(), then.getMonth(), then.getDate());
+	const b = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate());
+	return Math.round((b - a) / 86400000);
+}
+
+// "yesterday" / "3d ago" for a timestamp on an earlier local day, "" for today (and
+// for anything dated in the future, which is a badly-stamped event, not a preview).
+export function formatDayAgo(tsSeconds) {
+	const d = daysAgo(tsSeconds);
+	return d > 0 ? rtfDay.format(-d, "day") : "";
 }
 
 export function getLocale() {
@@ -173,6 +197,7 @@ export async function setLocale(code) {
 	dict = d || en;
 	plural = new Intl.PluralRules(locale);
 	rtf = new Intl.RelativeTimeFormat(locale, { numeric: "always", style: "narrow" });
+	rtfDay = new Intl.RelativeTimeFormat(locale, { numeric: "auto", style: "narrow" });
 
 	if (typeof document !== "undefined") {
 		document.documentElement.lang = locale;

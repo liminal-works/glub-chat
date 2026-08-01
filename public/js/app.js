@@ -14,7 +14,7 @@ import { RelayPool } from "./nostr/relayPool.js";
 import { buildChatEvent, buildPresenceEvent, signEvent, makeProfileEvent, getGeohash, getName, getClient, CHAT_KIND, PRESENCE_KIND, sortRelaysByGeohash, geohashCell, encodeGeohash, verifyEvent } from "./nostr/protocol.js";
 import { mineNonceTag, POW_DIFFICULTY, idDifficulty, committedDifficulty } from "./nostr/pow.js";
 import { createMessageRateLimiter, createPresenceRateLimiter } from "./ratelimit.js";
-import { t, formatAgo, setLocale, detectLocale, onLocaleChange, preferredContentLanguage } from "./i18n/index.js";
+import { t, formatAgo, formatDayAgo, setLocale, detectLocale, onLocaleChange, preferredContentLanguage } from "./i18n/index.js";
 import { createSuggest } from "./ui/suggest.js";
 import { createMap } from "./ui/map.js";
 import { createDmClient, DM_MAX_CONTENT_BYTES } from "./nostr/dm.js";
@@ -885,8 +885,17 @@ function formatTime(tsSec) {
 	});
 }
 
+// [hh:mm:ss] for anything from today, [3d ago · hh:mm:ss] for anything older. A wall
+// of bare clock times is unreadable the moment a backlog spans days - which guild
+// history routinely does, since guilds are a stored kind and come back in full on
+// re-entry - and the day is the part you're actually trying to work out. The age
+// goes FIRST because it's the exceptional half: today's lines carry no marker at
+// all, so the ones that do should announce it rather than hide it behind a clock
+// you've already read a hundred of.
 function timeTag(tsSec) {
-	return ` <span class="ts">[${formatTime(tsSec)}]</span>`;
+	const day = formatDayAgo(tsSec);
+	const stamp = day ? `${escapeHtml(day)} · ${formatTime(tsSec)}` : formatTime(tsSec);
+	return ` <span class="ts">[${stamp}]</span>`;
 }
 
 // turns URLs and inline #geohash tokens in already-escaped text into clickable

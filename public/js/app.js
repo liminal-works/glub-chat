@@ -1467,6 +1467,10 @@ function renderLinkPreview(entry) {
 	if (entry.system) return "";
 	const url = previewUrl(entry.text || "");
 	if (!url) return "";
+	// kicked off from HERE rather than from any one caller, so chat, notes and DM
+	// threads all unfurl by virtue of drawing a card. It dedups by url, so being
+	// called on every repaint costs nothing.
+	ensureLinkPreview(url);
 	const yt = youtubeId(url);
 	const got = linkPreviews.get(url);
 	// the derived youtube thumbnail WINS over a fetched one. It needs nobody, it can't
@@ -1506,9 +1510,8 @@ function renderLinkPreview(entry) {
 // ask the api to unfurl a link, once, and redraw the rows showing it. Only with
 // assist live - see the note above previewUrl. YouTube already has its thumbnail, so
 // this is only chasing a title for it.
-async function ensureLinkPreview(entry) {
-	if (liveSource !== "assist" || entry.system) return;
-	const url = previewUrl(entry.text || "");
+async function ensureLinkPreview(url) {
+	if (liveSource !== "assist") return;
 	if (!url || linkPreviews.has(url)) return;
 	linkPreviews.set(url, null); // claim it, so a screenful of the same link asks once
 	try {
@@ -1527,10 +1530,18 @@ async function ensureLinkPreview(entry) {
 		linkPreviews.delete(url); // network blip, not a verdict
 		return;
 	}
-	// repaint every buffered message pointing at this url, not just this one
+	repaintLinkPreview(url);
+}
+
+// a card arriving has to reach wherever that link is currently drawn, which is no
+// longer only the feed: notes and DM threads render the same card from the same
+// cache, and they redraw wholesale rather than per-row.
+function repaintLinkPreview(url) {
 	for (const e of entries) {
 		if (e.el && !e.system && previewUrl(e.text || "") === url) rerenderEntryEl(e);
 	}
+	if (activeDmPubkey && dmGate.classList.contains("show")) renderDmThread();
+	if (notesGate.classList.contains("show")) renderNotes();
 }
 
 function renderAudioPreviews(entry) {
@@ -1693,7 +1704,6 @@ function renderEntryDom(entry, animate = false) {
 	if (nextEl) terminal.insertBefore(div, nextEl);
 	else terminal.appendChild(div);
 	observeFlair(div);
-	ensureLinkPreview(entry); // no-op unless assist is live and the link is new to us
 }
 
 function isNearBottom() {
@@ -3429,6 +3439,7 @@ function noteRowHtml(n) {
 		// image previews, same blurred tap-to-reveal treatment as chat (renderImage-
 		// Previews reads .id + .images, so a lightweight shim is all it needs)
 		renderImagePreviews({ id: n.id, images: extractImageUrls(n.content) }) +
+		renderLinkPreview({ id: n.id, text: n.content }) +
 		renderNoteTranslation(n.id, n.content) +
 		`</div>`
 	);
@@ -4217,7 +4228,8 @@ function dmMessageHtml(m) {
 	// lightweight shim works just as well for a DM message.
 	const media =
 		renderImagePreviews({ id: m.id, images: extractImageUrls(m.content) }) +
-		renderAudioPreviews({ audio: extractAudioUrls(m.content) });
+		renderAudioPreviews({ audio: extractAudioUrls(m.content) }) +
+		renderLinkPreview({ id: m.id, text: m.content });
 	return `<div class="dmMsg ${m.mine ? "mine" : "theirs"}">${linkify(escapeHtml(m.content))}${media}${meta}</div>`;
 }
 

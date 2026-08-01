@@ -4399,13 +4399,19 @@ function randomAnonName() {
 nameForm.addEventListener("submit", (e) => {
 	e.preventDefault();
 
+	const prev = name;
 	const value = nameInput.value.trim().slice(0, 24);
 	name = value || randomAnonName();
 
 	setStoredName(name);
 	renderTopbar();
 	closeNameGate();
-	appendSystem(t("system.welcome", { name })); // ephemeral greeting (fades like other notices)
+	// the greeting marks arriving, or becoming someone new. Once you have a name the
+	// gate is a panel you can reopen at will, and it prefills what you already are -
+	// so pressing enter on an unchanged name is neither of those things, and being
+	// welcomed again every time you glance at the panel wears out fast. `prev` is ""
+	// only on first run, which is why this one comparison covers both cases.
+	if (prev !== name) appendSystem(t("system.welcome", { name })); // ephemeral, fades like other notices
 });
 
 // single entry point for every event source (relays + history api): filter to

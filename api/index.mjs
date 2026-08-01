@@ -10,6 +10,7 @@ import { proxyAvatar } from "./avatar.mjs";
 import { createMediaStore } from "./media.mjs";
 import { translateConfigured, translateText } from "./translate.mjs";
 import { geocode } from "./geocode.mjs";
+import { fetchPreview } from "./preview.mjs";
 
 // The optional "server assist" API. Deliberately separate from the static file
 // server (server/index.mjs) so its failure modes - a wedged relay pool, a full
@@ -167,6 +168,30 @@ app.get("/api/geocode", ipBucket({ capacity: 20, refillPerSec: 1 }), async (req,
 	const place = await geocode(geo);
 	res.set("Cache-Control", "public, max-age=86400");
 	res.json({ ok: true, place });
+});
+
+// unfurl a link into an OpenGraph card. Rate-limited harder than geocode because
+// every miss is an outbound fetch to a stranger's server, not a lookup in a table -
+// and see preview.mjs for why that fetch is fenced in as carefully as it is.
+app.get("/api/preview", ipBucket({ capacity: 10, refillPerSec: 0.5 }), async (req, res) => {
+	const url = String(req.query.url || "");
+	if (!url || url.length > 2048 || !/^https?:\/\//i.test(url)) {
+		res.status(400).json({ ok: false, error: "bad url" });
+		return;
+	}
+	try {
+		const data = await fetchPreview(url);
+		res.set("Cache-Control", "public, max-age=21600");
+		res.json({ ok: true, preview: data });
+	} catch (err) {
+		// 404, not 5xx: "this link has no card" is a complete answer to a valid
+		// question, and the client caches it rather than asking again forever. 5xx is
+		// reserved for our own trouble, which IS worth retrying.
+		//
+		// Deliberately vague about the reason - distinguishing "no such host" from
+		// "that host is on my private network" would turn this into a scanner.
+		res.status(404).json({ ok: false, error: "no preview" });
+	}
 });
 
 // live presences for a channel (kind-20001 heartbeats the api has seen recently).

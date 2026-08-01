@@ -1838,6 +1838,77 @@ textarea {
 	letter-spacing: 0.06em;
 }
 
+/* --- link preview card ----------------------------------------------------------
+   A bordered strip under the message: small square thumbnail, title, host. Kept
+   deliberately short - it's a hint about where a link goes, not a reader. */
+.linkCard {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	margin: 6px 0 2px;
+	padding: 6px 8px;
+	max-width: 420px;
+	border: 1px solid var(--chrome-border);
+	border-left: 2px solid var(--geo); /* the same blue links already use */
+	background: var(--field-bg);
+	text-decoration: none;
+	color: inherit;
+}
+
+.linkCard:hover {
+	border-color: var(--chrome-border-strong);
+	border-left-color: var(--geo);
+}
+
+.linkThumb {
+	flex: none;
+	width: 56px;
+	height: 56px;
+	overflow: hidden;
+	background: var(--chrome-bg);
+	display: block;
+	position: relative;
+}
+
+.linkThumb img {
+	width: 100%;
+	height: 100%;
+	object-fit: cover;
+	display: block;
+}
+
+/* same treatment inline images get: a preview picture is exactly the "surprise
+   image from a stranger" case the blur setting exists for, and being small doesn't
+   change what it can be. */
+.linkThumbCensored img {
+	filter: blur(12px);
+}
+
+.linkCardText {
+	min-width: 0;
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+}
+
+.linkCardTitle {
+	color: var(--fg);
+	font-weight: 700;
+	/* two lines and then stop: a long headline shouldn't push the next message off */
+	display: -webkit-box;
+	-webkit-line-clamp: 2;
+	-webkit-box-orient: vertical;
+	overflow: hidden;
+}
+
+.linkCardSite {
+	color: var(--muted);
+	font-size: 0.85em;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
 .mediaPreview {
 	position: relative;
 	display: block;

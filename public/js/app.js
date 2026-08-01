@@ -885,6 +885,37 @@ function extractImageUrls(text) {
 	return extractUrls(text).filter(isDirectImageUrl).slice(0, MAX_IMAGES_PER_MESSAGE);
 }
 
+// --- link previews ---------------------------------------------------------------
+// A bare url tells you nothing about where it goes, which is both unhelpful and a
+// small phishing surface. Two sources fill that in, and they are deliberately not
+// the same source:
+//
+//   * YouTube is unfurled ENTIRELY client-side, because its thumbnail is derivable
+//     from the video id - no metadata request, no server, nothing learns you opened
+//     it. That covers the single most-linked host for free.
+//   * everything else needs a page fetched and parsed, which a browser is not allowed
+//     to do cross-origin, so it goes through the api - and therefore only happens
+//     when server assist is already on. That's a real cost stated plainly rather than
+//     hidden: the api learns which links get posted. It's the same boundary the
+//     translate action already crosses, with less crossing it.
+const YT_RE = /^https?:\/\/(?:www\.|m\.)?(?:youtube\.com\/(?:watch\?(?:[^#]*&)?v=|shorts\/|live\/|embed\/)|youtu\.be\/)([\w-]{11})/i;
+
+function youtubeId(url) {
+	const m = String(url).match(YT_RE);
+	return m ? m[1] : "";
+}
+
+// the first url in a message worth unfurling: not one we already render as media
+// (that would show the same picture twice), and only the first - a link dump should
+// stay a link dump rather than becoming a wall of cards.
+function previewUrl(text) {
+	for (const url of extractUrls(text)) {
+		if (isDirectImageUrl(url) || isDirectAudioUrl(url)) continue;
+		return url;
+	}
+	return "";
+}
+
 function isDirectAudioUrl(url) {
 	const clean = String(url).split("?")[0].split("#")[0].toLowerCase();
 	return /\.(webm|ogg|m4a|mp3|wav|aac|opus)$/.test(clean);
@@ -1325,6 +1356,7 @@ function messageInnerHtml(entry) {
 	// anyway would defeat the whole point
 	if (!entry.wall || expanded) body += renderImagePreviews(entry);
 	body += renderAudioPreviews(entry); // a short "[voice]" line is never a wall, so always show the player
+	body += renderLinkPreview(entry);
 	body += renderTranslation(entry);
 
 	return body + timeTag(entry.ts) + ackTag(entry);
@@ -1423,6 +1455,84 @@ function renderImagePreviews(entry) {
 
 // one inline <audio> player per voice-note url in a message. preload="none" so a
 // backlog of voice notes doesn't fetch every clip until the user hits play.
+// url -> { title, image, site } once resolved, or null while a fetch is in flight /
+// after one failed. Keyed by url rather than by message, so the same link posted
+// twice costs one lookup.
+const linkPreviews = new Map();
+
+// a card for the message's link, if we have anything to show for it. Rendered from
+// cache only - the fetch is kicked off separately and re-renders the row when it
+// lands, so drawing a message never waits on the network.
+function renderLinkPreview(entry) {
+	if (entry.system) return "";
+	const url = previewUrl(entry.text || "");
+	if (!url) return "";
+	const yt = youtubeId(url);
+	const got = linkPreviews.get(url);
+	// the derived youtube thumbnail WINS over a fetched one. It needs nobody, it can't
+	// be stale, and it's the same picture the fetch would have gone and found - so
+	// letting the api's answer replace it would trade a free correct image for a
+	// round-trip to get the same thing.
+	const image = (yt ? `https://i.ytimg.com/vi/${yt}/hqdefault.jpg` : "") || got?.image || "";
+	const title = got?.title || "";
+	const site = got?.site || (() => {
+		try {
+			return new URL(url).hostname.replace(/^www\./, "");
+		} catch {
+			return "";
+		}
+	})();
+	if (!image && !title) return ""; // nothing worth a card; the bare link stands
+
+	// the thumbnail obeys the same blur setting as an inline image: a preview picture
+	// is exactly the "surprise image from a stranger" case that setting is for, and
+	// its being small doesn't change what it can be.
+	const key = `${entry.id}:link`;
+	const hidden = mediaSettings.censorImages && !revealedImages.has(key);
+	const thumb = image
+		? `<span class="linkThumb${hidden ? " linkThumbCensored" : ""}"${hidden ? ` data-img-toggle="${escapeHtml(key)}"` : ""}>` +
+			`<img src="${escapeHtml(image)}" alt="" loading="lazy"></span>`
+		: "";
+	return (
+		`<a class="linkCard" href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">` +
+		thumb +
+		`<span class="linkCardText">` +
+		(title ? `<span class="linkCardTitle">${escapeHtml(title)}</span>` : "") +
+		(site ? `<span class="linkCardSite">${escapeHtml(site)}</span>` : "") +
+		`</span></a>`
+	);
+}
+
+// ask the api to unfurl a link, once, and redraw the rows showing it. Only with
+// assist live - see the note above previewUrl. YouTube already has its thumbnail, so
+// this is only chasing a title for it.
+async function ensureLinkPreview(entry) {
+	if (liveSource !== "assist" || entry.system) return;
+	const url = previewUrl(entry.text || "");
+	if (!url || linkPreviews.has(url)) return;
+	linkPreviews.set(url, null); // claim it, so a screenful of the same link asks once
+	try {
+		const res = await fetch(`${API_BASE}/api/preview?url=${encodeURIComponent(url)}`);
+		// a burst of links can outrun the api's per-ip bucket. That's a "not now", not
+		// a "there is nothing here", so give the claim back and let a later render ask
+		// again - otherwise one busy moment would blank previews for the session.
+		if (res.status === 429 || res.status >= 500) {
+			linkPreviews.delete(url);
+			return;
+		}
+		const data = await res.json();
+		if (!data.ok || !data.preview) return; // stays null: asked, nothing to show
+		linkPreviews.set(url, data.preview);
+	} catch {
+		linkPreviews.delete(url); // network blip, not a verdict
+		return;
+	}
+	// repaint every buffered message pointing at this url, not just this one
+	for (const e of entries) {
+		if (e.el && !e.system && previewUrl(e.text || "") === url) rerenderEntryEl(e);
+	}
+}
+
 function renderAudioPreviews(entry) {
 	if (!entry.audio || !entry.audio.length) return "";
 	return entry.audio
@@ -1583,6 +1693,7 @@ function renderEntryDom(entry, animate = false) {
 	if (nextEl) terminal.insertBefore(div, nextEl);
 	else terminal.appendChild(div);
 	observeFlair(div);
+	ensureLinkPreview(entry); // no-op unless assist is live and the link is new to us
 }
 
 function isNearBottom() {

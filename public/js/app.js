@@ -1267,6 +1267,25 @@ function entryVisible(entry) {
 // builds a message line's inner html (everything after the optional #geo prefix)
 // from its stored fields, collapsing an over-long name or message behind a
 // "more"/"less" toggle so a single huge message can't blow out the view.
+// Take the urls we're ALREADY showing as a picture or a player back out of the text.
+// Saying the same thing twice is clutter, and the second copy is the unreadable one -
+// a wall of percent-encoded path that pushes the actual message off the line.
+//
+// `urls` is passed in rather than derived, because "is it rendered" is the caller's
+// question, not this function's: a collapsed wall suppresses its image previews, and
+// stripping the links there would take the content away and put nothing in its place.
+function stripShownMedia(text, urls) {
+	if (!urls || !urls.length) return String(text || "");
+	let out = String(text || "");
+	for (const u of urls) out = out.split(u).join("");
+	// bitchat's "[image]" / "[voice]" marker exists to say what the following link
+	// is. With the link gone it labels nothing, so it goes with it.
+	out = out.replace(/\[(?:image|voice)\]/gi, "");
+	// close the gaps that left, without touching newlines - a multi-line message
+	// keeps its shape.
+	return out.replace(/[ \t]{2,}/g, " ").replace(/[ \t]+$/gm, "").trim();
+}
+
 function messageInnerHtml(entry) {
 	const expanded = entry.expanded;
 	// a payment token is a long blob whose whole point is to become a compact chip.
@@ -1281,13 +1300,21 @@ function messageInnerHtml(entry) {
 	// walls (ascii art / link dumps / tall multiline blocks) collapse much harder
 	// than the plain over-length case - a taste of the content, then the toggle.
 	const clipLen = entry.wall ? WALL_CLIP_LEN : MAX_MSG_LEN;
-	const text = expanded || hasPayment || isRich ? entry.text : clipWithEllipsis(entry.text, clipLen);
+	// audio always draws a player; images don't when a wall is collapsed, so only
+	// those urls come out of the text.
+	const imagesShown = !entry.wall || expanded;
+	const shownMedia = extractAudioUrls(entry.text).concat(imagesShown ? extractImageUrls(entry.text) : []);
+	// clipping measures what's actually READ, so it runs after the urls are gone -
+	// otherwise a bare "[image] {long url}" would collapse behind a more/less toggle
+	// for text nobody is being shown.
+	const source = stripShownMedia(entry.text, shownMedia);
+	const text = expanded || hasPayment || isRich ? source : clipWithEllipsis(source, clipLen);
 	// your own color depends on the live profiles state (orange vs. real per-key
 	// color), so recompute it each render; peers' colors never change (baked).
 	const color = entry.mine ? pubkeyColor(entry.pubkey) : entry.color;
 
 	let body;
-	let needsToggle = !hasPayment && !isRich && entry.text.length > clipLen;
+	let needsToggle = !hasPayment && !isRich && source.length > clipLen;
 
 	if (entry.action) {
 		// emote: the whole "* ... *" rendered muted like a timestamp, no username
@@ -1297,8 +1324,9 @@ function messageInnerHtml(entry) {
 		// block, then the reply body. the whole thing is one tap target.
 		const reply = entry.reply;
 		const who = expanded ? entry.who : clipWithEllipsis(entry.who, MAX_NAME_LEN);
-		const bodyText = expanded || hasPayment ? reply.body : clipWithEllipsis(reply.body, MAX_MSG_LEN);
-		needsToggle = entry.who.length > MAX_NAME_LEN || (!hasPayment && reply.body.length > MAX_MSG_LEN);
+		const replyBody = stripShownMedia(reply.body, shownMedia);
+		const bodyText = expanded || hasPayment ? replyBody : clipWithEllipsis(replyBody, MAX_MSG_LEN);
+		needsToggle = entry.who.length > MAX_NAME_LEN || (!hasPayment && replyBody.length > MAX_MSG_LEN);
 		const quoted = clipWithEllipsis(`@${reply.targetUser}: ${reply.quotedText}`, 140);
 		body =
 			`<span class="msgTap" data-user="${escapeHtml(entry.pubkey)}">` +
@@ -1319,8 +1347,8 @@ function messageInnerHtml(entry) {
 		// than applied to .msg, so it works identically under a /format template
 		// (where the body is spliced into {msg}) and doesn't scale the name or tag
 		// with it. The check runs on the plaintext, so a "&"-coded emoji still counts.
-		const scale = emojiScaleClass(entry.text);
-		const rawMsgHtml = isRich ? renderFormat(entry.rich, richBody) : richBody(text);
+		const scale = emojiScaleClass(source);
+		const rawMsgHtml = isRich ? renderFormat(stripShownMedia(entry.rich, shownMedia), richBody) : richBody(text);
 		const msgHtml = scale ? `<span class="${scale}">${rawMsgHtml}</span>` : rawMsgHtml;
 		// the whole message (name + body) is one tap target: tapping anywhere on it
 		// opens the per-user action popup (DM, copy, hug/slap...). data-user carries
@@ -3414,7 +3442,10 @@ function noteRowHtml(n) {
 	// more/less toggle (with an absolute ceiling even when expanded) so one giant
 	// note can't blow out the list. our composer caps at 500, but notes from other
 	// clients carry no such limit.
-	const raw = String(n.content || "").slice(0, HARD_MAX_MSG_LEN);
+	// the picture is drawn below, so the link to it comes out of the text (see
+	// stripShownMedia). Notes render no audio player, so audio urls stay put.
+	const noteMedia = extractImageUrls(n.content);
+	const raw = stripShownMedia(String(n.content || "").slice(0, HARD_MAX_MSG_LEN), noteMedia);
 	const expanded = expandedNotes.has(n.id);
 	const shown = expanded ? raw : clipWithEllipsis(raw, MAX_MSG_LEN);
 	// a "&"-formatted note renders from its raw coded text (guarded at ingest);
@@ -3423,7 +3454,7 @@ function noteRowHtml(n) {
 	const toggle = !isRich && raw.length > MAX_MSG_LEN
 		? `<span class="toggleMore" data-note-toggle="${escapeHtml(n.id)}">${escapeHtml(t(expanded ? "message.less" : "message.more"))}</span>`
 		: "";
-	const bodyHtml = isRich ? renderFormat(n.rich, (s) => linkify(escapeHtml(s))) : linkify(escapeHtml(shown));
+	const bodyHtml = isRich ? renderFormat(stripShownMedia(n.rich, noteMedia), (s) => linkify(escapeHtml(s))) : linkify(escapeHtml(shown));
 	// the row is tappable (data-note-id + data-pubkey) to open the action popup -
 	// translate/copy/mention/dm/block - just like tapping a chat message.
 	return (
@@ -4226,11 +4257,15 @@ function dmMessageHtml(m) {
 	// "[image] {url}" / "[voice] {url}" render inline here the same way they do in
 	// chat. The preview helpers only read .id/.images/.audio, so the notes list's
 	// lightweight shim works just as well for a DM message.
+	const images = extractImageUrls(m.content);
+	const audio = extractAudioUrls(m.content);
 	const media =
-		renderImagePreviews({ id: m.id, images: extractImageUrls(m.content) }) +
-		renderAudioPreviews({ audio: extractAudioUrls(m.content) }) +
+		renderImagePreviews({ id: m.id, images }) +
+		renderAudioPreviews({ audio }) +
 		renderLinkPreview({ id: m.id, text: m.content });
-	return `<div class="dmMsg ${m.mine ? "mine" : "theirs"}">${linkify(escapeHtml(m.content))}${media}${meta}</div>`;
+	// whatever is drawn above comes out of the text below it
+	const said = stripShownMedia(m.content, images.concat(audio));
+	return `<div class="dmMsg ${m.mine ? "mine" : "theirs"}">${linkify(escapeHtml(said))}${media}${meta}</div>`;
 }
 
 function renderDmThread() {

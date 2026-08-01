@@ -247,6 +247,11 @@ export default {
 	// the composer's channel-picker suggestions (global mode)
 	suggest: {
 		here: "{count} here",
+		unblock_all: "all",
+		unblock_all_meta: {
+			one: "unblock everyone",
+			other: "unblock all {count}",
+		},
 	},
 
 	message: {
@@ -375,12 +380,14 @@ export default {
 		mute_none: "no muted channels",
 		muted_header: "muted channels",
 		unmute_notmuted: "#{geo} isn't muted",
-		blocked: "blocked @{name} (#{tag}) — /unblock {tag} to undo",
+		blocked: "blocked @{name}#{tag}. use /unblock {name} to undo",
 		block_none: "no blocked users",
 		blocked_header: "blocked users",
-		unblocked: "unblocked #{tag}",
+		unblocked: "unblocked @{name}#{tag}",
 		unblocked_all: "unblocked everyone",
-		unblock_notblocked: "#{tag} isn't blocked",
+		// {tag} is still passed to this one so older translations keep interpolating
+		unblock_notblocked: "{who} isn't blocked",
+		unblock_ambiguous: "more than one blocked user is called {name} — use their #tag",
 		needs_channel: "join a channel first",
 		not_a_location: "#{geo} is not a map location",
 		weather_failed: "couldn't fetch weather right now",

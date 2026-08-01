@@ -98,6 +98,73 @@ function saveBlocks() {
 	} catch {} // quota/private-mode: the in-memory set still works for this session
 }
 
+// The last-known name of each blocked pubkey, deliberately in a SEPARATE key from
+// the block list. Names are what make "/unblock @carson" possible - the feed only
+// remembers who someone was while their messages are still in the buffer, which a
+// reload wipes - but they're decoration, where the block list is the part that must
+// never break. Keeping the list at its exact array-of-pubkeys shape means junk here
+// degrades to "anon" instead of dropping a block, and an older build still reads
+// the blocks fine.
+const STORAGE_BLOCK_NAMES_KEY = "glub_block_names";
+
+function loadBlockNames() {
+	try {
+		const raw = JSON.parse(localStorage.getItem(STORAGE_BLOCK_NAMES_KEY) || "{}");
+		if (!raw || typeof raw !== "object" || Array.isArray(raw)) return [];
+		return Object.entries(raw).filter(([pk, n]) => /^[0-9a-f]{64}$/.test(pk) && typeof n === "string" && n);
+	} catch {
+		return [];
+	}
+}
+
+const blockedNames = new Map(loadBlockNames());
+
+function saveBlockNames() {
+	try {
+		// only names for pubkeys still blocked, so unblocking forgets the name with it
+		const obj = {};
+		for (const pk of blockedPubkeys) if (blockedNames.has(pk)) obj[pk] = blockedNames.get(pk);
+		localStorage.setItem(STORAGE_BLOCK_NAMES_KEY, JSON.stringify(obj));
+	} catch {}
+}
+
+// what to call a blocked pubkey: who they were when you blocked them, else whatever
+// the feed still knows, else "anon".
+function blockedName(pubkey) {
+	const pk = pubkey.toLowerCase();
+	return clipText(blockedNames.get(pk) || displayNameForPubkey(pk), 24);
+}
+
+// more than one blocked user answers to the typed name - the caller has to ask for
+// a #tag instead. A sentinel rather than null so "ambiguous" and "no such person"
+// can say different things.
+const AMBIGUOUS = Symbol("ambiguous");
+
+// Resolve whatever the user typed at /unblock to a blocked pubkey. Accepts every
+// shape a blocked user is ever DISPLAYED as - a bare tag, "#tag", a name, "@name",
+// or the full "@name#tag" handle - because the whole point of the rewrite is that
+// you can retype what you just read instead of extracting an identifier from it.
+function resolveBlocked(raw) {
+	const s = String(raw || "").trim().toLowerCase().replace(/^@/, "");
+	if (!s) return null;
+	const cut = s.lastIndexOf("#");
+	const namePart = cut >= 0 ? s.slice(0, cut) : s;
+	const tagPart = cut >= 0 ? s.slice(cut + 1) : "";
+
+	// an explicit #tag is exact, and settles it even when a name rides in front
+	if (tagPart) return [...blockedPubkeys].find((p) => p.endsWith(tagPart)) || null;
+	// a bare token shaped like a tag is tried as one first - that's the identifier
+	// every handle ends in - but falls through to a name match, so someone actually
+	// called "beef" is still reachable by name.
+	if (/^[0-9a-f]{1,4}$/.test(namePart)) {
+		const byTag = [...blockedPubkeys].find((p) => p.endsWith(namePart));
+		if (byTag) return byTag;
+	}
+	const byName = [...blockedPubkeys].filter((p) => blockedName(p).toLowerCase() === namePart);
+	if (byName.length > 1) return AMBIGUOUS;
+	return byName[0] || null;
+}
+
 function isBlocked(pubkey) {
 	return !!pubkey && blockedPubkeys.has(pubkey.toLowerCase());
 }
@@ -3745,12 +3812,18 @@ function blockUser() {
 	const ctx = actionContext;
 	closeActionPopup();
 	if (!ctx || ctx.pubkey.toLowerCase() === identity.pk.toLowerCase()) return;
-	blockedPubkeys.add(ctx.pubkey.toLowerCase());
+	const pk = ctx.pubkey.toLowerCase();
+	const who = clipText(ctx.name || "anon", 24);
+	blockedPubkeys.add(pk);
+	// recorded now, while we still know it - once they're blocked their messages
+	// leave the feed, so there'd be nothing left to look the name up from.
+	blockedNames.set(pk, who);
 	saveBlocks();
+	saveBlockNames();
 	rerenderTerminal();
 	if (usersGate.classList.contains("show")) openUsers();
 	if (notesGate.classList.contains("show")) renderNotes(); // blocked authors' notes vanish too
-	appendSystem(t("system.blocked", { name: clipText(ctx.name || "anon", 24), tag: ctx.pubkey.slice(-4) }));
+	appendSystem(t("system.blocked", { name: who, tag: pk.slice(-4) }));
 }
 
 // translate the tapped message into your ui language via the assist api, and
@@ -6080,33 +6153,40 @@ const COMMANDS = [
 				return;
 			}
 			if (!raw) {
-				// no arg -> list who's blocked, by #suffix + last-known name, so you
-				// know what to pass back in.
+				// no arg -> list who's blocked, in the same @name#tag handle the block
+				// message and the suggestions hand you, so what you read is what you type.
 				const header = `${t("system.blocked_header")}:`;
-				const lines = [...blockedPubkeys].map((pk) => `#${pk.slice(-4)} @${displayNameForPubkey(pk)}`);
+				const lines = [...blockedPubkeys].map((pk) => `@${blockedName(pk)}#${pk.slice(-4)}`);
 				pushSystem(`<span class="ts">${escapeHtml([header, ...lines].join("\n"))}</span>`, SYSTEM_TTL_LONG_MS);
 				return;
 			}
 			if (raw === "all") {
 				blockedPubkeys.clear();
+				blockedNames.clear();
 				saveBlocks();
+				saveBlockNames();
 				rerenderTerminal();
 				if (usersGate.classList.contains("show")) openUsers();
 				appendSystem(t("system.unblocked_all"));
 				return;
 			}
-			// match by the 4-hex #suffix shown in every handle
-			const suffix = raw.replace(/^#/, "");
-			const pk = [...blockedPubkeys].find((p) => p.endsWith(suffix));
-			if (!pk) {
-				appendSystem(t("system.unblock_notblocked", { tag: suffix }));
+			const found = resolveBlocked(raw);
+			if (found === AMBIGUOUS) {
+				appendSystem(t("system.unblock_ambiguous", { name: raw.replace(/^@/, "") }));
 				return;
 			}
-			blockedPubkeys.delete(pk);
+			if (!found) {
+				appendSystem(t("system.unblock_notblocked", { who: raw }));
+				return;
+			}
+			const who = blockedName(found);
+			blockedPubkeys.delete(found);
+			blockedNames.delete(found);
 			saveBlocks();
+			saveBlockNames();
 			rerenderTerminal();
 			if (usersGate.classList.contains("show")) openUsers();
-			appendSystem(t("system.unblocked", { tag: pk.slice(-4) }));
+			appendSystem(t("system.unblocked", { name: who, tag: found.slice(-4) }));
 		},
 	},
 	{
@@ -6396,6 +6476,41 @@ function flairArgProvider(value, caret) {
 	return { start: caret - m[1].length, end: caret, items };
 }
 
+// "/unblock <partial>": offer everyone you've blocked as the same @name#tag handle
+// the block message hands you. Blocking someone removes them from the feed and the
+// roster, so by the time you want to undo it there is nothing left on screen to
+// copy an identifier from - this is where that information has to come back.
+function unblockArgProvider(value, caret) {
+	const before = value.slice(0, caret);
+	const m = before.match(/^\/unblock\s+(\S*)$/i);
+	if (!m) return null;
+	if (!blockedPubkeys.size) return null; // the command itself already says so
+	const query = m[1].toLowerCase().replace(/^[@#]/, "");
+	const rows = [...blockedPubkeys].map((pk) => {
+		const who = blockedName(pk);
+		const tag = pk.slice(-4);
+		return {
+			insert: `@${who}#${tag}`, // unambiguous even when two people share a name
+			who,
+			tag,
+			html: `@${escapeHtml(who)}<span class="sfx">#${escapeHtml(tag)}</span>`,
+		};
+	});
+	// "all" is a real argument and easy to never discover, but it's noise when
+	// there's only one person it could clear.
+	if (rows.length > 1) {
+		rows.push({
+			insert: "all",
+			who: "all",
+			tag: "",
+			html: `<strong>${escapeHtml(t("suggest.unblock_all"))}</strong>`,
+			meta: t("suggest.unblock_all_meta", { count: rows.length }),
+		});
+	}
+	const items = rows.filter((r) => !query || r.who.toLowerCase().startsWith(query) || r.tag.startsWith(query));
+	return { start: caret - m[1].length, end: caret, items };
+}
+
 const suggest = createSuggest(suggestBox);
 
 // the roster we can @-mention: everyone in the focused channel's "present" list
@@ -6466,7 +6581,7 @@ function joinFromSuggest(geo) {
 	setTimeout(() => chatInput.focus(), 0);
 }
 
-const SUGGEST_PROVIDERS = [commandProvider, themeArgProvider, flairArgProvider, mentionProvider, channelProvider];
+const SUGGEST_PROVIDERS = [commandProvider, themeArgProvider, flairArgProvider, unblockArgProvider, mentionProvider, channelProvider];
 
 function refreshSuggest() {
 	const value = chatInput.value;

@@ -1249,6 +1249,14 @@ textarea {
 	   The implicit `to` resolves to the element's own opacity, which is how the
 	   preview chip's damped 0.5 keeps working without restating it. */
 	animation: flairPlumeWake 900ms ease-out;
+	/* ...and the same in reverse when the slot is handed to a newer row. `display` is
+	   what actually stops the puffs animating, so it has to be the LAST thing to
+	   change - `allow-discrete` holds it at block until the opacity transition has
+	   finished, which is the difference between the fog thinning out and it being
+	   switched off. The puffs keep churning through those 700ms, which is the point:
+	   a layer that freezes and then vanishes reads as a glitch, not a fade.
+	   Out is quicker than in on purpose - arriving is the part worth watching. */
+	transition: opacity 700ms ease, display 700ms allow-discrete;
 	/* deliberately NOT masked, unlike the wash and the edge burn. A mask here would
 	   also hide the motes, which exist precisely to be seen out in the dark before
 	   they reach the glow - they'd fade in halfway across instead of arriving from
@@ -1581,6 +1589,14 @@ textarea {
 	display: none;
 }
 
+/* plume alone fades on the way out rather than cutting. The other four drop their
+   fx layer from off screen, where nobody is watching it go; plume's cap means a row
+   loses its slot in plain sight, the moment a newer one takes it. Pairs with the
+   transition on the layer itself - this is only the target it eases toward. */
+.flair-plume.flairQuiet > .flairFx {
+	opacity: 0;
+}
+
 .flair-fire.flairQuiet::after,
 .flair-lightning.flairQuiet::after {
 	opacity: 0;
@@ -1650,6 +1666,7 @@ textarea {
 	.flairFx {
 		display: none;
 		animation: none;
+		transition: none; /* gone immediately, not eased away */
 	}
 	/* plume is carved out of the generic quiet rule so it can pause; nothing wakes
 	   under reduced motion, so here it stops outright like everything else. */

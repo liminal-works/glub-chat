@@ -21,6 +21,21 @@ import { queryNostr, extractImageUrlsFromEvent, normalizeNostrTag } from "./nost
 
 const now = () => Math.floor(Date.now() / 1000);
 
+// fisher-yates. Used so a "random" pick is genuinely one rather than whatever the
+// relays happened to hand back first.
+function shuffle(arr) {
+	const out = arr.slice();
+	for (let i = out.length - 1; i > 0; i--) {
+		const j = Math.floor(Math.random() * (i + 1));
+		[out[i], out[j]] = [out[j], out[i]];
+	}
+	return out;
+}
+
+function escapeRegExp(s) {
+	return String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 // long messages are clipped with a char count, so a !listen line can't blow out
 // the reply (ported verbatim).
 function clipText(s, max = 200) {
@@ -90,8 +105,17 @@ const NOSTR_WANT = 12; // candidate image notes to gather before picking one
 const NOSTR_TIMEOUT_MS = 6000; // give up a !nostr relay query after this
 const NOSTR_SCAN_LIMIT = 300; // kind-1 events a !nostr filter samples per relay
 const NOSTR_SEEN_MAX = 5000; // event ids remembered so !nostr doesn't repeat
+const NOSTR_POOL = 60; // candidates gathered before scoring - a pool of 12 has nothing to choose from
+const NOSTR_MAX_TAGS = 8; // a search is a handful of words; past that it's an attempt to build a filter that never matches
+// A backstop, not a style. The note goes out whole: clipping it here is the wrong
+// place, because the reader taps "more" expecting the rest and finds the bot already
+// threw it away. The client's own wall handling does the collapsing.
+const NOSTR_MAX_BODY = 4000;
 const COMMAND_COOLDOWN_WINDOW_MS = 60_000; // global command budget window
-const COMMAND_COOLDOWN_MAX = 12; // ...and how many commands fit in it
+// ...and how many commands fit in it. Global, not per-user, so an instance watching
+// a dozen busy geohashes needs more headroom than one sitting on a quiet channel -
+// hence the knob.
+const COMMAND_COOLDOWN_MAX = Number(process.env.GLUB_BOT_COMMAND_MAX) || 12;
 const GEO_CACHE_MAX = 5000; // reverse-geocode cache bound
 const PLACE_CACHE_MAX = 2000; // forward place-lookup (!goto) cache bound
 const GEOCODE_TIMEOUT_MS = 2500; // per reverse-geocode; a flag must never stall a reply
@@ -718,64 +742,125 @@ export function createBot({ broadcast, store, botName = process.env.GLUB_BOT_NAM
 		return notes;
 	}
 
-	// !nostr: reach into the wider nostr firehose (not just geohash notes). no arg =
-	// any note with an image; <text> = content contains text (+ image); #<tag> =
-	// tagged (+ image); <npub|hex> = that author's recent posts (image optional, so
-	// you can browse someone's feed). Each surfaced note is remembered so re-running
-	// rotates to a new one; the reply always shows the poster's full npub.
+	// !nostr: reach into the wider nostr firehose (not just geohash notes).
+	//
+	//   !nostr                  a random note that has an image (any note if none do)
+	//   !nostr sunset flower    every word is a tag, "#" optional. Notes are SCORED by
+	//                           how many of them they hit and the best one wins - a
+	//                           post matching 3 of 4 beats one matching 1.
+	//   !nostr <npub|hex>       that author's recent posts, newest first
+	//
+	// The note is relayed WHOLE. Clipping it here was the wrong place to do it: the
+	// reader taps "more" expecting the rest and finds the bot already threw it away.
+	// The client collapses long messages on its own, so all that's left here is a
+	// safety cap for something pathological.
 	async function cmdNostr(geo, args) {
 		const raw = args.join(" ").trim();
-		const filter = { kinds: [1], limit: NOSTR_SCAN_LIMIT };
-		let tag = "";
-		let contentMatch = "";
-		let author = "";
+		// a lone npub/hex is the one argument that isn't a tag - browsing a person's
+		// feed is a different question from searching, and worth keeping.
+		const author = args.length === 1 ? toHexPubkey(raw) : "";
+		const tags = author
+			? []
+			: [...new Set(raw.split(/\s+/).map(normalizeNostrTag).filter(Boolean))].slice(0, NOSTR_MAX_TAGS);
 
-		if (raw.startsWith("#")) {
-			tag = normalizeNostrTag(raw);
-			if (tag) filter["#t"] = [tag];
-		} else if (raw) {
-			const hex = toHexPubkey(raw);
-			if (hex) {
-				author = hex;
-				filter.authors = [hex];
-			} else {
-				contentMatch = raw.toLowerCase();
+		const unseen = (ev) => !nostrSeen.has(ev.id);
+		let events = [];
+
+		if (author) {
+			events = await queryNostr({ kinds: [1], authors: [author], limit: NOSTR_SCAN_LIMIT }, {
+				timeoutMs: NOSTR_TIMEOUT_MS,
+				want: NOSTR_WANT,
+				accept: unseen,
+			});
+			events.sort((a, b) => b.created_at - a.created_at); // a feed reads newest first
+		} else if (tags.length) {
+			// relay-side "#t" is the cheap pass and catches properly-hashtagged notes.
+			events = await queryNostr({ kinds: [1], "#t": tags, limit: NOSTR_SCAN_LIMIT }, {
+				timeoutMs: NOSTR_TIMEOUT_MS,
+				want: NOSTR_POOL,
+				accept: unseen,
+			});
+			// nothing tagged? plenty of people write "sunset" without hashing it, so
+			// fall back to a broad scan and let the scorer read the text instead.
+			if (!events.length) {
+				events = await queryNostr({ kinds: [1], limit: NOSTR_SCAN_LIMIT }, {
+					timeoutMs: NOSTR_TIMEOUT_MS,
+					want: NOSTR_POOL,
+					accept: (ev) => unseen(ev) && scoreNostr(ev, tags).matched > 0,
+				});
 			}
+			events = rankByTags(events, tags);
+		} else {
+			// no argument: a picture, ideally. The image test is applied when PICKING
+			// rather than when accepting, so a scan that happens to turn up no images
+			// still has something to show instead of coming back empty-handed.
+			events = await queryNostr({ kinds: [1], limit: NOSTR_SCAN_LIMIT }, {
+				timeoutMs: NOSTR_TIMEOUT_MS,
+				want: NOSTR_POOL,
+				accept: unseen,
+			});
+			const withImage = events.filter((ev) => extractImageUrlsFromEvent(ev).length > 0);
+			events = shuffle(withImage.length ? withImage : events);
 		}
 
-		// browsing a person's feed shows any post; image hunts require an image.
-		const requireImage = !author;
-
-		const events = await queryNostr(filter, {
-			timeoutMs: NOSTR_TIMEOUT_MS,
-			want: NOSTR_WANT,
-			accept: (ev) => {
-				if (nostrSeen.has(ev.id)) return false;
-				if (contentMatch && !String(ev.content || "").toLowerCase().includes(contentMatch)) return false;
-				if (requireImage && extractImageUrlsFromEvent(ev).length === 0) return false;
-				return true;
-			},
-		});
-
-		events.sort((a, b) => b.created_at - a.created_at); // newest first
 		const pick = events[0];
 		if (!pick) {
-			const f = tag ? ` for #${tag}` : author ? ` for ${toNpub(author).slice(0, 12)}...` : contentMatch ? ` for "${raw}"` : "";
+			const f = tags.length ? ` for ${tags.map((t) => "#" + t).join(" ")}` : author ? ` for ${toNpub(author).slice(0, 12)}...` : "";
 			reply(`nostr:\n\nno new notes${f}`, geo);
 			return;
 		}
 		nostrSeen.add(pick.id);
 		if (nostrSeen.size > NOSTR_SEEN_MAX) nostrSeen.clear();
 
+		// the whole note, newlines and all - a post's shape is part of it. Only the
+		// runs of blank lines are tidied, and the cap is a backstop, not a style.
+		const body = clipText(String(pick.content || "").replace(/\n{3,}/g, "\n\n").trim(), NOSTR_MAX_BODY);
 		const url = extractImageUrlsFromEvent(pick)[0] || "";
-		const meta = `${timeAgo(now(), pick.created_at)} ago` + (tag ? ` · #${tag}` : contentMatch ? ` · "${raw}"` : "");
-		const body = clipText(String(pick.content || "").replace(/\s+/g, " ").trim(), 200);
+
+		const meta =
+			`${timeAgo(now(), pick.created_at)} ago` +
+			(tags.length ? ` · ${tags.map((t) => "#" + t).join(" ")}` : "");
 
 		const lines = [`nostr:`, "", toNpub(pick.pubkey)];
 		if (body) lines.push("", body);
-		if (url) lines.push(url);
+		// the url is usually already IN the note - appending it again would just show
+		// the same link twice.
+		if (url && !body.includes(url)) lines.push(url);
 		lines.push("", meta);
 		reply(lines.join("\n"), geo);
+	}
+
+	// how many of `tags` a note hits, and how many of those are real "t" tags rather
+	// than a word in the text. Both count as a match - somebody typing "sunset" plainly
+	// meant it - but a hashtagged one is the stronger signal and breaks ties.
+	function scoreNostr(ev, tags) {
+		const tagged = new Set(
+			(Array.isArray(ev.tags) ? ev.tags : [])
+				.filter((t) => Array.isArray(t) && t[0] === "t")
+				.map((t) => normalizeNostrTag(t[1])),
+		);
+		const content = String(ev.content || "").toLowerCase();
+		let matched = 0;
+		let hashed = 0;
+		for (const tag of tags) {
+			const inTags = tagged.has(tag);
+			// a whole word, so "art" doesn't match "cartoon"
+			const inText = new RegExp(`(?:^|[^\\p{L}\\p{N}_])#?${escapeRegExp(tag)}(?:[^\\p{L}\\p{N}_]|$)`, "u").test(content);
+			if (inTags || inText) matched++;
+			if (inTags) hashed++;
+		}
+		return { matched, hashed };
+	}
+
+	// best-scoring notes first. Within a tie: more real hashtags, then having an
+	// image, then random - so running the same search twice rotates rather than
+	// handing back the same note until it's been seen.
+	function rankByTags(events, tags) {
+		const scored = events
+			.map((ev) => ({ ev, ...scoreNostr(ev, tags), img: extractImageUrlsFromEvent(ev).length > 0, r: Math.random() }))
+			.filter((x) => x.matched > 0);
+		scored.sort((a, b) => b.matched - a.matched || b.hashed - a.hashed || Number(b.img) - Number(a.img) || a.r - b.r);
+		return scored.map((x) => x.ev);
 	}
 
 	// a relay source url for display: drop the ws(s):// scheme + trailing slash so
@@ -847,8 +932,8 @@ export function createBot({ broadcast, store, botName = process.env.GLUB_BOT_NAM
 		},
 		{
 			name: "nostr",
-			desc: "pull a note from nostr",
-			usage: "!nostr · !nostr <text> · !nostr #<tag> · !nostr <npub>",
+			desc: "pull a note from nostr (with an image, or matching your tags)",
+			usage: "!nostr · !nostr <tag> [tag...] · !nostr <npub>",
 			run: (c) => cmdNostr(c.geo, c.args),
 		},
 		{ name: "ping", aliases: ["p"], desc: "delay + delivering relay", usage: "!ping", run: (c) => cmdPing(c) },

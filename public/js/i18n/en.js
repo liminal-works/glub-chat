@@ -35,6 +35,8 @@ export default {
 			"periodically announces you're in the channel you're viewing, so others see you in their user list and \"here\" counts. off = you browse invisibly, and still see everyone else.",
 		retro_description:
 			"a heavier CRT terminal look: scanlines, phosphor glow, flicker. purely cosmetic — nothing about the protocol or your messages changes.",
+		flair_fx_description:
+			"the animated effects behind flaired messages — fire, rain, lightning and the rest. off keeps each one's colour but stops the motion, which is easier on a phone's battery.",
 		pow_description:
 			"hides inbound messages below a proof-of-work difficulty. raises the cost of spam, at the price of dropping low-effort or non-mining clients.",
 		blur_description:
@@ -48,6 +50,7 @@ export default {
 		assist_label: "server assist",
 		profiles_label: "nostr profiles",
 		retro_label: "retro terminal",
+		flair_fx_label: "chat effects",
 		client_label: "client tag",
 		local_label: "local tag",
 		presence_label: "announce presence",

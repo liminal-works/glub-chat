@@ -262,6 +262,7 @@ const settingsGate = document.getElementById("settingsGate");
 const assistToggle = document.getElementById("assistToggle");
 const profilesToggle = document.getElementById("profilesToggle");
 const retroToggle = document.getElementById("retroToggle");
+const flairFxToggle = document.getElementById("flairFxToggle");
 const clientToggle = document.getElementById("clientToggle");
 const localToggle = document.getElementById("localToggle");
 const blurToggle = document.getElementById("blurToggle");
@@ -503,6 +504,20 @@ function syncRetro() {
 	document.documentElement.classList.toggle("retro", getRetroEnabled());
 }
 syncRetro(); // apply before first paint, alongside the theme
+
+const STORAGE_FLAIR_FX_KEY = "glub_flair_fx";
+
+// ON by default: flair is a big part of what the client looks like, and someone who
+// has never seen it can't know to go and switch it on. Turning it off parks every
+// flaired row in exactly the state a reduced-motion reader gets - tint kept so a
+// flaired line still reads as flaired, everything that costs a frame dropped.
+function getFlairFxEnabled() {
+	return localStorage.getItem(STORAGE_FLAIR_FX_KEY) !== "false";
+}
+
+function setFlairFxEnabled(on) {
+	localStorage.setItem(STORAGE_FLAIR_FX_KEY, on ? "true" : "false");
+}
 
 // inbound NIP-13 filter: drop events that don't carry at least this much
 // proof-of-work. OFF by default and deliberately so - iOS bitchat doesn't mine
@@ -1638,8 +1653,10 @@ function queueFlairBudget() {
 }
 
 function applyFlairBudget() {
-	// reduced motion is simply an allowance of zero for everything
-	const quietAll = !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+	// two ways to an allowance of zero for everything: the reader's own reduced-motion
+	// preference, or the settings toggle. Same parked state either way.
+	const quietAll =
+		!getFlairFxEnabled() || !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
 
 	// Candidates are split into rows actually on screen and rows only inside the
 	// observer's margin, and the on-screen ones are served first. Ranking purely by
@@ -2285,6 +2302,7 @@ function openSettings() {
 	assistToggle.checked = getAssistEnabled();
 	profilesToggle.checked = getProfilesEnabled();
 	retroToggle.checked = getRetroEnabled();
+	flairFxToggle.checked = getFlairFxEnabled();
 	clientToggle.checked = getClientTagEnabled();
 	localToggle.checked = getLocalTagEnabled();
 	blurToggle.checked = mediaSettings.censorImages;
@@ -4621,6 +4639,13 @@ retroToggle.addEventListener("change", () => {
 	syncRetro(); // pure CSS gate - takes effect instantly, nothing to re-render
 });
 
+flairFxToggle.addEventListener("change", () => {
+	setFlairFxEnabled(flairFxToggle.checked);
+	// the budget owns the parked class on every row, so re-running it is the whole
+	// of "apply" - in both directions, and without touching the buffer.
+	applyFlairBudget();
+});
+
 clientToggle.addEventListener("change", () => {
 	setClientTagEnabled(clientToggle.checked); // applies to the next event you send
 });
@@ -5585,6 +5610,7 @@ const RAIN_BOLT_CHANCE = 0.03; // ~one thunderclap every ~50s of rain on screen
 const SURGE_CHANCE = 0.13; // the plume is always burning, so this is the busiest of them
 setInterval(() => {
 	if (document.hidden) return;
+	if (!getFlairFxEnabled()) return;
 	if (window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
 	if (Math.random() < SHOOT_CHANCE) {
 		const el = pickFxTarget(".flair-stars > .flairFx");

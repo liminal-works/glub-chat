@@ -3104,7 +3104,7 @@ function markGuildHistoryEnd() {
 		guild: focusedGuild ? focusedGuild.name : "",
 		system: true,
 		pubkey: null,
-		html: `<span class="barrier">——— ** ${escapeHtml(t("guild.history_end"))} ** ———</span>`,
+		html: barrierHtml(t("guild.history_end")),
 		el: null,
 	});
 }
@@ -5274,6 +5274,17 @@ async function mirrorBuffer() {
 	}
 }
 
+// A divider line: a label with a rule running out to each margin.
+//
+// The rules used to be typed em-dashes, which meant the whole thing was one run of
+// text and wrapped to two lines the moment the label plus its dashes outgrew the
+// view - which "beginning of this guild's history" does on any phone. Drawing them
+// in CSS instead lets them give up their own width, so the label stays on one line
+// and stays centered at every width. See .barrier in style.css.
+function barrierHtml(label) {
+	return `<span class="barrier"><span class="barrierLabel">** ${escapeHtml(label)} **</span></span>`;
+}
+
 // a "beginning of chat" divider above the oldest known event (api-buffer only)
 function showBeginningBarrier(events) {
 	if (barrierShown || !events.length) return;
@@ -5284,7 +5295,7 @@ function showBeginningBarrier(events) {
 		geo: null,
 		system: true,
 		pubkey: null,
-		html: `<span class="barrier">——— ** ${escapeHtml(t("message.beginning_of_chat"))} ** ———</span>`,
+		html: barrierHtml(t("message.beginning_of_chat")),
 		el: null,
 	});
 }

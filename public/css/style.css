@@ -1845,14 +1845,45 @@ textarea {
 	background: color-mix(in srgb, var(--accent) 20%, transparent);
 }
 
-/* "beginning of chat" divider shown when the client has mirrored the api's
-   entire buffer */
+/* "beginning of chat" / "beginning of this guild's history" divider.
+
+   The rules either side are drawn here rather than typed as em-dashes in the
+   string. As text they were part of the same run as the label, so a label wide
+   enough to fill the view took the dashes with it onto a second line and the
+   whole thing stopped reading as centered. As flex children they shrink to
+   nothing instead, which keeps the label on one line at any width - and keeps it
+   centered, since both rules always split whatever the label leaves. */
 .barrier {
-	display: block;
-	text-align: center;
+	display: flex;
+	align-items: center;
+	gap: 0.7em;
 	color: var(--muted);
 	opacity: 0.7;
 	letter-spacing: 0.06em;
+}
+
+.barrier::before,
+.barrier::after {
+	content: "";
+	flex: 1 1 0; /* basis 0, so the two are always equal however long the label is */
+	min-width: 0;
+	border-top: 1px solid currentColor;
+}
+
+.barrierLabel {
+	flex: 0 1 auto;
+	min-width: 0;
+	/* the point of the exercise. #terminal sets pre-wrap; this line opts out. */
+	white-space: nowrap;
+	/* a backstop for a translation longer than the whole view: clip it rather than
+	   let it wrap, since wrapping is the thing being fixed. */
+	overflow: hidden;
+	text-overflow: ellipsis;
+	/* "beginning of this guild's history" is 33 characters of monospace, which at a
+	   flat 0.85em still needs more than a 320px phone has once the rules and gaps
+	   take their share. Scale with the viewport below that, and cap at 0.85em so it
+	   stops shrinking the moment there's room. */
+	font-size: clamp(0.62em, 2.9vw, 0.85em);
 }
 
 /* --- link preview card ----------------------------------------------------------

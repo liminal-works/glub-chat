@@ -1704,14 +1704,143 @@ const flairObserver =
 			)
 		: null;
 
-function observeFlair(el) {
+// every rendered row is watched twice: for visibility (the flair budget) and for
+// height changes (scroll anchoring, declared just below). Both observers are created
+// at module load and only used from here, so a row is registered and released in one
+// place instead of each feature growing its own bookkeeping.
+function observeLine(el) {
 	if (flairObserver && el.classList.contains("flair")) flairObserver.observe(el);
+	if (lineResizeObserver) lineResizeObserver.observe(el);
 }
 
-function unobserveFlair(el) {
+function unobserveLine(el) {
 	if (!el) return;
 	flairVisible.delete(el);
 	if (flairObserver) flairObserver.unobserve(el);
+	if (lineResizeObserver) lineResizeObserver.unobserve(el);
+}
+
+// --- scroll anchoring ---------------------------------------------------------------
+//
+// The reader's place in the log is a MESSAGE, not a pixel offset.
+//
+// Chat is full of things that get taller after they're drawn: a picture whose bytes
+// finally arrive, a link card that unfurls, a translation, a page of history. Any of
+// them landing above the fold pushes everything below it down by its own height, and
+// a reader who was looking at one line is abruptly looking at another. Scrolling
+// through a backlog of pictures does it over and over - each one loads as it nears
+// the viewport - which is the cascade that makes the feed feel like it's shoving you
+// around.
+//
+// Chrome and Firefox do this natively (overflow-anchor) and do it better than we
+// can, from inside layout. Safari implements none of it, which is exactly where the
+// problem was reported. So this is a FALLBACK, not a replacement: measured side by
+// side, running ours on top of a browser that already anchors is worse than running
+// nothing - the two corrections interleave and land in the wrong place. Where the
+// browser handles it, stay out of the way.
+//
+// The fallback works the way the spec does: note which row is at the top of the view
+// and how far into it we are, then after anything changes size put that row back.
+//
+// Rows BELOW the anchor still move, and should - if a picture between them and the
+// reader gets taller, the distance between them really did grow. What must never
+// move is the row being read.
+function browserAnchorsScroll() {
+	if (typeof CSS === "undefined" || !CSS.supports || !CSS.supports("overflow-anchor", "auto")) return false;
+	// a stylesheet can switch it off; then it's ours to do after all
+	return getComputedStyle(terminal).overflowAnchor !== "none";
+}
+
+const manualScrollAnchoring = !browserAnchorsScroll();
+let scrollAnchor = null; // { el, offset } - offset is the row's top relative to the view's
+
+const lineResizeObserver =
+	manualScrollAnchoring && typeof ResizeObserver === "function"
+		? new ResizeObserver(() => {
+				// a row changed height. Whether it was above the reader (and therefore moved
+				// them) or below (and didn't) falls out of the arithmetic.
+				restoreScrollAnchor();
+			})
+		: null;
+
+// the topmost row still touching the viewport, and how far above the fold it starts.
+// Entries are in document order, so the first row whose bottom is past the view's top
+// edge is the one being read.
+//
+// Measured with rects rather than offsetTop, which is relative to the nearest
+// POSITIONED ancestor - not to the scroller. #terminal isn't positioned, so offsetTop
+// carries the topbar's height as a constant, and comparing it against scrollTop
+// selected a row about fifty pixels too early: reliably the picture above the line
+// the reader was on. Holding that row still is the one thing guaranteed to shove
+// them, since it's the row that grows.
+function captureScrollAnchor() {
+	if (!manualScrollAnchoring) return;
+	// pinned to the bottom is its own anchor, and the stronger one - a live channel
+	// should keep showing the newest line, not hold position against it.
+	if (isNearBottom()) {
+		scrollAnchor = null;
+		return;
+	}
+	const viewTop = terminal.getBoundingClientRect().top;
+	for (const entry of entries) {
+		const el = entry.el;
+		if (!el || el.parentNode !== terminal) continue;
+		const rect = el.getBoundingClientRect();
+		if (rect.bottom > viewTop) {
+			scrollAnchor = { el, offset: rect.top - viewTop };
+			return;
+		}
+	}
+	scrollAnchor = null;
+}
+
+// where our own last correction left the scroller. The anchor must NOT be re-read
+// from a scroll we caused: a correction can be clamped short when the content that is
+// about to grow hasn't grown yet, and re-capturing from the clamped position bakes
+// that shortfall in permanently instead of finishing the remainder on the next pass.
+//
+// A position rather than a count of pending events, because the browser coalesces
+// many scrollTop writes in a frame into ONE scroll event - counting them over-counts,
+// and the surplus then swallows the reader's own scrolls, pinning the anchor to
+// wherever it was minutes ago.
+let anchorScrollTop = -1;
+
+function restoreScrollAnchor() {
+	// pinned to the bottom means the BOTTOM is the anchor. Appends already jump there
+	// on their own; without this, the correction would drag the reader straight back
+	// off the newest message they were following.
+	if (autoScroll) {
+		scrollToBottom();
+		return;
+	}
+	if (!scrollAnchor) return;
+	const { el, offset } = scrollAnchor;
+	// the anchored row was dropped from the buffer; there's nothing to hold onto and
+	// guessing would be worse than leaving the view alone.
+	if (el.parentNode !== terminal) {
+		scrollAnchor = null;
+		return;
+	}
+	// how far the row has drifted from where it was, and scroll by exactly that. A
+	// relative correction is also what makes a CLAMPED one safe: if the content that
+	// is about to grow hasn't grown yet there may be nowhere to scroll to, and the
+	// next pass simply finishes the remainder.
+	const drift = el.getBoundingClientRect().top - terminal.getBoundingClientRect().top - offset;
+	// sub-pixel churn isn't worth a write - assigning scrollTop can interrupt a
+	// momentum scroll, so it's only done when there's a real shift to undo.
+	if (Math.abs(drift) < 1) return;
+	terminal.scrollTop += drift;
+	// reads back CLAMPED, so this records where we actually ended up
+	anchorScrollTop = terminal.scrollTop;
+}
+
+// An image's height is unknown until it loads, so every one of them is a height
+// change waiting to happen. "load" doesn't bubble but it does capture, so one
+// listener here catches every picture, avatar and preview thumbnail in the feed
+// without any of them having to know about this.
+if (manualScrollAnchoring) {
+	terminal.addEventListener("load", restoreScrollAnchor, true);
+	terminal.addEventListener("error", restoreScrollAnchor, true); // a broken image collapses too
 }
 
 // coalesce to one pass per frame: a scroll can fire dozens of observer callbacks
@@ -1820,7 +1949,7 @@ function renderEntryDom(entry, animate = false) {
 
 	if (nextEl) terminal.insertBefore(div, nextEl);
 	else terminal.appendChild(div);
-	observeFlair(div);
+	observeLine(div);
 }
 
 function isNearBottom() {
@@ -1854,7 +1983,7 @@ function jumpToBottom() {
 // rebuilds the visible terminal from `entries` under the current filter -
 // used when entering/exiting a focused channel.
 function rerenderTerminal() {
-	for (const entry of entries) if (entry.el) unobserveFlair(entry.el);
+	for (const entry of entries) if (entry.el) unobserveLine(entry.el);
 	terminal.innerHTML = "";
 	for (const entry of entries) entry.el = null;
 	for (const entry of entries) {
@@ -1913,7 +2042,7 @@ function insertEntry(entry) {
 		if (!oldest) break; // nothing left to give up
 		sigBump(oldest, -1);
 		if (oldest.el) {
-			unobserveFlair(oldest.el);
+			unobserveLine(oldest.el);
 			oldest.el.remove();
 		}
 	}
@@ -1927,7 +2056,7 @@ function insertEntry(entry) {
 		if (flaggedSpamSigs.size > 500) flaggedSpamSigs.clear();
 		for (const e of entries) {
 			if (e.sig === entry.sig && e.el) {
-				unobserveFlair(e.el);
+				unobserveLine(e.el);
 				e.el.remove();
 				e.el = null;
 			}
@@ -1981,7 +2110,7 @@ function dismissEntry(entry) {
 	const el = entry.el;
 	if (!el) return;
 	el.classList.add("fading");
-	unobserveFlair(el);
+	unobserveLine(el);
 	setTimeout(() => el.remove(), SYSTEM_FADE_MS);
 }
 
@@ -4947,6 +5076,9 @@ profileNpub.addEventListener("click", async () => {
 terminal.addEventListener("scroll", () => {
 	autoScroll = isNearBottom();
 	if (autoScroll) clearUnread();
+	// re-read the anchor from where the reader has just put themselves - but not from
+	// a scroll we performed ourselves to hold that very anchor in place.
+	if (Math.abs(terminal.scrollTop - anchorScrollTop) > 1) captureScrollAnchor();
 	if (focusedGuild && terminal.scrollTop <= HISTORY_TRIGGER_PX) loadOlderGuild();
 });
 

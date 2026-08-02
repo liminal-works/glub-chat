@@ -72,22 +72,71 @@ const FLOOD_NOTIFY_COOLDOWN_MS = 10 * 60_000; // at most one "hid a flood in #ge
 const seen = new Set();
 const entries = []; // [{ ts, geo, system, pubkey, html, el }], ascending by ts - all received messages
 
-// --- saved media ("gallery") ---------------------------------------------------
-// A private, local list of image urls you've kept, so a picture you like can be
-// re-sent without re-uploading it. Only the URL is stored - the bytes stay on
-// whatever host already serves them - which is what makes this cheap enough to keep
-// in localStorage and why it's a favourites list rather than an album.
-const STORAGE_GALLERY_KEY = "glub_gallery_v1";
+// --- the gallery -----------------------------------------------------------------
+// A private, local list of things you've kept so they can be re-sent without being
+// re-made. Two kinds live in it:
+//
+//   image  a url. Only the url is stored - the bytes stay on whatever host already
+//          serves them, which is what makes this cheap enough for localStorage and
+//          why it's a favourites list rather than an album.
+//   text   the message itself, verbatim. Ascii art is the case that asked for it,
+//          but nothing about it is art-specific: a snippet, a prompt, a command you
+//          retype often are all the same thing to a clipboard that survives reloads.
+//
+// Nothing here leaves the device until you pick something.
+const STORAGE_GALLERY_KEY = "glub_gallery_v2";
+const STORAGE_GALLERY_KEY_V1 = "glub_gallery_v1"; // urls only, read once and carried over
 const GALLERY_MAX = 60;
+// Text is stored in full, unlike an image, so it's the one kind that can actually
+// fill localStorage. Long enough for the ascii art and the pasted script this is
+// for; short enough that sixty of them are still a rounding error against quota.
+const GALLERY_TEXT_MAX = 4000;
+
+// storage -> item, or null for anything unrecognized. A bare string is a v1 entry,
+// which could only ever be an image url.
+function normalizeGalleryItem(raw) {
+	if (typeof raw === "string") return /^https?:\/\//i.test(raw) ? { kind: "image", url: raw } : null;
+	if (!raw || typeof raw !== "object") return null;
+	if (raw.kind === "image") {
+		return typeof raw.url === "string" && /^https?:\/\//i.test(raw.url) ? { kind: "image", url: raw.url } : null;
+	}
+	if (raw.kind === "text") {
+		const text = typeof raw.text === "string" ? raw.text.slice(0, GALLERY_TEXT_MAX) : "";
+		return text.trim() ? { kind: "text", text } : null;
+	}
+	return null;
+}
+
+// identity for dedupe and for the remove button. The kind is part of it so a url
+// someone typed as a message can't collide with the same url saved as a picture.
+function galleryKey(item) {
+	return item.kind === "image" ? `image:${item.url}` : `text:${item.text}`;
+}
 
 function loadGallery() {
-	try {
-		const raw = JSON.parse(localStorage.getItem(STORAGE_GALLERY_KEY) || "[]");
-		if (!Array.isArray(raw)) return [];
-		return raw.filter((u) => typeof u === "string" && /^https?:\/\//i.test(u)).slice(0, GALLERY_MAX);
-	} catch {
-		return [];
+	const read = (key) => {
+		try {
+			const raw = JSON.parse(localStorage.getItem(key) || "null");
+			return Array.isArray(raw) ? raw : null;
+		} catch {
+			return null;
+		}
+	};
+	// v1 is only consulted when v2 has never been written, so a reader who has since
+	// removed everything doesn't get their old urls resurrected on the next load.
+	const raw = read(STORAGE_GALLERY_KEY) || read(STORAGE_GALLERY_KEY_V1) || [];
+	const out = [];
+	const seen = new Set();
+	for (const entry of raw) {
+		const item = normalizeGalleryItem(entry);
+		if (!item) continue;
+		const key = galleryKey(item);
+		if (seen.has(key)) continue;
+		seen.add(key);
+		out.push(item);
+		if (out.length >= GALLERY_MAX) break;
 	}
+	return out;
 }
 
 let gallery = loadGallery();
@@ -117,13 +166,25 @@ function isEphemeralMedia(url) {
 // newest first, delivering the "most recently saved is easiest to reach" ordering a
 // favourites grid wants. Re-saving something you already have moves it to the front
 // rather than duplicating it.
-function galleryAdd(url) {
-	gallery = [url, ...gallery.filter((u) => u !== url)].slice(0, GALLERY_MAX);
+function galleryAdd(item) {
+	const key = galleryKey(item);
+	gallery = [item, ...gallery.filter((i) => galleryKey(i) !== key)].slice(0, GALLERY_MAX);
 	saveGallery();
 }
 
-function galleryRemove(url) {
-	gallery = gallery.filter((u) => u !== url);
+function galleryAddImage(url) {
+	galleryAdd({ kind: "image", url });
+}
+
+function galleryAddText(text) {
+	const trimmed = String(text || "").slice(0, GALLERY_TEXT_MAX);
+	if (!trimmed.trim()) return false;
+	galleryAdd({ kind: "text", text: trimmed });
+	return true;
+}
+
+function galleryRemove(key) {
+	gallery = gallery.filter((i) => galleryKey(i) !== key);
 	saveGallery();
 }
 
@@ -952,6 +1013,17 @@ const WALL_MAX_LINES = 10;
 const WALL_MIN_ART_LEN = 80;
 const WALL_MAX_LETTER_RATIO = 0.35; // below this share of letters/digits, it's art not prose
 const WALL_MAX_LINKS = 4;
+
+// Drawing, or writing? Mostly-punctuation is how this codebase already tells ascii
+// art from prose (see WALL_MAX_LETTER_RATIO above), and the gallery needs the same
+// call for a different reason: a drawing has to be shown whole or it stops being the
+// drawing, while writing only has to be legible from its first words.
+function looksLikeArt(text) {
+	const str = String(text || "");
+	if (str.length < 12) return false; // too short to tell, and it fits either way
+	const letters = (str.match(/[\p{L}\p{N}]/gu) || []).length;
+	return letters / str.length < WALL_MAX_LETTER_RATIO;
+}
 
 function looksLikeWall(text) {
 	const str = String(text || "");
@@ -3557,6 +3629,12 @@ function openNoteActionPopup(note) {
 	actionReply.hidden = true;
 	actionHug.hidden = true;
 	actionSlap.hidden = true;
+	// a note saves like a chat message does. Set explicitly rather than left alone:
+	// these are shared elements, and inheriting them from whichever popup opened last
+	// meant a note could offer to save the previous message's pictures.
+	actionContext.media = extractImageUrls(actionContext.content);
+	actionSaveMedia.hidden = !actionContext.media.length && !actionContext.content.trim();
+	actionDelete.hidden = true; // withdrawal is a guild action; notes have their own
 	actionGrid.classList.add("solo"); // only one action remains - let it span full width
 	// join the note's origin channel - the whole point of the sheet is to read a
 	// place's notes, so jumping into its live chat is a natural next step
@@ -4078,10 +4156,11 @@ function openActionPopup(pubkey, entry) {
 	// ephemeral and already gone. Self-only because a withdrawal is signed: a kind 5
 	// naming someone else's event is one every honest client, and every relay, ignores.
 	actionDelete.hidden = !(inGuild && isSelf && actionContext.entryId);
-	// offered whenever the tapped message actually carries an image - yours or anyone
-	// else's, chat or a note. Saving keeps only the url, so there's nothing to own.
+	// Offered for any message with something in it - yours or anyone else's. A
+	// message carrying pictures saves the pictures (just their urls, so there's
+	// nothing to own); one that's only text saves the text.
 	actionContext.media = extractImageUrls(content);
-	actionSaveMedia.hidden = actionContext.media.length === 0;
+	actionSaveMedia.hidden = !actionContext.media.length && !content.trim();
 	// restore the chat-only actions (a preceding note popup may have hidden them)
 	actionReply.hidden = false;
 	actionHug.hidden = false;
@@ -4538,10 +4617,19 @@ actionSlap.addEventListener("click", () => sendEmote("slap"));
 actionBlock.addEventListener("click", blockUser);
 actionSaveMedia.addEventListener("click", () => {
 	const urls = (actionContext && actionContext.media) || [];
+	const text = (actionContext && actionContext.content) || "";
 	closeActionPopup();
-	if (!urls.length) return;
+	// pictures win when the message has both: the url is what makes the message
+	// re-sendable, and the caption around it comes back with it anyway.
+	if (!urls.length) {
+		if (galleryAddText(text)) {
+			syncMediaBtn();
+			appendSystem(t("gallery.saved", { count: 1 }));
+		}
+		return;
+	}
 	const keep = urls.filter((u) => !isEphemeralMedia(u));
-	for (const u of keep) galleryAdd(u);
+	for (const u of keep) galleryAddImage(u);
 	syncMediaBtn(); // the first save can be what puts the "+" on screen
 	if (!keep.length) {
 		appendSystem(t("gallery.ephemeral"));
@@ -6141,36 +6229,91 @@ function renderGallery() {
 		galleryGrid.innerHTML = `<div class="galleryEmpty">${escapeHtml(t("gallery.empty"))}</div>`;
 		return;
 	}
-	// no urls anywhere in here: the picture is the label, and a wall of hostnames is
-	// exactly the clutter a grid is meant to replace.
+	// no urls anywhere in here: the content is the label, and a wall of hostnames is
+	// exactly the clutter a grid is meant to replace. Text tiles are the same square
+	// cell as a picture - a grid whose rows don't line up stops being scannable, and
+	// that's the whole reason to have one.
 	galleryGrid.innerHTML = gallery
-		.map(
-			(url) =>
-				`<div class="galleryItem" data-gallery-url="${escapeHtml(url)}">` +
-				`<img class="galleryImg" src="${escapeHtml(url)}" alt="" loading="lazy">` +
-				`<button class="galleryDrop" type="button" data-gallery-del="${escapeHtml(url)}" aria-label="${escapeHtml(t("gallery.remove"))}">&#10005;</button>` +
-				`</div>`,
-		)
+		.map((item) => {
+			const key = escapeHtml(galleryKey(item));
+			const drop = `<button class="galleryDrop" type="button" data-gallery-del="${key}" aria-label="${escapeHtml(t("gallery.remove"))}">&#10005;</button>`;
+			if (item.kind === "text") {
+				const art = looksLikeArt(item.text) ? " galleryTextArt" : "";
+				return (
+					`<div class="galleryItem galleryItemText" data-gallery-key="${key}">` +
+					`<pre class="galleryText${art}">${escapeHtml(item.text)}</pre>` +
+					drop +
+					`</div>`
+				);
+			}
+			return (
+				`<div class="galleryItem" data-gallery-key="${key}">` +
+				`<img class="galleryImg" src="${escapeHtml(item.url)}" alt="" loading="lazy">` +
+				drop +
+				`</div>`
+			);
+		})
 		.join("");
+	fitGalleryText();
 }
 
+// Shrink an ascii-art tile until its widest line fits the cell.
+//
+// A thumbnail has to answer "which one is this?" at a glance, and the two kinds of
+// saved text answer it differently. A drawing answers with its SHAPE, which a
+// top-left crop of something 60 columns wide destroys - so it's scaled down until
+// the whole width is in the cell. Writing answers with its first words, which
+// scaling to 3px destroys just as thoroughly - so it is left at a readable size and
+// simply clipped, like any other overflowing text.
+//
+// The floor stops one 300-character line from scaling a drawing into a grey smudge;
+// past it the tile clips too.
+const GALLERY_TEXT_MIN_SCALE = 0.35;
+
+function fitGalleryText() {
+	for (const pre of galleryGrid.querySelectorAll(".galleryTextArt")) {
+		// the pre is laid out at max-content width, so offsetWidth is the natural
+		// width of its longest line rather than the width of the cell clipping it.
+		const room = pre.parentElement.clientWidth - GALLERY_TEXT_PAD * 2;
+		const natural = pre.offsetWidth;
+		const scale = natural > room && room > 0 ? Math.max(GALLERY_TEXT_MIN_SCALE, room / natural) : 1;
+		pre.style.setProperty("--fit", scale.toFixed(3));
+	}
+}
+
+const GALLERY_TEXT_PAD = 4; // keep in step with .galleryText's padding
+
+// the cells are fluid (auto-fill), so a rotation or a resized window changes how much
+// room each tile has and the scales computed for the old width are wrong.
+window.addEventListener("resize", () => {
+	if (galleryGate.classList.contains("show")) fitGalleryText();
+});
+
 function openGallery() {
-	renderGallery();
+	// shown BEFORE the fit pass: a hidden gate measures every cell as zero-width, and
+	// a scale computed from that comes out as 1 for everything - which looks exactly
+	// like a tile that didn't need scaling.
 	galleryGate.classList.add("show");
+	renderGallery();
 }
 
 function closeGallery() {
 	galleryGate.classList.remove("show");
 }
 
-// tapping a tile SENDS "[image] {url}" and closes up - the same one-tap flow as
-// picking a photo to upload, minus the upload. It goes through deliverToTarget so a
-// pick lands wherever you're talking (channel, guild, or DM thread) rather than
-// needing a separate path per destination; with no destination at all that falls back
-// to dropping it in the composer, which is the only sensible thing left to do with it.
-function galleryPick(url) {
+// tapping a tile SENDS it and closes up - the same one-tap flow as picking a photo
+// to upload, minus the upload. It goes through deliverToTarget so a pick lands
+// wherever you're talking (channel, guild, or DM thread) rather than needing a path
+// per destination; with no destination at all that falls back to dropping it in the
+// composer, which is the only sensible thing left to do with it.
+//
+// A picture goes out under bitchat's "[image]" marker; text goes out as itself, with
+// no marker at all - it was a message when it was saved and it's a message now.
+function galleryPick(key) {
+	const item = gallery.find((i) => galleryKey(i) === key);
+	if (!item) return;
 	closeGallery();
-	deliverToTarget(currentSendTarget(), `[image] ${url}`);
+	deliverToTarget(currentSendTarget(), item.kind === "image" ? `[image] ${item.url}` : item.text);
 }
 
 // each composer's "+" mounts the shared menu next to itself before opening it
@@ -6206,8 +6349,8 @@ galleryGrid.addEventListener("click", (e) => {
 		syncMediaBtn(); // emptying the gallery can remove the only reason for the "+"
 		return;
 	}
-	const tile = e.target.closest("[data-gallery-url]");
-	if (tile) galleryPick(tile.getAttribute("data-gallery-url"));
+	const tile = e.target.closest("[data-gallery-key]");
+	if (tile) galleryPick(tile.getAttribute("data-gallery-key"));
 });
 recStop.addEventListener("click", () => stopVoiceRecording(true));
 recCancel.addEventListener("click", () => stopVoiceRecording(false));

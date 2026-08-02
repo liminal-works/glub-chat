@@ -258,7 +258,7 @@ export default {
 	// your private, local list of saved media urls
 	gallery: {
 		title: "gallery",
-		empty: "nothing saved yet — tap a picture in chat to keep it",
+		empty: "nothing saved yet — tap any message in chat to keep it",
 		remove: "remove",
 		saved: { one: "saved to gallery", other: "saved {count} to gallery" },
 		ephemeral: "glub.chat media is deleted after a day — nothing to save",

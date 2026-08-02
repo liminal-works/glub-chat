@@ -2665,6 +2665,50 @@ textarea {
 	border-color: var(--accent);
 }
 
+/* a saved message. Same square cell as a picture, so the grid stays aligned however
+   the two are mixed - the tile just has type in it instead of pixels. */
+.galleryItemText {
+	background: var(--chrome-bg);
+}
+
+/* the default is WRITING: wrapped, left at a legible size, clipped at the bottom
+   like any preview. Reading the first words is what identifies it. */
+.galleryText {
+	margin: 0;
+	padding: 4px; /* GALLERY_TEXT_PAD in app.js reads this */
+	font: inherit;
+	font-size: 9px;
+	line-height: 1.2;
+	color: var(--fg);
+	width: 100%;
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+	pointer-events: none; /* the tile takes the tap, not the text inside it */
+}
+
+/* ...and this is a DRAWING. It keeps its columns (wrapping would be the end of it),
+   is laid out at max-content so app.js can measure the longest line, and is scaled
+   down to fit. Transform rather than a smaller font because it doesn't reflow: the
+   drawing shrinks with its shape intact instead of being re-laid-out at a size where
+   it stops being the drawing. */
+.galleryTextArt {
+	width: max-content;
+	white-space: pre;
+	transform: scale(var(--fit, 1));
+	transform-origin: top left;
+}
+
+/* text runs off the bottom far more often than a picture does; fade the last few
+   pixels so a clipped tile reads as "there's more" rather than as a bad crop. */
+.galleryItemText::after {
+	content: "";
+	position: absolute;
+	inset: auto 0 0 0;
+	height: 14px;
+	background: linear-gradient(to bottom, transparent, var(--chrome-bg));
+	pointer-events: none;
+}
+
 /* the remove affordance sits ON the tile, small and dim until you're over it - it
    should be reachable without being the first thing you see on every picture. */
 .galleryDrop {

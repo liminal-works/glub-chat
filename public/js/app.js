@@ -25,7 +25,7 @@ import { fetchProfileMetadata, publishProfileMetadata } from "./nostr/profileEdi
 import { isProfane } from "./censor.js";
 import { fetchConditions, wmoDescribe, geocodePlace, parseLatLon } from "./weather.js";
 import { THEMES, themeNames, activeTheme, applyTheme, persistTheme, initTheme, hexToRgb } from "./themes.js";
-import { stripFormat, hasFormat, renderFormat, EMOJI_SEQ_RE } from "./format.js";
+import { stripFormat, hasFormat, renderFormat, renderRunSplittingEmoji, templatePaintsMsg, EMOJI_SEQ_RE } from "./format.js";
 import { FLAIRS, flairName, flairClass, flairLimit, flairVars, flairHasFx, flairFxInner, lightningStrikeMarkup, rainGustMarkup, plumeSurgeMarkup } from "./flair.js";
 
 // re-apply the persisted theme before anything renders (module scripts run
@@ -1439,7 +1439,17 @@ function messageInnerHtml(entry) {
 		// (where the body is spliced into {msg}) and doesn't scale the name or tag
 		// with it. The check runs on the plaintext, so a "&"-coded emoji still counts.
 		const scale = emojiScaleClass(source);
-		const rawMsgHtml = isRich ? renderFormat(stripShownMedia(entry.rich, shownMedia), richBody) : richBody(text);
+		// A "&g{msg}" template paints the body it splices in, emoji included, which is
+		// how "🌎 test" ended up an unreadable blob while a lone "🌎" (no template run
+		// to inherit from) and a "&c🌎 test" (its own code, already protected) both came
+		// out fine. The body render can't see the template it's about to land in, so it
+		// is told - and then protects its emoji even in runs carrying no codes at all.
+		const outerPaints = templatePaintsMsg(entry.fmt);
+		const rawMsgHtml = isRich
+			? renderFormat(stripShownMedia(entry.rich, shownMedia), richBody, { outerPaints })
+			: outerPaints
+				? renderRunSplittingEmoji(text, richBody)
+				: richBody(text);
 		const msgHtml = scale ? `<span class="${scale}">${rawMsgHtml}</span>` : rawMsgHtml;
 		// the whole message (name + body) is one tap target: tapping anywhere on it
 		// opens the per-user action popup (DM, copy, hug/slap...). data-user carries

@@ -194,6 +194,30 @@ function paintsGlyphs(state) {
 	return !!state.color || !!state.rainbow;
 }
 
+// Does a template paint the message spliced into its {msg} slot?
+//
+// A "/format &g🌎" template renders as "&g🌎 {msg}", so the message lands INSIDE the
+// gradient and inherits it - including its emoji, which come out as illegible blobs.
+// The message render can't see that from its own text, so it has to be told; this is
+// what tells it. Walks the same tokenizer everything else uses and reports the style
+// in force at the moment {msg} appears.
+export function templatePaintsMsg(tpl) {
+	const s = String(tpl || "");
+	if (!s) return false;
+	// a template with no {msg} gets one appended, at the very end - so the style in
+	// force is whatever the template finished with
+	const norm = s.includes("{msg}") ? s : `${s} {msg}`;
+	let state = { ...BLANK };
+	for (const tok of tokenize(norm)) {
+		if (tok.t === "code") {
+			state = applyCode(state, tok.c);
+			continue;
+		}
+		if (tok.v.includes("{msg}")) return paintsGlyphs(state);
+	}
+	return false;
+}
+
 // Wrap the emoji inside a painted run so the paint doesn't reach them.
 //
 // Split BEFORE bodyFn rather than after: bodyFn returns html, and finding emoji in
@@ -201,7 +225,7 @@ function paintsGlyphs(state) {
 // url - where a wrapper would corrupt the markup. Splitting the plaintext first
 // means every piece handed to bodyFn is still plaintext, and the emoji pieces only
 // ever need escaping since a url can't be made of emoji.
-function renderRunSplittingEmoji(text, esc) {
+export function renderRunSplittingEmoji(text, esc) {
 	EMOJI_SEQ_RE.lastIndex = 0;
 	let out = "";
 	let at = 0;
@@ -238,11 +262,12 @@ function escapeHtml(s) {
 //   a /format      your standing line style, chosen once and deliberately. A
 //                  silhouette there is the look you picked, so it's left alone.
 //
-// Note this only governs emoji in the run being rendered. A template's `{msg}` is
-// substituted after the fact, so a message inside a "&g{msg}" template inherits the
-// gradient through css - and its own emoji are protected by whatever the message
-// render decided, which is the split above working exactly as intended.
-export function renderFormat(raw, bodyFn, { spareEmoji = true } = {}) {
+// `outerPaints` covers the case this render can't see: the whole thing is about to be
+// spliced into a template that paints (see templatePaintsMsg). Then even a run with
+// no codes of its own is painted, by inheritance, so its emoji need protecting too -
+// which is exactly the "🌎 test" that came out as a blob while a lone "🌎" and a
+// "&c🌎 test" both survived.
+export function renderFormat(raw, bodyFn, { spareEmoji = true, outerPaints = false } = {}) {
 	const esc = typeof bodyFn === "function" ? bodyFn : (s) => s;
 	let state = { ...BLANK };
 	let html = "";
@@ -254,7 +279,9 @@ export function renderFormat(raw, bodyFn, { spareEmoji = true } = {}) {
 		const style = styleFor(state);
 		const cls = classFor(state);
 		const inner =
-			spareEmoji && paintsGlyphs(state) ? renderRunSplittingEmoji(tok.v, esc) : esc(tok.v);
+			spareEmoji && (outerPaints || paintsGlyphs(state))
+				? renderRunSplittingEmoji(tok.v, esc)
+				: esc(tok.v);
 		if (!style && !cls) {
 			html += inner;
 			continue;

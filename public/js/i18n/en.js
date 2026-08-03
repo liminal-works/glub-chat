@@ -382,7 +382,6 @@ export default {
 		header: "chat formatting  ·  &code",
 		reset: "reset (back to normal)",
 		wildcard: "· follows your flair",
-		silhouette: "· lets colour reach emoji too",
 		stack: "codes stack, even mid-word:",
 		escape: "&& = a literal &",
 	},

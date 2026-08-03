@@ -50,21 +50,6 @@ const OBFUSCATE = "k"; // scrambling "magic" text
 // so this module just marks the run and the row's flair class does the rest.
 const RAINBOW = "g";
 const RESET = "r";
-// &s: let the colour bleed into emoji, painting them as flat silhouettes.
-//
-// A colour is applied with -webkit-text-fill-color (and &g paints glyphs through a
-// clipped gradient), and both of those overrule a colour font - so a "&c" or "&g" run
-// flattens any emoji in it into a solid shape. That's a fine effect and a lousy
-// default: most people typing "&ahello 🎉" want a green hello and a party popper, not
-// a green blob. So emoji are left alone unless this code asks otherwise.
-//
-// It's a code rather than a setting because it belongs to the AUTHOR. The effect is
-// something you do to your message, and a reader-side switch would both change
-// everyone else's messages and leave the one person who wanted a silhouette unable to
-// count on anyone seeing it. As a code it rides along in the same ["glub","rich"] tag
-// as the rest of the formatting, so it needs no protocol change and nothing stored.
-const SILHOUETTE = "s";
-
 // a char is a recognized code iff it's a color, a format, animated, or reset.
 // Uppercase never matches, so acronyms ("Q&A", "AT&T") are safe even at a boundary.
 function isCodeChar(ch) {
@@ -73,7 +58,6 @@ function isCodeChar(ch) {
 		FORMATS.has(ch) ||
 		ch === OBFUSCATE ||
 		ch === RAINBOW ||
-		ch === SILHOUETTE ||
 		ch === RESET
 	);
 }
@@ -153,7 +137,6 @@ const BLANK = {
 	strike: false,
 	obf: false,
 	rainbow: false,
-	silhouette: false,
 };
 
 // the Minecraft legacy rule: a solid color code clears every other flag (incl.
@@ -163,15 +146,10 @@ const BLANK = {
 function applyCode(state, c) {
 	if (c === RESET) return { ...BLANK };
 	if (Object.prototype.hasOwnProperty.call(COLORS, c)) {
-		// silhouetting SURVIVES a colour change, unlike every other flag. It isn't a
-		// decoration, it's a statement about how colour should be applied - so you say
-		// it once and it governs the rest of the message, instead of having to repeat
-		// it after every "&c". "&r" still clears it, like everything else.
-		return { ...BLANK, color: COLORS[c], silhouette: state.silhouette };
+		return { ...BLANK, color: COLORS[c] };
 	}
 	const next = { ...state };
-	if (c === SILHOUETTE) next.silhouette = true;
-	else if (c === "l") next.bold = true;
+	if (c === "l") next.bold = true;
 	else if (c === "o") next.italic = true;
 	else if (c === "n") next.underline = true;
 	else if (c === "m") next.strike = true;
@@ -248,7 +226,23 @@ function escapeHtml(s) {
 // with no active styling emits no wrapper, so it inherits the sender's normal
 // peer color from the parent .msg span (matches "text before the first code").
 // Animated runs get a class (fmtObf/fmtRainbow) that app.js + css bring to life.
-export function renderFormat(raw, bodyFn) {
+//
+// `spareEmoji` decides whether emoji are protected from the paint. A colour is
+// applied with -webkit-text-fill-color and &g paints glyphs through a clipped
+// gradient; both overrule a colour font, so an emoji caught in a painted run comes
+// out as a flat silhouette. That is a real effect and a poor accident, and which one
+// it is depends entirely on WHERE the codes were written:
+//
+//   a message      codes typed alongside what you're saying. "&ahello 🎉" means a
+//                  green hello and a party popper, so emoji are spared. (default)
+//   a /format      your standing line style, chosen once and deliberately. A
+//                  silhouette there is the look you picked, so it's left alone.
+//
+// Note this only governs emoji in the run being rendered. A template's `{msg}` is
+// substituted after the fact, so a message inside a "&g{msg}" template inherits the
+// gradient through css - and its own emoji are protected by whatever the message
+// render decided, which is the split above working exactly as intended.
+export function renderFormat(raw, bodyFn, { spareEmoji = true } = {}) {
 	const esc = typeof bodyFn === "function" ? bodyFn : (s) => s;
 	let state = { ...BLANK };
 	let html = "";
@@ -259,9 +253,8 @@ export function renderFormat(raw, bodyFn) {
 		}
 		const style = styleFor(state);
 		const cls = classFor(state);
-		// emoji opt OUT of the paint by default; "&s" opts them back in
 		const inner =
-			paintsGlyphs(state) && !state.silhouette ? renderRunSplittingEmoji(tok.v, esc) : esc(tok.v);
+			spareEmoji && paintsGlyphs(state) ? renderRunSplittingEmoji(tok.v, esc) : esc(tok.v);
 		if (!style && !cls) {
 			html += inner;
 			continue;

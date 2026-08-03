@@ -648,7 +648,11 @@ const FORMAT_EXAMPLES = [
 ];
 
 function renderFormatLine(tpl, parts) {
-	const html = renderFormat(normalizeFormatTemplate(tpl), (s) => escapeHtml(s));
+	// spareEmoji:false - a template is a standing style you chose deliberately, so an
+	// emoji you put IN it is meant to take the colour and read as a silhouette. That's
+	// the opposite call from a message, where the codes sit alongside what you're
+	// saying and the emoji should stay itself. See renderFormat.
+	const html = renderFormat(normalizeFormatTemplate(tpl), (s) => escapeHtml(s), { spareEmoji: false });
 	return html.replace(/\{(name|tag|msg)\}/g, (m, key) => (parts[key] != null ? parts[key] : m));
 }
 
@@ -7322,7 +7326,6 @@ const COMMANDS = [
 				`${code("m")}  ${preview("&mstrikethrough")}`,
 				`${code("k")}  ${preview("&kobfuscated")}`,
 				`${code("g")}  ${preview("&grainbow")}  <span class="ts">${esc(t("colors.wildcard"))}</span>`,
-				`${code("s")}  ${preview("&csilhouette &s\u{1F41F}")}  <span class="ts">${esc(t("colors.silhouette"))}</span>`,
 				`${code("r")}  <span class="ts">${esc(t("colors.reset"))}</span>`,
 			];
 			const html =

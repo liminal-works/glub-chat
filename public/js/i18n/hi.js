@@ -37,6 +37,7 @@ export default {
 			"समय-समय पर बताता है कि आप जिस चैनल को देख रहे हैं उसमें हैं, ताकि दूसरे आपको यूज़र सूची और 'यहाँ' गिनती में देखें। बंद — आप अदृश्य रूप से देखते हैं, और बाकी सबको फिर भी देखते हैं।",
 		retro_description:
 			"भारी CRT टर्मिनल रूप: स्कैनलाइन, फ़ॉस्फ़र ग्लो, फ़्लिकर। पूरी तरह दिखावटी — प्रोटोकॉल या आपके संदेश नहीं बदलते।",
+		flair_fx_description: "फ्लेयर वाले संदेशों के पीछे चलने वाले एनिमेशन — आग, बारिश, बिजली और बाकी सब। बंद करने पर हर एक का रंग बना रहता है पर हलचल रुक जाती है, जिससे फ़ोन की बैटरी बचती है।",
 		pow_description:
 			"proof-of-work कठिनाई से नीचे के इनकमिंग संदेश छिपाता है। स्पैम की लागत बढ़ाता है, पर कम-प्रयास या बिना-माइनिंग क्लाइंट छूट जाते हैं।",
 		blur_description:
@@ -50,6 +51,7 @@ export default {
 		assist_label: "सर्वर असिस्ट",
 		profiles_label: "nostr प्रोफ़ाइल",
 		retro_label: "रेट्रो टर्मिनल",
+		flair_fx_label: "चैट प्रभाव",
 		client_label: "क्लाइंट टैग",
 		local_label: "लोकल टैग",
 		presence_label: "उपस्थिति दिखाएँ",
@@ -101,7 +103,10 @@ export default {
 		copy_npub: "npub कॉपी करें",
 		reply: "जवाब",
 		block: "ब्लॉक",
+		save_media: "गैलरी में सहेजें",
+		delete: "संदेश हटाएँ",
 		copy: "कॉपी",
+		hide: "संदेश छिपाएँ",
 		translate: "अनुवाद",
 		untranslate: "अनुवाद छिपाएँ",
 		hug: "गले लगाएँ",
@@ -170,6 +175,10 @@ export default {
 		placeholder: "एन्क्रिप्टेड -> {name}...",
 		warn_nopass: "पासवर्ड बिना, नाम अनुमान लगाने वाला कोई भी इसे पढ़ सकता है।",
 		upload_left: "अपलोड पूरा होने से पहले {name} छोड़ दिया - कुछ नहीं भेजा गया",
+		deleted: "संदेश वापस लिया गया",
+		history_loading: "पुराने संदेश लोड हो रहे हैं...",
+		history_end: "इस गिल्ड के इतिहास की शुरुआत",
+		delete_failed: "वह संदेश वापस नहीं लिया जा सका",
 	},
 
 	origin: {
@@ -229,12 +238,25 @@ export default {
 		join: "जाएँ",
 		media_photo: "फ़ोटो",
 		media_voice: "वॉइस नोट",
+		media_gallery: "गैलरी",
 		rec_hint: "वॉइस नोट रिकॉर्ड हो रहा है",
 		rec_cancel: "रद्द करें",
 		rec_send: "भेजें",
 	},
 
+	// आपकी निजी, स्थानीय सहेजी हुई सूची
+	gallery: {
+		title: "गैलरी",
+		empty: "अभी कुछ सहेजा नहीं गया — रखने के लिए चैट में किसी भी संदेश पर टैप करें",
+		remove: "हटाएँ",
+		saved: { one: "गैलरी में सहेजा गया", other: "{count} गैलरी में सहेजे गए" },
+		ephemeral: "glub.chat मीडिया एक दिन बाद मिट जाता है — सहेजने को कुछ नहीं",
+	},
+
+
 	suggest: {
+		unblock_all: "सभी",
+		unblock_all_meta: { one: "सबको अनब्लॉक करें", other: "सभी {count} को अनब्लॉक करें" },
 		here: "{count} यहाँ",
 	},
 
@@ -365,6 +387,7 @@ export default {
 		unblocked: "@{name}#{tag} अनब्लॉक",
 		unblocked_all: "सभी अनब्लॉक",
 		unblock_notblocked: "{who} ब्लॉक नहीं है",
+		unblock_ambiguous: "{name} नाम के एक से ज़्यादा ब्लॉक किए गए उपयोगकर्ता हैं — उनका #tag इस्तेमाल करें",
 		needs_channel: "पहले किसी चैनल में जाएँ",
 		not_a_location: "#{geo} नक्शे का स्थान नहीं है",
 		weather_failed: "मौसम अभी नहीं मिला",
@@ -377,6 +400,7 @@ export default {
 		wordle_solved: "wordle · {n} में हल:",
 		wordle_over: "wordle · अनुमान समाप्त:",
 		wordle_reveal: "शब्द था {word}",
+		wordle_gone: "शब्द में नहीं:",
 		wordle_win: "बढ़िया",
 		wordle_first_try: "पहली बार में · अविश्वसनीय",
 		upload_too_large: "फ़ाइल बहुत बड़ी है (अधिकतम {max}mb)",

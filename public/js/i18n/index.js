@@ -15,6 +15,7 @@ const STORAGE_KEY = "glub_locale"; // optional manual override (no UI yet)
 // dropping a `<code>.js` dictionary next to en.js and registering it here, e.g.
 //   es: () => import("./es.js").then((m) => m.default),
 const LOADERS = {
+	ar: () => import("./ar.js").then((m) => m.default),
 	ru: () => import("./ru.js").then((m) => m.default),
 	hi: () => import("./hi.js").then((m) => m.default),
 	zh: () => import("./zh.js").then((m) => m.default),
@@ -27,11 +28,16 @@ const dicts = { en };
 let locale = FALLBACK;
 let dict = en;
 let plural = new Intl.PluralRules(FALLBACK);
-let rtf = new Intl.RelativeTimeFormat(FALLBACK, { numeric: "always", style: "narrow" });
+// numberingSystem is pinned so every digit on screen is latin. Some locales
+// (arabic ones especially) default to their own digits, and only the numbers
+// that pass through Intl would change - a "{count}" interpolated into a string
+// stays latin - which would leave the two mixed in the same sentence.
+const RTF_OPTS = { style: "narrow", numberingSystem: "latn" };
+let rtf = new Intl.RelativeTimeFormat(FALLBACK, { ...RTF_OPTS, numeric: "always" });
 // a second formatter for whole days, on "auto" so 1 comes out as the word
 // ("yesterday") rather than "1d ago" - the one case where the word is shorter AND
 // clearer than the number.
-let rtfDay = new Intl.RelativeTimeFormat(FALLBACK, { numeric: "auto", style: "narrow" });
+let rtfDay = new Intl.RelativeTimeFormat(FALLBACK, { ...RTF_OPTS, numeric: "auto" });
 const changeCbs = [];
 
 function get(obj, key) {
@@ -196,8 +202,8 @@ export async function setLocale(code) {
 	locale = d ? target : FALLBACK;
 	dict = d || en;
 	plural = new Intl.PluralRules(locale);
-	rtf = new Intl.RelativeTimeFormat(locale, { numeric: "always", style: "narrow" });
-	rtfDay = new Intl.RelativeTimeFormat(locale, { numeric: "auto", style: "narrow" });
+	rtf = new Intl.RelativeTimeFormat(locale, { ...RTF_OPTS, numeric: "always" });
+	rtfDay = new Intl.RelativeTimeFormat(locale, { ...RTF_OPTS, numeric: "auto" });
 
 	if (typeof document !== "undefined") {
 		document.documentElement.lang = locale;

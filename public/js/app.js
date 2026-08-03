@@ -1067,12 +1067,20 @@ function isMention(text, currentName) {
 }
 
 // [hh:mm:ss] in the device's local time, 24-hour. tsSec is in seconds.
+//
+// numberingSystem is pinned to latn on purpose. Locales like ar-EG default to
+// Arabic-Indic digits, which would leave the clock column reading "١٩:٣٩:٢٤"
+// while every other number on screen - counts, geohashes, key fragments - is
+// still latin, because those come from plain interpolation rather than Intl.
+// One script for all digits beats a correctly-localized clock nobody can line
+// up against the rest of the log.
 function formatTime(tsSec) {
 	return new Date(tsSec * 1000).toLocaleTimeString([], {
 		hour: "2-digit",
 		minute: "2-digit",
 		second: "2-digit",
 		hour12: false,
+		numberingSystem: "latn",
 	});
 }
 

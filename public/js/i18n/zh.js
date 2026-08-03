@@ -39,6 +39,7 @@ export default {
 			"定期宣告你在当前查看的频道里，让别人在用户列表和“在场”人数中看到你。关闭则隐身浏览，同时仍能看到所有人。",
 		retro_description:
 			"更浓的 CRT 终端观感：扫描线、荧光辉光、闪烁。纯装饰 —— 协议和你的消息都不会改变。",
+		flair_fx_description: "带特效消息背后的动画——火、雨、闪电等。关闭后保留各自的颜色但停止动作，更省手机电量。",
 		pow_description:
 			"隐藏低于指定 proof-of-work 难度的入站消息。提高垃圾消息的成本，代价是会漏掉算力不足或根本不挖矿的客户端。",
 		blur_description: "入站图片先模糊，点按才显示。关闭则自动加载每张图片。默认开启；纯本地。",
@@ -51,6 +52,7 @@ export default {
 		assist_label: "服务器辅助",
 		profiles_label: "nostr 资料",
 		retro_label: "复古终端",
+		flair_fx_label: "聊天特效",
 		client_label: "客户端标签",
 		local_label: "本地标签",
 		presence_label: "公开在场状态",
@@ -102,7 +104,10 @@ export default {
 		copy_npub: "复制 npub",
 		reply: "回复",
 		block: "屏蔽",
+		save_media: "保存到图库",
+		delete: "删除消息",
 		copy: "复制",
+		hide: "隐藏消息",
 		translate: "翻译",
 		untranslate: "隐藏translation",
 		hug: "抱抱",
@@ -171,6 +176,10 @@ export default {
 		placeholder: "加密 -> {name}...",
 		warn_nopass: "没有密码，任何猜到名字的人都能读到这个公会。",
 		upload_left: "上传完成前你已离开 {name} - 没有发送任何内容",
+		deleted: "消息已撤回",
+		history_loading: "正在加载更早的消息...",
+		history_end: "本公会历史的开头",
+		delete_failed: "无法撤回该消息",
 	},
 
 	origin: {
@@ -230,12 +239,25 @@ export default {
 		join: "加入",
 		media_photo: "图片",
 		media_voice: "语音",
+		media_gallery: "图库",
 		rec_hint: "正在录制语音",
 		rec_cancel: "取消",
 		rec_send: "发送",
 	},
 
+	// 你私人的本地收藏列表
+	gallery: {
+		title: "图库",
+		empty: "还没有保存任何内容——点按聊天中的任意消息即可留存",
+		remove: "移除",
+		saved: { one: "已保存到图库", other: "已保存 {count} 项到图库" },
+		ephemeral: "glub.chat 的媒体一天后即删除——没有可保存的内容",
+	},
+
+
 	suggest: {
+		unblock_all: "全部",
+		unblock_all_meta: { one: "解除所有人的屏蔽", other: "解除全部 {count} 人的屏蔽" },
 		here: "{count} 人在此",
 	},
 
@@ -366,6 +388,7 @@ export default {
 		unblocked: "已解除屏蔽 @{name}#{tag}",
 		unblocked_all: "已解除所有屏蔽",
 		unblock_notblocked: "{who} 并未被屏蔽",
+		unblock_ambiguous: "有多个被屏蔽的用户叫 {name}——请使用他们的 #tag",
 		needs_channel: "请先加入一个频道",
 		not_a_location: "#{geo} 不是一个地图位置",
 		weather_failed: "暂时无法获取天气",
@@ -378,6 +401,7 @@ export default {
 		wordle_solved: "wordle · {n} 次猜中：",
 		wordle_over: "wordle · 次数用完了：",
 		wordle_reveal: "答案是 {word}",
+		wordle_gone: "不在词中：",
 		wordle_win: "漂亮",
 		wordle_first_try: "第一次就猜中 · 太强了",
 		upload_too_large: "文件过大（上限 {max}mb）",

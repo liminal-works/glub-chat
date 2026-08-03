@@ -257,6 +257,32 @@ textarea {
 	white-space: pre-wrap;
 	word-break: break-word;
 	font-size: 14px;
+	/* The log stays ltr even when the ui is rtl (arabic). Every row is a record
+	   with a fixed gutter - "[hh:mm:ss] <@name#tag> body" - and under an rtl
+	   paragraph the bidi algorithm reorders that whole prefix: the clock lands on
+	   the far side, the angle brackets mirror, and the columns stop lining up. A
+	   terminal log is a table of records, not prose, so the frame is held ltr and
+	   the CONTENT is what's allowed to flip - see the plaintext rule below. */
+	direction: ltr;
+}
+
+/* Anything a person typed picks its own direction from its first strong
+   character, the way `dir="auto"` does, and is isolated from its neighbours so
+   it can't drag the surrounding punctuation around with it. That is what lets an
+   arabic message read right-to-left inside a left-to-right row - and equally,
+   an english message read correctly inside the rtl dm panel.
+
+   .ts is in here because it wears two hats: the trailing clock AND the body of a
+   system line. On the clock it's a no-op (no strong characters, so it keeps the
+   container's direction); on a translated system line it's the whole point. */
+.msg,
+.ts,
+.noteBody,
+.dmMsg,
+#chatInput,
+#dmInput,
+#notesInput {
+	unicode-bidi: plaintext;
 }
 
 /* anchor messages to the bottom so the newest sit just above the input (and
@@ -1917,13 +1943,15 @@ textarea {
 	cursor: pointer;
 }
 
-/* a reply renders the quoted message in a left-bordered block beneath the
-   sender's handle, then the reply body below it. */
+/* a reply renders the quoted message in a bordered block beneath the sender's
+   handle, then the reply body below it. The rule is on the inline-start edge, so
+   it moves to the right of the block when the ui is rtl. */
 .replyBlock {
 	display: block;
-	margin: 2px 0 0 6px;
-	padding-left: 8px;
-	border-left: 1px solid var(--chrome-border);
+	margin: 2px 0 0;
+	margin-inline-start: 6px;
+	padding-inline-start: 8px;
+	border-inline-start: 1px solid var(--chrome-border);
 }
 
 .replyQuote {
@@ -1943,9 +1971,10 @@ textarea {
    timestamp styling the old prototype used). */
 .translationBlock {
 	display: block;
-	margin: 3px 0 1px 6px;
-	padding-left: 8px;
-	border-left: 2px solid var(--accent);
+	margin: 3px 0 1px;
+	margin-inline-start: 6px;
+	padding-inline-start: 8px;
+	border-inline-start: 2px solid var(--accent);
 }
 
 .translationLabel {
@@ -2133,7 +2162,7 @@ textarea {
 	padding: 6px 8px;
 	max-width: 420px;
 	border: 1px solid var(--chrome-border);
-	border-left: 2px solid var(--geo); /* the same blue links already use */
+	border-inline-start: 2px solid var(--geo); /* the same blue links already use */
 	background: var(--field-bg);
 	text-decoration: none;
 	color: inherit;
@@ -2141,7 +2170,7 @@ textarea {
 
 .linkCard:hover {
 	border-color: var(--chrome-border-strong);
-	border-left-color: var(--geo);
+	border-inline-start-color: var(--geo);
 }
 
 .linkThumb {
@@ -2287,7 +2316,7 @@ textarea {
 	color: var(--accent);
 	font-size: 0.9em;
 	font-weight: 700;
-	text-align: left;
+	text-align: start;
 	cursor: pointer;
 	user-select: none;
 	z-index: 5;
@@ -2383,7 +2412,7 @@ textarea {
 	padding: 6px 14px;
 	background: var(--chrome-bg);
 	border-top: 1px solid var(--chrome-border);
-	border-left: 2px solid var(--accent);
+	border-inline-start: 2px solid var(--accent);
 	font-size: 13px;
 	color: var(--muted);
 }
@@ -2713,7 +2742,7 @@ textarea {
 	max-height: 46%;
 	overflow: hidden;
 	pointer-events: none;
-	text-align: left;
+	text-align: start;
 	font-size: 11.5px;
 	line-height: 1.35;
 }
@@ -2823,7 +2852,7 @@ textarea {
 	gap: 9px;
 	background: none;
 	border: none;
-	text-align: left;
+	text-align: start;
 	font: inherit;
 	font-size: 13px;
 	color: var(--fg);
@@ -3165,8 +3194,9 @@ textarea {
 }
 
 .noteItem {
-	border-left: 2px solid color-mix(in srgb, var(--accent) 28%, transparent);
-	padding: 2px 0 2px 10px;
+	border-inline-start: 2px solid color-mix(in srgb, var(--accent) 28%, transparent);
+	padding: 2px 0;
+	padding-inline-start: 10px;
 }
 
 .noteMeta {
@@ -3267,7 +3297,7 @@ textarea {
 .notesUploadHint {
 	flex: 1;
 	min-width: 0;
-	text-align: right;
+	text-align: end;
 	color: var(--muted);
 	font-size: 12px;
 	overflow: hidden;
@@ -3633,13 +3663,15 @@ textarea {
 	font: inherit;
 	padding: 8px 12px;
 	cursor: pointer;
-	text-align: left;
+	text-align: start;
 }
 
 .profileNpubKey {
 	font-size: 13px;
 	color: var(--muted);
 	word-break: break-all;
+	direction: ltr; /* an npub is not prose - see .idField */
+	text-align: start;
 }
 
 .profileNpubHint {
@@ -3828,8 +3860,8 @@ textarea {
    not after. warning-coloured, but not an error - it's a legitimate choice. */
 .guildWarn {
 	margin-top: 10px;
-	border-left: 2px solid color-mix(in srgb, var(--danger) 45%, transparent);
-	padding-left: 8px;
+	border-inline-start: 2px solid color-mix(in srgb, var(--danger) 45%, transparent);
+	padding-inline-start: 8px;
 	color: var(--muted);
 	font-size: 12px;
 	line-height: 1.4;
@@ -4028,6 +4060,11 @@ textarea {
 	font-size: 14px;
 	padding: 9px 12px;
 	outline: 0;
+	/* keys are bech32/hex, never prose - so they read left-to-right no matter
+	   which way the ui runs. Left to inherit rtl, the masking asterisks and the
+	   "nsec1" prefix swap ends and the field looks corrupted. */
+	direction: ltr;
+	text-align: start;
 }
 
 /* action feedback (copied / imported / errors) rides inside the field on the
@@ -4200,13 +4237,13 @@ textarea {
 }
 
 /* reveal is set apart from the two bordered utility buttons: no border, lighter
-   weight, and left-aligned so it reads as a plain inline toggle rather than a
-   third button in the row. */
+   weight, and flush to the start edge so it reads as a plain inline toggle
+   rather than a third button in the row. */
 #revealNsecBtn {
 	border-color: transparent;
 	font-weight: 400;
-	text-align: left;
-	padding-left: 0;
+	text-align: start;
+	padding-inline-start: 0;
 }
 
 /* settings is a full-screen blurred panel like the users list: title + [EXIT]
@@ -4238,8 +4275,9 @@ textarea {
 	color: var(--muted);
 	font-size: 13px;
 	line-height: 1.4;
-	border-left: 2px solid color-mix(in srgb, var(--accent) 28%, transparent);
-	padding: 2px 0 2px 12px;
+	border-inline-start: 2px solid color-mix(in srgb, var(--accent) 28%, transparent);
+	padding: 2px 0;
+	padding-inline-start: 12px;
 }
 
 .settingsList {
@@ -4660,7 +4698,7 @@ textarea {
 	margin-top: 3px;
 	font-size: 0.72em;
 	color: var(--muted);
-	text-align: right;
+	text-align: end;
 }
 
 .dmMeta .dmStatus.read {

@@ -16,7 +16,7 @@
 // whitelist here is load-bearing: unknown names resolve to "" rather than being
 // interpolated into markup.
 
-export const FLAIRS = ["fire", "lightning", "stars", "rain", "plume"];
+export const FLAIRS = ["fire", "lightning", "stars", "rain", "plume", "neon"];
 
 const KNOWN = new Set(FLAIRS);
 
@@ -38,6 +38,9 @@ const FLAIR_LIMITS = {
 	stars: 0,
 	rain: 0,
 	plume: 3,
+	// two pseudo-elements animating opacity and nothing else - no blur, no blend, no
+	// particles. Cheaper than any of the others, so it starts uncapped like they did.
+	neon: 0,
 };
 
 // how many of `raw` may animate at once; 0 for unlimited (and for unknown names,
@@ -477,6 +480,43 @@ export function flairVars(raw) {
 			"--plume-reach-delay": `-${rnd(0, 30).toFixed(2)}s`,
 			"--plume-text-dur": `${rnd(4.5, 8.5).toFixed(2)}s`,
 			"--plume-text-delay": `-${rnd(0, 8).toFixed(2)}s`,
+		};
+	}
+	// neon is a FRAME, not a field: everything it does happens on the row's outline.
+	// Two things are randomized, and they're the two that would give the trick away
+	// if they weren't - the buzz's period, and everything about the failing segment.
+	// A tube that always dies in the same place at the same interval is a loop; one
+	// that dies somewhere new, on a period nothing else shares, is a broken sign.
+	if (n === "neon") {
+		// which colour this tube is filled with, and which one haloes it. Splitting it
+		// per line is what makes a screenful read as a street of signs rather than one
+		// repeated sign.
+		const pinkFirst = Math.random() < 0.62; // pink leads more often - it's the warmer read
+		const HOT_PINK = "#ff2d95";
+		const CYAN = "#22e6ff";
+		// the failing segment sits on the top or bottom rail - the long edges, where a
+		// gap is legible. `--neon-dead-y` places it on one of them.
+		const onTop = Math.random() < 0.5;
+		return {
+			"--neon-a": pinkFirst ? HOT_PINK : CYAN,
+			"--neon-b": pinkFirst ? CYAN : HOT_PINK,
+			"--neon-core": pinkFirst ? "#ffe4f3" : "#dcfaff",
+			// the hum: fast, shallow, and on its own period per line so no two tubes
+			// buzz together. Anything slower than about a second stops reading as
+			// electrical and starts reading as breathing.
+			"--neon-hum-dur": `${rnd(0.62, 1.35).toFixed(2)}s`,
+			"--neon-hum-delay": `-${rnd(0, 1.2).toFixed(2)}s`,
+			// the dead-tube stutter. Long period, because it has to stay an EVENT: a
+			// tube that gutters every few seconds is a strobe, and the whole point is
+			// that you catch it out of the corner of your eye.
+			"--neon-dead-dur": `${rnd(11, 23).toFixed(2)}s`,
+			"--neon-dead-delay": `-${rnd(0, 22).toFixed(2)}s`,
+			"--neon-dead-top": onTop ? "-6px" : "auto",
+			"--neon-dead-bottom": onTop ? "auto" : "-6px",
+			"--neon-dead-x": `${Math.round(rnd(8, 62))}%`,
+			"--neon-dead-w": `${Math.round(rnd(14, 34))}%`,
+			"--neon-text-dur": `${rnd(4, 7).toFixed(2)}s`,
+			"--neon-text-delay": `-${rnd(0, 6).toFixed(2)}s`,
 		};
 	}
 	if (n !== "stars") return {};

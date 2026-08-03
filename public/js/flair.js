@@ -83,12 +83,95 @@ export function flairClass(raw) {
 const rnd = (min, max) => min + Math.random() * (max - min);
 const pick = (arr) => arr[(Math.random() * arr.length) | 0];
 
+// --- how a neon tube is bent ----------------------------------------------------
+// A sign is one length of tube a glassblower bent to a shape, and the tell is that
+// it DOUBLES BACK: it runs out along the top, turns, comes back underneath, tucks
+// inside itself. A single rectangle around the row can never do that - it is a
+// border with a glow on it, which is the one thing this flair is trying not to be.
+//
+// So a shape is two PIECES, and the wrap is what happens between them. Each piece is
+// a box with some of its sides drawn, so both together are two elements with four
+// border widths each - no markup, no extra layers, nothing per-frame.
+//
+// The horizontal run is what carries the effect, and it is easy to underestimate. A
+// chat row is twenty-odd pixels tall and several hundred wide, so dropping a SIDE
+// changes about one pixel at the far edge and every shape still reads as the same
+// long box. Stopping one piece at 58% and starting the other at 40%, so they overlap
+// through the middle at different heights, is unmistakable from across the screen.
+//
+// x0/x1 are the run in percent; `top`/`bottom` inset the piece vertically in px, and
+// a piece set in on BOTH is one the tube has coiled inside itself. Radii use the CSS
+// shorthand order: top-left, top-right, bottom-right, bottom-left.
+const NEON_SHAPES = [
+	{
+		// the closed sign, with the tube tucked back inside along the bottom
+		name: "coil",
+		p1: { t: 1, r: 1, b: 1, l: 1, x0: 0, x1: 100, top: 0, bottom: 0, radius: "5px" },
+		p2: { t: 0, r: 0, b: 1, l: 1, x0: 10, x1: 74, top: 5, bottom: 4, radius: "0 0 0 7px" },
+	},
+	{
+		// out along the top, down at the end, back underneath - the classic bend
+		name: "switchback",
+		p1: { t: 1, r: 1, b: 0, l: 0, x0: 0, x1: 100, top: 0, bottom: 0, radius: "0 9px 0 0" },
+		p2: { t: 0, r: 0, b: 1, l: 1, x0: 0, x1: 100, top: 0, bottom: 0, radius: "0 0 0 9px" },
+	},
+	{
+		// two rails that overlap through the middle at different heights, so the tube
+		// reads as crossing back over itself
+		name: "crossover",
+		p1: { t: 1, r: 1, b: 0, l: 0, x0: 0, x1: 58, top: 0, bottom: 0, radius: "0 10px 0 0" },
+		p2: { t: 0, r: 0, b: 1, l: 1, x0: 40, x1: 100, top: 0, bottom: 0, radius: "0 0 0 10px" },
+	},
+	{
+		// a bracket at each end, facing each other
+		name: "clasp",
+		p1: { t: 1, r: 0, b: 1, l: 1, x0: 0, x1: 30, top: 0, bottom: 0, radius: "9px 0 0 9px" },
+		p2: { t: 1, r: 1, b: 1, l: 0, x0: 68, x1: 100, top: 0, bottom: 0, radius: "0 9px 9px 0" },
+	},
+	{
+		// a staple over the head, a trough under the tail
+		name: "stagger",
+		p1: { t: 1, r: 1, b: 0, l: 1, x0: 0, x1: 46, top: 0, bottom: 0, radius: "8px 8px 0 0" },
+		p2: { t: 0, r: 1, b: 1, l: 1, x0: 34, x1: 100, top: 0, bottom: 0, radius: "0 0 8px 8px" },
+	},
+	{
+		// a frame with a second, shorter run nested inside it
+		name: "nested",
+		p1: { t: 1, r: 1, b: 1, l: 1, x0: 0, x1: 100, top: 0, bottom: 0, radius: "5px" },
+		p2: { t: 1, r: 1, b: 0, l: 0, x0: 16, x1: 86, top: 4, bottom: 5, radius: "0 6px 0 0" },
+	},
+	{
+		// bare rails over and under, the top one hooking back down at its left
+		name: "return",
+		p1: { t: 1, r: 0, b: 0, l: 1, x0: 0, x1: 100, top: 0, bottom: 0, radius: "8px 0 0 0" },
+		p2: { t: 0, r: 1, b: 1, l: 0, x0: 12, x1: 100, top: 0, bottom: 0, radius: "0 0 8px 0" },
+	},
+	{
+		// a long trough with a short hood over its start, tucked in
+		name: "hood",
+		p1: { t: 0, r: 1, b: 1, l: 1, x0: 0, x1: 100, top: 0, bottom: 0, radius: "0 0 7px 7px" },
+		p2: { t: 1, r: 0, b: 0, l: 1, x0: 6, x1: 52, top: 3, bottom: 6, radius: "7px 0 0 0" },
+	},
+];
+
+// the css custom properties one piece of tube needs
+function neonPiece(prefix, s) {
+	return {
+		[`${prefix}-t`]: s.t ? "1px" : "0",
+		[`${prefix}-r`]: s.r ? "1px" : "0",
+		[`${prefix}-b`]: s.b ? "1px" : "0",
+		[`${prefix}-l`]: s.l ? "1px" : "0",
+		[`${prefix}-inset`]: `${s.top}px ${100 - s.x1}% ${s.bottom}px ${s.x0}%`,
+		[`${prefix}-radius`]: s.radius,
+	};
+}
+
 // flairs that want an extra one-shot layer in the markup, fired by a shared ticker
 // (see app.js): the stars flair's shooting star, the lightning flair's strike.
 // (fire and rain instead use it as a persistent container of individual particles:
 // one element per spark/drop is the only way each gets its own spawn time and path,
 // which a box-shadow field - one element, one animation - cannot give.)
-const FX_FLAIRS = new Set(["stars", "lightning", "fire", "rain", "plume"]);
+const FX_FLAIRS = new Set(["stars", "lightning", "fire", "rain", "plume", "neon"]);
 
 export function flairHasFx(raw) {
 	return FX_FLAIRS.has(flairName(raw));
@@ -102,6 +185,9 @@ export function flairFxInner(raw) {
 	if (n === "fire") return fireEmberMarkup();
 	if (n === "rain") return rainDropMarkup();
 	if (n === "plume") return plumePuffMarkup();
+	// neon's fx layer holds the one part of it that isn't tube: the segment that
+	// gives out. Both pseudo-elements are spoken for by the two lengths of glass.
+	if (n === "neon") return `<span class="neonDead"></span>`;
 	return "";
 }
 
@@ -488,19 +574,35 @@ export function flairVars(raw) {
 	// A tube that always dies in the same place at the same interval is a loop; one
 	// that dies somewhere new, on a period nothing else shares, is a broken sign.
 	if (n === "neon") {
-		// which colour this tube is filled with, and which one haloes it. Splitting it
-		// per line is what makes a screenful read as a street of signs rather than one
-		// repeated sign.
+		// which colour this tube burns, and which one haloes it. Splitting it per line
+		// is what makes a screenful read as a street of signs rather than one repeated
+		// sign. The CORE is white for every line - that is what reads as lit gas - and
+		// the colour lives in the thin bloom just outside it.
 		const pinkFirst = Math.random() < 0.62; // pink leads more often - it's the warmer read
 		const HOT_PINK = "#ff2d95";
 		const CYAN = "#22e6ff";
-		// the failing segment sits on the top or bottom rail - the long edges, where a
-		// gap is legible. `--neon-dead-y` places it on one of them.
-		const onTop = Math.random() < 0.5;
+		const shape = pick(NEON_SHAPES);
+		// the failure has to land on a rail one of the pieces actually HAS, and within
+		// the stretch that piece runs along - otherwise the sign goes out somewhere
+		// there was never any tube to go out. Whichever piece it picks, the segment is
+		// placed against that piece's own geometry.
+		const rails = [];
+		for (const [piece, part] of [[shape.p1, "p1"], [shape.p2, "p2"]]) {
+			if (piece.t) rails.push({ piece, part, edge: "top" });
+			if (piece.b) rails.push({ piece, part, edge: "bottom" });
+		}
+		const hit = pick(rails);
+		const run = hit.piece.x1 - hit.piece.x0;
+		const deadW = Math.max(10, Math.round(rnd(run * 0.22, run * 0.42)));
+		const deadX = Math.round(hit.piece.x0 + rnd(2, Math.max(3, run - deadW - 2)));
+		// the rail's own vertical offset, so the gap sits ON the tube rather than where
+		// the tube would be if the piece weren't inset
+		const railY = hit.edge === "top" ? hit.piece.top : hit.piece.bottom;
 		return {
-			"--neon-a": pinkFirst ? HOT_PINK : CYAN,
-			"--neon-b": pinkFirst ? CYAN : HOT_PINK,
-			"--neon-core": pinkFirst ? "#ffe4f3" : "#dcfaff",
+			"--neon-lit": pinkFirst ? HOT_PINK : CYAN,
+			"--neon-halo": pinkFirst ? CYAN : HOT_PINK,
+			...neonPiece("--neon-p1", shape.p1),
+			...neonPiece("--neon-p2", shape.p2),
 			// the hum: fast, shallow, and on its own period per line so no two tubes
 			// buzz together. Anything slower than about a second stops reading as
 			// electrical and starts reading as breathing.
@@ -511,10 +613,10 @@ export function flairVars(raw) {
 			// that you catch it out of the corner of your eye.
 			"--neon-dead-dur": `${rnd(11, 23).toFixed(2)}s`,
 			"--neon-dead-delay": `-${rnd(0, 22).toFixed(2)}s`,
-			"--neon-dead-top": onTop ? "-6px" : "auto",
-			"--neon-dead-bottom": onTop ? "auto" : "-6px",
-			"--neon-dead-x": `${Math.round(rnd(8, 62))}%`,
-			"--neon-dead-w": `${Math.round(rnd(14, 34))}%`,
+			"--neon-dead-top": hit.edge === "top" ? `${railY - 5}px` : "auto",
+			"--neon-dead-bottom": hit.edge === "top" ? "auto" : `${railY - 5}px`,
+			"--neon-dead-x": `${deadX}%`,
+			"--neon-dead-w": `${deadW}%`,
 			"--neon-text-dur": `${rnd(4, 7).toFixed(2)}s`,
 			"--neon-text-delay": `-${rnd(0, 6).toFixed(2)}s`,
 		};

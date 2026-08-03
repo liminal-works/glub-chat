@@ -723,6 +723,12 @@ textarea {
 	padding: 3px 10px;
 	border-radius: 4px;
 	margin-right: 4px;
+	/* An inline-block's baseline is its last line box UNLESS its overflow is clipped,
+	   in which case it's the bottom margin edge. Every flair here clips except neon,
+	   which has to let its glow out - so left on the default the neon swatch aligned
+	   by a different rule from its neighbours and sat visibly lower in the row. Taking
+	   all of them off the baseline entirely is what keeps the strip level. */
+	vertical-align: middle;
 }
 
 /* fire: a bonfire under a night sky. The glow fades HORIZONTALLY (as lightning's
@@ -981,44 +987,77 @@ textarea {
 
 /* --- neon: the frame IS the effect -----------------------------------------------
    Every other flair fills the row - embers, drops, stars, a wash. This one puts
-   nothing inside it at all: a glass tube bent around the outline, buzzing, with a
-   section that occasionally gives out and catches again.
+   nothing inside it at all: lengths of glass tube bent around the outline, buzzing,
+   with a section that occasionally gives out and catches again.
 
-   Two pseudo-elements, both animating opacity and nothing else, so it stays as
-   cheap as the field flairs despite looking like the most expensive one:
+   Three layers, all animating opacity and nothing else, so despite looking like the
+   most expensive effect here it is the cheapest - no blur, no blend, no particles:
 
-     ::before  the tube - a bright core stroke with the glow stacked around it
-     ::after   the failure - a short unlit segment that blinks over one rail
+     ::before   one length of tube
+     ::after    the second length, which is what lets the shape DOUBLE BACK
+     .neonDead  the failure, hosted in the shared fx layer
 
-   `overflow: visible` because a neon sign's whole character is the light that
-   escapes it; the base .flair clips, which exists to keep PARTICLES in, and this
-   flair has none to lose. */
+   Two pieces rather than one box because a single rectangle can only ever be a
+   border with a glow on it. A sign is one tube a glassblower bent, and the tell is
+   that it turns and comes back - out along the top, down at the end, back underneath,
+   sometimes tucked inside its own run. Which sides each piece draws, how far along
+   the row it runs and how its corners bend all come from NEON_SHAPES in flair.js.
+
+   `overflow: visible` because a sign's whole character is the light that escapes it;
+   the base .flair clips, which exists to keep PARTICLES in, and this flair has none
+   to lose. */
 .flair-neon {
 	overflow: visible;
 }
 
-.flair-neon::before {
-	inset: 0;
-	border-radius: 5px;
-	/* the filament: a thin hard stroke, near-white but tinted toward the tube's own
-	   colour, so the core reads as hotter than the gas around it rather than as a
-	   separate white line. */
-	border: 1.5px solid var(--neon-core, #ffe4f3);
-	/* three outward layers and one inward. The inward one is what makes it a TUBE:
-	   without it the border is a lit wire with a dark inside, and the row loses the
-	   sense of being enclosed by glass. */
+/* The glow is deliberately SMALL. A wide halo is what an effect reaches for when the
+   core isn't convincing, and it costs twice over: the row stops reading as thin glass
+   and starts reading as a blurred rectangle, and the bloom grows big enough to crowd
+   the rows around it. What actually says neon is a hard white filament with the gas
+   colour hugging it - one tight coloured layer, one slightly wider, and nothing else. */
+.flair-neon::before,
+.flair-neon::after {
+	border-style: solid;
+	/* pure white, every line: lit gas has no colour left in the middle of the arc.
+	   The tint belongs to the bloom just outside it, which is where the eye reads it. */
+	border-color: #ffffff;
+	/* two tight layers of the tube's own colour hugging the filament, then one
+	   slightly wider in the second colour. Small radii, but SATURATED - the earlier
+	   pass went so far the other way that the colour vanished and the row read as a
+	   plain white outline. Brightness is not the same as reach. */
 	box-shadow:
-		0 0 3px var(--neon-a, #ff2d95),
-		0 0 9px var(--neon-a, #ff2d95),
-		0 0 17px var(--neon-b, #22e6ff),
-		inset 0 0 6px var(--neon-a, #ff2d95);
+		0 0 1px var(--neon-lit, #ff2d95),
+		0 0 3px var(--neon-lit, #ff2d95),
+		0 0 7px var(--neon-halo, #22e6ff);
 	animation: flairNeonHum var(--neon-hum-dur, 0.9s) linear var(--neon-hum-delay, 0s) infinite;
 }
 
-/* The buzz. Shallow, fast, and deliberately NOT a sine: mains hum is a ragged
-   thing, and evenly spaced keyframes read as a slow pulse no matter how quick you
-   make them. The values wander within a few percent of full - enough to see, not
-   enough to look like it's fading in and out. */
+.flair-neon::before {
+	inset: var(--neon-p1-inset, 0);
+	border-radius: var(--neon-p1-radius, 5px);
+	border-top-width: var(--neon-p1-t, 1px);
+	border-right-width: var(--neon-p1-r, 1px);
+	border-bottom-width: var(--neon-p1-b, 1px);
+	border-left-width: var(--neon-p1-l, 1px);
+}
+
+/* the second run, on its own phase of the same buzz - a bent tube does not hum in
+   perfect step end to end, and the slight offset is most of what stops the two
+   pieces reading as one flat outline. */
+.flair-neon::after {
+	inset: var(--neon-p2-inset, 0);
+	border-radius: var(--neon-p2-radius, 0);
+	border-top-width: var(--neon-p2-t, 0);
+	border-right-width: var(--neon-p2-r, 0);
+	border-bottom-width: var(--neon-p2-b, 1px);
+	border-left-width: var(--neon-p2-l, 1px);
+	animation-delay: calc(var(--neon-hum-delay, 0s) - 0.17s);
+}
+
+/* The buzz. Shallow, fast, and deliberately NOT a sine: mains hum is a ragged thing,
+   and evenly spaced keyframes read as a slow pulse no matter how quick you make them.
+   The values wander within a few percent of full - enough to see, not enough to look
+   like it is fading in and out. */
 @keyframes flairNeonHum {
 	0% {
 		opacity: 0.93;
@@ -1049,34 +1088,42 @@ textarea {
 	}
 }
 
+/* neon's fx layer is not a particle field - it is a full-row canvas the failing
+   segment is placed on. Opacity 1 because the segment carries its own. */
+.flair-neon > .flairFx {
+	inset: 0;
+	opacity: 1;
+}
+
 /* The dead segment: a patch of the page's own background laid over one rail.
-   Occluding rather than un-lighting is the trick - there is no way to switch off
-   part of a border, but a piece of the background sitting on top of it is
-   indistinguishable from a length of tube that has stopped conducting. It has to
-   swallow the HALO as well as the stroke, or the line goes dark while its glow
-   keeps burning around the gap, which reads as dirt on the glass.
+   Occluding rather than un-lighting is the trick - there is no way to switch off part
+   of a border, but a piece of the background sitting on top of it is indistinguishable
+   from a length of tube that has stopped conducting. It has to swallow the BLOOM as
+   well as the stroke, or the line goes dark while its glow keeps burning around the
+   gap, which reads as dirt on the glass.
 
    An ellipse rather than a bar, because a bar has four hard edges and every one of
    them announces itself as a rectangle drawn over the effect. Fading to transparent
-   at the ends lets the dark blend back into the lit tube the way a section losing
-   its arc actually goes: dimmest in the middle, uncertain at the boundaries. */
-.flair-neon::after {
-	top: var(--neon-dead-top, -6px);
+   at the ends lets the dark blend back into the lit tube the way a section losing its
+   arc actually goes: dimmest in the middle, uncertain at the boundaries. */
+.flair-neon .neonDead {
+	position: absolute;
+	top: var(--neon-dead-top, -5px);
 	bottom: var(--neon-dead-bottom, auto);
 	left: var(--neon-dead-x, 22%);
 	width: var(--neon-dead-w, 24%);
-	height: 13px;
-	background: radial-gradient(closest-side, var(--bg) 0 72%, transparent 100%);
+	height: 11px;
+	background: radial-gradient(closest-side, var(--bg) 0 70%, transparent 100%);
 	opacity: 0;
 	animation: flairNeonDead var(--neon-dead-dur, 15s) linear var(--neon-dead-delay, 0s) infinite;
 }
 
-/* A failing tube doesn't blink on a timer - it drops out, gropes for the arc,
+/* A failing tube does not blink on a timer - it drops out, gropes for the arc,
    catches, loses it again, then holds. So the segment is dark for the overwhelming
-   majority of the cycle's remainder and the failure itself is a short irregular
-   burst: out, back, out longer, back, one last flutter, then steady for another
-   fifteen seconds or so. The long dead stretch at the top of the cycle is what
-   keeps it an event you catch rather than a rhythm you learn. */
+   majority of the cycle and the failure itself is a short irregular burst: out, back,
+   out longer, back, one last flutter, then steady for another fifteen seconds or so.
+   The long quiet stretch is what keeps it an event you catch rather than a rhythm you
+   learn. */
 @keyframes flairNeonDead {
 	0%,
 	87.4% {
@@ -1789,12 +1836,13 @@ textarea {
    it at anything less would look like a fault rather than a stilled effect. The dead
    segment parks OUT (opacity 0, which is also its resting value), because a frozen
    gap is a broken sign, not a quiet one. */
-.flair-neon.flairQuiet::before {
-	opacity: 1;
-}
-
+/* a quiet neon keeps BOTH lengths of tube lit at full - the whole flair is the tube,
+   so parking either at anything less would look like a fault rather than a stilled
+   effect. The failing segment lives in the fx layer, which the shared rule above
+   already hides: a frozen gap is a broken sign, not a quiet one. */
+.flair-neon.flairQuiet::before,
 .flair-neon.flairQuiet::after {
-	opacity: 0;
+	opacity: 1;
 }
 
 .flair-lightning.flairQuiet .fmtRainbow,
@@ -1845,11 +1893,12 @@ textarea {
 		animation: none;
 		filter: brightness(1);
 	}
-	/* the tube stays lit and the fault never happens: a sign that's simply ON */
-	.flair-neon::before {
+	/* both tubes stay lit and the fault never happens: a sign that is simply ON */
+	.flair-neon::before,
+	.flair-neon::after {
 		opacity: 1;
 	}
-	.flair-neon::after {
+	.flair-neon .neonDead {
 		opacity: 0;
 	}
 	/* haze keeps its violet, parked at a readable density rather than mid-breath */

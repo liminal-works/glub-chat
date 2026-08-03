@@ -295,6 +295,11 @@ const mediaSettings = { censorImages: localStorage.getItem(STORAGE_CENSOR_MEDIA)
 let censorMessages = localStorage.getItem(STORAGE_CENSOR_TEXT) === "true";
 const revealedImages = new Set(); // "entryId:idx" keys for images tapped open
 const revealedMessages = new Set(); // entry ids of censored messages tapped open
+// Entry ids you asked to hide yourself, from the action popup. The profanity list is
+// a guess at what you'd rather not see; this is you saying so directly, so it applies
+// to ANY message and not only a flagged one - including putting one back after you've
+// revealed it, which reveal alone gave no way to undo.
+const hiddenMessages = new Set();
 
 function setCensorMedia(on) {
 	mediaSettings.censorImages = on;
@@ -432,6 +437,7 @@ const actionCopyNpub = document.getElementById("actionCopyNpub");
 const actionReply = document.getElementById("actionReply");
 const actionTranslate = document.getElementById("actionTranslate");
 const actionCopy = document.getElementById("actionCopy");
+const actionHide = document.getElementById("actionHide");
 const actionHug = document.getElementById("actionHug");
 const actionSlap = document.getElementById("actionSlap");
 const actionBlock = document.getElementById("actionBlock");
@@ -1494,7 +1500,11 @@ function messageInnerHtml(entry) {
 // whether a message is currently hidden by text-censorship (setting on, content
 // flagged, not yet revealed). system lines are never censored.
 function isMessageCensored(entry) {
-	return censorMessages && !entry.system && entry.profane && !revealedMessages.has(entry.id);
+	if (!censorMessages || entry.system) return false;
+	// hiding it yourself outranks having revealed it - otherwise the two sets would
+	// argue and the message you just asked to put away would stay open.
+	if (hiddenMessages.has(entry.id)) return true;
+	return entry.profane && !revealedMessages.has(entry.id);
 }
 
 // the complete inner html for an entry's line, including the optional #geo
@@ -3888,6 +3898,7 @@ function openNoteActionPopup(note) {
 	actionContext.media = extractImageUrls(actionContext.content);
 	actionSaveMedia.hidden = !actionContext.media.length && !actionContext.content.trim();
 	actionDelete.hidden = true; // withdrawal is a guild action; notes have their own
+	actionHide.hidden = true; // the censor works on chat entries; a note isn't one
 	actionGrid.classList.add("solo"); // only one action remains - let it span full width
 	// join the note's origin channel - the whole point of the sheet is to read a
 	// place's notes, so jumping into its live chat is a natural next step
@@ -4414,6 +4425,10 @@ function openActionPopup(pubkey, entry) {
 	// nothing to own); one that's only text saves the text.
 	actionContext.media = extractImageUrls(content);
 	actionSaveMedia.hidden = !actionContext.media.length && !content.trim();
+	// Offered on ANY message while the text censor is on - not just a flagged one.
+	// The profanity list is a guess at what you'd rather not see; this is you saying
+	// so directly. Pointless on a message already put away, which is why it checks.
+	actionHide.hidden = !censorMessages || !entry || entry.system || isMessageCensored(entry);
 	// restore the chat-only actions (a preceding note popup may have hidden them)
 	actionReply.hidden = false;
 	actionHug.hidden = false;
@@ -4893,6 +4908,16 @@ actionSaveMedia.addEventListener("click", () => {
 	if (keep.length < urls.length) appendSystem(t("gallery.ephemeral"));
 });
 
+actionHide.addEventListener("click", () => {
+	const id = actionContext && actionContext.entryId;
+	closeActionPopup();
+	if (!id) return;
+	hiddenMessages.add(id);
+	revealedMessages.delete(id); // put it back even if it had been revealed
+	const entry = entries.find((e) => e.id === id);
+	if (entry) rerenderEntryEl(entry);
+});
+
 actionDelete.addEventListener("click", () => {
 	const id = actionContext && actionContext.entryId;
 	closeActionPopup();
@@ -5255,6 +5280,7 @@ terminal.addEventListener("click", (e) => {
 	if (!rev) return;
 	const id = rev.dataset.censorReveal;
 	revealedMessages.add(id);
+	hiddenMessages.delete(id); // tapping it open undoes a hide as well as a flag
 	const entry = entries.find((en) => en.id === id);
 	if (entry) rerenderEntryEl(entry);
 });
@@ -6839,10 +6865,31 @@ function wordleScore(guess, secret) {
 	return res.join("");
 }
 
-// the board so far: a header, then one line per guess (emoji row + the word).
+// Letters you have spent that are not in the word at all.
+//
+// Membership in the SECRET, not the score: a letter guessed twice where the word
+// holds it once scores its second copy grey, and listing that letter as ruled out
+// would be a lie the board itself contradicts. The emoji rows already say where a
+// letter goes; this says which ones are gone, which is the thing you otherwise have
+// to reconstruct by eye from every row you have played.
+function wordleGone(game) {
+	const gone = new Set();
+	for (const g of game.guesses) {
+		for (const ch of g) if (!game.secret.includes(ch)) gone.add(ch);
+	}
+	return [...gone].sort();
+}
+
+// the board so far: a header, then one line per guess (emoji row + the word), then
+// the letters ruled out.
 function wordleBoard(game, header) {
 	const rows = game.guesses.map((g) => `${wordleScore(g, game.secret)}  ${g}`);
-	return `${header}\n\n${rows.join("\n")}`;
+	const gone = wordleGone(game);
+	// "not in word" rather than "used" or "exclude": every letter on the board has
+	// been used, and this is the subset that came back empty. Naming it for what it
+	// means costs two words and needs no explaining.
+	const ruled = gone.length ? `\n\n${t("system.wordle_gone")} ${gone.join(" ")}` : "";
+	return `${header}\n\n${rows.join("\n")}${ruled}`;
 }
 
 // a wordle board goes out to the channel as your ".bot", the same broadcast path

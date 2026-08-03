@@ -1011,14 +1011,19 @@ textarea {
 	overflow: visible;
 }
 
-/* the glass: a coloured band, with just enough bloom to lift it off the black */
+/* the glass: a coloured band, with just enough bloom to lift it off the black.
+   The SAME bloom inward as outward - a real tube throws light in every direction,
+   and lighting only the outside is what made it read as a border with a glow bolted
+   on rather than as something switched on inside the row. */
 .flair-neon::before {
 	inset: 0;
 	border: 3px solid var(--neon-lit, #ff2d95);
 	border-radius: 6px;
 	box-shadow:
 		0 0 3px var(--neon-lit, #ff2d95),
-		0 0 7px var(--neon-halo, #ff5cb0);
+		0 0 7px var(--neon-halo, #ff5cb0),
+		inset 0 0 3px var(--neon-lit, #ff2d95),
+		inset 0 0 7px var(--neon-halo, #ff5cb0);
 	animation: flairNeonHum var(--neon-hum-dur, 0.9s) linear var(--neon-hum-delay, 0s) infinite;
 }
 

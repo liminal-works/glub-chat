@@ -1541,6 +1541,63 @@ function ackTag(entry) {
 	return ""; // historical line, or a confirmed one whose latency has since faded
 }
 
+// --- reserving space for pictures ------------------------------------------------
+//
+// An <img> with no dimensions occupies NO height until its bytes arrive, then jumps
+// to full size. Scrolling a backlog of them is a stream of those jumps, each one
+// moving everything below it - and each one needing a scroll correction that, on a
+// phone, kills the flick that is in progress. The cure is upstream of both: give the
+// row its final height before the picture arrives, so nothing moves and there is
+// nothing to correct.
+//
+// Remote images don't announce their size, so it's learned on first sight and
+// remembered. Width/height ATTRIBUTES rather than a forced box: they give the
+// browser the intrinsic ratio to reserve, while max-width/max-height keep doing the
+// sizing, so a small picture is still drawn small. Nothing about how it looks
+// changes - only when its space is claimed.
+const IMG_SIZE_KEY = "glub_img_sizes_v1";
+const IMG_SIZE_MAX = 400;
+// what to reserve for a picture never seen before. Wrong for any given image, but
+// wrong by a fraction of a screen instead of by its entire height.
+const IMG_PLACEHOLDER_RATIO = 4 / 3;
+
+const imageSizes = (() => {
+	try {
+		const raw = JSON.parse(localStorage.getItem(IMG_SIZE_KEY) || "{}");
+		return new Map(Object.entries(raw).filter(([, v]) => Array.isArray(v) && v.length === 2));
+	} catch {
+		return new Map();
+	}
+})();
+
+let imageSizesDirty = false;
+
+function rememberImageSize(url, w, h) {
+	if (!url || !(w > 0) || !(h > 0)) return;
+	if (imageSizes.has(url)) return;
+	imageSizes.set(url, [w, h]);
+	// oldest out first - a Map iterates in insertion order
+	while (imageSizes.size > IMG_SIZE_MAX) imageSizes.delete(imageSizes.keys().next().value);
+	if (imageSizesDirty) return;
+	imageSizesDirty = true;
+	// batched: a screenful of pictures landing together shouldn't be a screenful of
+	// synchronous localStorage writes during a scroll.
+	setTimeout(() => {
+		imageSizesDirty = false;
+		try {
+			localStorage.setItem(IMG_SIZE_KEY, JSON.stringify(Object.fromEntries(imageSizes)));
+		} catch {} // quota: the in-memory map still does the job this session
+	}, 1000);
+}
+
+// the width/height attributes for a url, so the box is claimed before it loads
+function imageSizeAttrs(url) {
+	const known = imageSizes.get(url);
+	if (known) return ` width="${known[0]}" height="${known[1]}"`;
+	// unseen: reserve a plausible box at the widest we'd ever draw one
+	return ` width="420" height="${Math.round(420 / IMG_PLACEHOLDER_RATIO)}" data-img-guess="1"`;
+}
+
 // one preview block per image url in the message, blurred by default with a
 // tap-to-reveal overlay (bitchat-style); tapping again re-blurs it.
 function renderImagePreviews(entry) {
@@ -1549,19 +1606,20 @@ function renderImagePreviews(entry) {
 	return entry.images
 		.map((url, idx) => {
 			const safeUrl = escapeHtml(url);
+			const size = imageSizeAttrs(url);
 
 			if (!mediaSettings.censorImages) {
-				return `<div class="mediaPreview"><img class="chatImagePreview" src="${safeUrl}" alt="image preview" loading="lazy"></div>`;
+				return `<div class="mediaPreview"><img class="chatImagePreview" src="${safeUrl}"${size} alt="image preview" loading="lazy"></div>`;
 			}
 
 			const key = `${entry.id}:${idx}`;
 			if (revealedImages.has(key)) {
-				return `<div class="mediaPreview" data-img-toggle="${escapeHtml(key)}"><img class="chatImagePreview" src="${safeUrl}" alt="image preview" loading="lazy"></div>`;
+				return `<div class="mediaPreview" data-img-toggle="${escapeHtml(key)}"><img class="chatImagePreview" src="${safeUrl}"${size} alt="image preview" loading="lazy"></div>`;
 			}
 
 			return (
 				`<div class="mediaPreview" data-img-toggle="${escapeHtml(key)}">` +
-				`<img class="chatImagePreview chatImagePreviewCensored" src="${safeUrl}" alt="image preview" loading="lazy">` +
+				`<img class="chatImagePreview chatImagePreviewCensored" src="${safeUrl}"${size} alt="image preview" loading="lazy">` +
 				`<div class="mediaCensorOverlay">${escapeHtml(t("message.reveal"))}</div></div>`
 			);
 		})
@@ -1805,10 +1863,36 @@ function captureScrollAnchor() {
 // wherever it was minutes ago.
 let anchorScrollTop = -1;
 
+// A scroll gesture (or the momentum after it) is in flight. Writing scrollTop during
+// one is what makes an iOS flick die mid-air: the scroller is running off the main
+// thread and an assignment yanks it back, which reads as the app locking up. Nothing
+// is worth that, so a correction is simply skipped while the reader is moving - the
+// anchor is re-read when they stop, and the space reserved for pictures means there
+// is usually nothing to correct anyway.
+const SCROLL_SETTLE_MS = 140;
+let lastScrollAt = 0;
+const scrollInFlight = () => Date.now() - lastScrollAt < SCROLL_SETTLE_MS;
+
+// The touch itself, not just the scrolling it produces. A scroll event arrives a
+// frame or more after the finger lands, and pictures finishing inside that gap were
+// still able to get a write in - right at the start of the flick, which is the worst
+// moment for one. These are passive, so they cost the gesture nothing.
+for (const ev of ["touchstart", "touchmove", "touchend"]) {
+	terminal.addEventListener(
+		ev,
+		() => {
+			lastScrollAt = Date.now();
+		},
+		{ passive: true },
+	);
+}
+
 function restoreScrollAnchor() {
-	// pinned to the bottom means the BOTTOM is the anchor. Appends already jump there
-	// on their own; without this, the correction would drag the reader straight back
-	// off the newest message they were following.
+	if (scrollInFlight()) return;
+	// pinned to the bottom means the BOTTOM is the anchor. Following a new line is the
+	// append path's job, but content growing above with no new line to follow would
+	// otherwise push the reader off the bottom they were sitting on, and nothing else
+	// would bring them back.
 	if (autoScroll) {
 		scrollToBottom();
 		return;
@@ -1842,6 +1926,24 @@ if (manualScrollAnchoring) {
 	terminal.addEventListener("load", restoreScrollAnchor, true);
 	terminal.addEventListener("error", restoreScrollAnchor, true); // a broken image collapses too
 }
+
+// Learn every picture's real size the first time it's seen, on every browser - this
+// is what makes the NEXT render of it claim exactly the right space instead of
+// guessing. Also swaps the guessed box for the true one now that it's known.
+terminal.addEventListener(
+	"load",
+	(e) => {
+		const img = e.target;
+		if (!img || img.tagName !== "IMG" || !img.naturalWidth) return;
+		rememberImageSize(img.getAttribute("src"), img.naturalWidth, img.naturalHeight);
+		if (img.dataset.imgGuess) {
+			delete img.dataset.imgGuess;
+			img.setAttribute("width", img.naturalWidth);
+			img.setAttribute("height", img.naturalHeight);
+		}
+	},
+	true,
+);
 
 // coalesce to one pass per frame: a scroll can fire dozens of observer callbacks
 function queueFlairBudget() {
@@ -2017,7 +2119,15 @@ function insertEntry(entry) {
 	entries.splice(lo, 0, entry);
 	sigBump(entry, 1);
 
-	while (entries.length > MAX_LINES) {
+	// The buffer cap is a memory bound, not a deadline. Enforcing it while someone is
+	// reading history deletes rows ABOVE them, and everything below slides up by the
+	// height of whatever just vanished - mid-flick, that reads as the app snatching
+	// the page away. Nothing bad happens from carrying a few hundred extra lines for
+	// as long as they're up there; the cap is enforced the moment they return to the
+	// bottom, when there is nothing on screen for it to disturb.
+	const holdBuffer = !autoScroll && entries.length < MAX_LINES * 2;
+
+	while (!holdBuffer && entries.length > MAX_LINES) {
 		// Trim the oldest line the current view ISN'T showing, before touching
 		// anything on screen. Trimming strictly by age looks right until you tune
 		// into a guild: the guild's history is older than a buffer full of live
@@ -5076,9 +5186,14 @@ profileNpub.addEventListener("click", async () => {
 terminal.addEventListener("scroll", () => {
 	autoScroll = isNearBottom();
 	if (autoScroll) clearUnread();
-	// re-read the anchor from where the reader has just put themselves - but not from
-	// a scroll we performed ourselves to hold that very anchor in place.
-	if (Math.abs(terminal.scrollTop - anchorScrollTop) > 1) captureScrollAnchor();
+	// A scroll we performed ourselves is neither a reason to re-read the anchor nor
+	// evidence the reader is moving. Counting our own corrections as a gesture was
+	// enough to keep the "don't fight the finger" guard permanently armed during a
+	// run of loading pictures, so the anchor stopped being held at all.
+	if (Math.abs(terminal.scrollTop - anchorScrollTop) > 1) {
+		lastScrollAt = Date.now();
+		captureScrollAnchor();
+	}
 	if (focusedGuild && terminal.scrollTop <= HISTORY_TRIGGER_PX) loadOlderGuild();
 });
 

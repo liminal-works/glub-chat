@@ -1971,8 +1971,16 @@ textarea {
 
 .chatImagePreview {
 	display: block;
+	/* auto/auto so the width+height ATTRIBUTES supply the intrinsic size, which is
+	   what lets the browser claim the row's full height before the bytes land (see
+	   imageSizeAttrs in app.js). The max-* pair still does the actual sizing, and a
+	   replaced element resolves both of them preserving the ratio - so a small
+	   picture is still drawn small and nothing is stretched. */
+	width: auto;
+	height: auto;
 	max-width: min(100%, 420px);
 	max-height: 420px;
+	object-fit: contain;
 	border-radius: 8px;
 	border: 1px solid var(--chrome-border);
 }

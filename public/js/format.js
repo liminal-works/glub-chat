@@ -50,6 +50,20 @@ const OBFUSCATE = "k"; // scrambling "magic" text
 // so this module just marks the run and the row's flair class does the rest.
 const RAINBOW = "g";
 const RESET = "r";
+// &s: let the colour bleed into emoji, painting them as flat silhouettes.
+//
+// A colour is applied with -webkit-text-fill-color (and &g paints glyphs through a
+// clipped gradient), and both of those overrule a colour font - so a "&c" or "&g" run
+// flattens any emoji in it into a solid shape. That's a fine effect and a lousy
+// default: most people typing "&ahello 🎉" want a green hello and a party popper, not
+// a green blob. So emoji are left alone unless this code asks otherwise.
+//
+// It's a code rather than a setting because it belongs to the AUTHOR. The effect is
+// something you do to your message, and a reader-side switch would both change
+// everyone else's messages and leave the one person who wanted a silhouette unable to
+// count on anyone seeing it. As a code it rides along in the same ["glub","rich"] tag
+// as the rest of the formatting, so it needs no protocol change and nothing stored.
+const SILHOUETTE = "s";
 
 // a char is a recognized code iff it's a color, a format, animated, or reset.
 // Uppercase never matches, so acronyms ("Q&A", "AT&T") are safe even at a boundary.
@@ -59,9 +73,17 @@ function isCodeChar(ch) {
 		FORMATS.has(ch) ||
 		ch === OBFUSCATE ||
 		ch === RAINBOW ||
+		ch === SILHOUETTE ||
 		ch === RESET
 	);
 }
+
+// One emoji as a READER counts them, not as code points: a flag is two regional
+// indicators, a family is several pictographs joined by ZWJ, a skin tone is a
+// modifier, a keycap is a digit plus U+20E3. Splitting on code points would tear a
+// "👨‍👩‍👧‍👦" into pieces and paint half of it.
+export const EMOJI_SEQ_RE =
+	/\p{Extended_Pictographic}(?:️|\p{Emoji_Modifier})*(?:‍\p{Extended_Pictographic}(?:️|\p{Emoji_Modifier})*)*|[\u{1F1E6}-\u{1F1FF}]{2}|[0-9#*]️?⃣/gu;
 
 // Single-pass tokenizer shared by stripFormat + renderFormat so the two can
 // never disagree about what's a code. Yields {t:"text",v} | {t:"code",c}.
@@ -123,7 +145,16 @@ export function hasFormat(raw) {
 	return stripFormat(raw) !== String(raw || "");
 }
 
-const BLANK = { color: null, bold: false, italic: false, underline: false, strike: false, obf: false, rainbow: false };
+const BLANK = {
+	color: null,
+	bold: false,
+	italic: false,
+	underline: false,
+	strike: false,
+	obf: false,
+	rainbow: false,
+	silhouette: false,
+};
 
 // the Minecraft legacy rule: a solid color code clears every other flag (incl.
 // our animated ones); a format code adds one; reset clears everything. Rainbow
@@ -132,10 +163,15 @@ const BLANK = { color: null, bold: false, italic: false, underline: false, strik
 function applyCode(state, c) {
 	if (c === RESET) return { ...BLANK };
 	if (Object.prototype.hasOwnProperty.call(COLORS, c)) {
-		return { ...BLANK, color: COLORS[c] };
+		// silhouetting SURVIVES a colour change, unlike every other flag. It isn't a
+		// decoration, it's a statement about how colour should be applied - so you say
+		// it once and it governs the rest of the message, instead of having to repeat
+		// it after every "&c". "&r" still clears it, like everything else.
+		return { ...BLANK, color: COLORS[c], silhouette: state.silhouette };
 	}
 	const next = { ...state };
-	if (c === "l") next.bold = true;
+	if (c === SILHOUETTE) next.silhouette = true;
+	else if (c === "l") next.bold = true;
 	else if (c === "o") next.italic = true;
 	else if (c === "n") next.underline = true;
 	else if (c === "m") next.strike = true;
@@ -173,6 +209,39 @@ function classFor(state) {
 	return cls.join(" ");
 }
 
+// does this run's styling paint the glyphs themselves? Only those two do: bold,
+// italic and the underlines leave a colour font perfectly intact, so a run carrying
+// nothing else needs no emoji handling at all.
+function paintsGlyphs(state) {
+	return !!state.color || !!state.rainbow;
+}
+
+// Wrap the emoji inside a painted run so the paint doesn't reach them.
+//
+// Split BEFORE bodyFn rather than after: bodyFn returns html, and finding emoji in
+// html means finding them inside attributes too - the ️ in a title, the flag in a
+// url - where a wrapper would corrupt the markup. Splitting the plaintext first
+// means every piece handed to bodyFn is still plaintext, and the emoji pieces only
+// ever need escaping since a url can't be made of emoji.
+function renderRunSplittingEmoji(text, esc) {
+	EMOJI_SEQ_RE.lastIndex = 0;
+	let out = "";
+	let at = 0;
+	for (let m = EMOJI_SEQ_RE.exec(text); m; m = EMOJI_SEQ_RE.exec(text)) {
+		if (m.index > at) out += esc(text.slice(at, m.index));
+		out += `<span class="fmtEmoji">${escapeHtml(m[0])}</span>`;
+		at = m.index + m[0].length;
+	}
+	if (at < text.length) out += esc(text.slice(at));
+	return out;
+}
+
+// emoji carry no markup, so this is only here to keep a stray "&" or "<" from a
+// malformed sequence out of the html.
+function escapeHtml(s) {
+	return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
 // raw coded text -> safe html. Each plaintext run is passed through `bodyFn`
 // (app.js's richBody: escape + linkify + payment chips) so urls/#geo/tokens
 // still work inside colored text; the styled runs are wrapped in a span. A run
@@ -188,9 +257,11 @@ export function renderFormat(raw, bodyFn) {
 			state = applyCode(state, tok.c);
 			continue;
 		}
-		const inner = esc(tok.v);
 		const style = styleFor(state);
 		const cls = classFor(state);
+		// emoji opt OUT of the paint by default; "&s" opts them back in
+		const inner =
+			paintsGlyphs(state) && !state.silhouette ? renderRunSplittingEmoji(tok.v, esc) : esc(tok.v);
 		if (!style && !cls) {
 			html += inner;
 			continue;

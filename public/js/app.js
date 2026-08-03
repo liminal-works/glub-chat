@@ -25,7 +25,7 @@ import { fetchProfileMetadata, publishProfileMetadata } from "./nostr/profileEdi
 import { isProfane } from "./censor.js";
 import { fetchConditions, wmoDescribe, geocodePlace, parseLatLon } from "./weather.js";
 import { THEMES, themeNames, activeTheme, applyTheme, persistTheme, initTheme, hexToRgb } from "./themes.js";
-import { stripFormat, hasFormat, renderFormat } from "./format.js";
+import { stripFormat, hasFormat, renderFormat, EMOJI_SEQ_RE } from "./format.js";
 import { FLAIRS, flairName, flairClass, flairLimit, flairVars, flairHasFx, flairFxInner, lightningStrikeMarkup, rainGustMarkup, plumeSurgeMarkup } from "./flair.js";
 
 // re-apply the persisted theme before anything renders (module scripts run
@@ -904,8 +904,8 @@ function isActionMessage(text) {
 // one emoji routinely isn't one: a flag is two regional indicators, a family is
 // several pictographs joined by ZWJ, a skin tone is a modifier, and a keycap is a
 // digit plus U+20E3. Counting code points would size "👨‍👩‍👧‍👦" as if it were four.
-const EMOJI_SEQ_RE =
-	/\p{Extended_Pictographic}(?:️|\p{Emoji_Modifier})*(?:‍\p{Extended_Pictographic}(?:️|\p{Emoji_Modifier})*)*|[\u{1F1E6}-\u{1F1FF}]{2}|[0-9#*]️?⃣/gu;
+// Shared with format.js, which splits emoji out of coloured runs on the same
+// definition - two regexes for "one emoji" would eventually disagree.
 
 // how many emoji the message is made of, or 0 if it isn't made only of emoji.
 // Deliberately strict: every sequence is consumed and whatever is left must be
@@ -7322,6 +7322,7 @@ const COMMANDS = [
 				`${code("m")}  ${preview("&mstrikethrough")}`,
 				`${code("k")}  ${preview("&kobfuscated")}`,
 				`${code("g")}  ${preview("&grainbow")}  <span class="ts">${esc(t("colors.wildcard"))}</span>`,
+				`${code("s")}  ${preview("&csilhouette &s\u{1F41F}")}  <span class="ts">${esc(t("colors.silhouette"))}</span>`,
 				`${code("r")}  <span class="ts">${esc(t("colors.reset"))}</span>`,
 			];
 			const html =

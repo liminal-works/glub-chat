@@ -418,6 +418,27 @@ textarea {
 	}
 }
 
+/* An emoji inside a coloured or gradient run, kept as itself.
+   -webkit-text-fill-color and background-clip:text both overrule a colour font and
+   flatten an emoji into a solid shape, so a run that sets either has to hand the
+   emoji back their own painting. Everything the parent could be doing to the glyph
+   fill is undone here; the parent's bold/italic/underline still apply, which is
+   right - those don't destroy the emoji. "&s" makes format.js stop emitting this
+   wrapper, and the silhouette comes back. */
+.fmtEmoji {
+	/* var(--fg), not `initial`: initial resolves to BLACK, which is invisible on this
+	   background the moment a matched sequence renders as a monochrome glyph rather
+	   than a colour one (keycaps and a few dingbats do). A colour emoji paints from
+	   its own palette either way - what actually rescued it is dropping the
+	   background-clip mask below. */
+	color: var(--fg);
+	-webkit-text-fill-color: var(--fg);
+	background: none;
+	-webkit-background-clip: border-box;
+	background-clip: border-box;
+	animation: none;
+}
+
 /* &g is a WILDCARD, not literally "rainbow": with no flair equipped it's the rgb
    gradient above, but an equipped flair retunes it to its own palette, so your
    text and your row read as one effect. This needs no JS and no protocol change -

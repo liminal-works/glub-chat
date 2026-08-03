@@ -987,21 +987,22 @@ textarea {
 
 /* --- neon: the frame IS the effect -----------------------------------------------
    Every other flair fills the row - embers, drops, stars, a wash. This one puts
-   nothing inside it at all: lengths of glass tube bent around the outline, buzzing,
-   with a section that occasionally gives out and catches again.
+   nothing inside it at all: a glass tube bent around the outline, buzzing, with a
+   section that occasionally gives out and catches again.
 
    Three layers, all animating opacity and nothing else, so despite looking like the
    most expensive effect here it is the cheapest - no blur, no blend, no particles:
 
-     ::before   one length of tube
-     ::after    the second length, which is what lets the shape DOUBLE BACK
+     ::before   the tube: a band of coloured glass
+     ::after    the filament: a thinner white line down the MIDDLE of that band
      .neonDead  the failure, hosted in the shared fx layer
 
-   Two pieces rather than one box because a single rectangle can only ever be a
-   border with a glow on it. A sign is one tube a glassblower bent, and the tell is
-   that it turns and comes back - out along the top, down at the end, back underneath,
-   sometimes tucked inside its own run. Which sides each piece draws, how far along
-   the row it runs and how its corners bend all come from NEON_SHAPES in flair.js.
+   The filament is the whole trick, and it is the opposite of what a first pass
+   reaches for. Glow does not come from spread - a wide halo just reads as a blurred
+   rectangle and crowds the rows either side of it. It comes from a hot white centre
+   with colour to either side of it, which is what a lit tube actually looks like:
+   the arc is white, the gas around it carries the hue. Get that right and three
+   pixels of bloom is enough.
 
    `overflow: visible` because a sign's whole character is the light that escapes it;
    the base .flair clips, which exists to keep PARTICLES in, and this flair has none
@@ -1010,48 +1011,25 @@ textarea {
 	overflow: visible;
 }
 
-/* The glow is deliberately SMALL. A wide halo is what an effect reaches for when the
-   core isn't convincing, and it costs twice over: the row stops reading as thin glass
-   and starts reading as a blurred rectangle, and the bloom grows big enough to crowd
-   the rows around it. What actually says neon is a hard white filament with the gas
-   colour hugging it - one tight coloured layer, one slightly wider, and nothing else. */
-.flair-neon::before,
-.flair-neon::after {
-	border-style: solid;
-	/* pure white, every line: lit gas has no colour left in the middle of the arc.
-	   The tint belongs to the bloom just outside it, which is where the eye reads it. */
-	border-color: #ffffff;
-	/* two tight layers of the tube's own colour hugging the filament, then one
-	   slightly wider in the second colour. Small radii, but SATURATED - the earlier
-	   pass went so far the other way that the colour vanished and the row read as a
-	   plain white outline. Brightness is not the same as reach. */
+/* the glass: a coloured band, with just enough bloom to lift it off the black */
+.flair-neon::before {
+	inset: 0;
+	border: 3px solid var(--neon-lit, #ff2d95);
+	border-radius: 6px;
 	box-shadow:
-		0 0 1px var(--neon-lit, #ff2d95),
 		0 0 3px var(--neon-lit, #ff2d95),
-		0 0 7px var(--neon-halo, #22e6ff);
+		0 0 7px var(--neon-halo, #ff5cb0);
 	animation: flairNeonHum var(--neon-hum-dur, 0.9s) linear var(--neon-hum-delay, 0s) infinite;
 }
 
-.flair-neon::before {
-	inset: var(--neon-p1-inset, 0);
-	border-radius: var(--neon-p1-radius, 5px);
-	border-top-width: var(--neon-p1-t, 1px);
-	border-right-width: var(--neon-p1-r, 1px);
-	border-bottom-width: var(--neon-p1-b, 1px);
-	border-left-width: var(--neon-p1-l, 1px);
-}
-
-/* the second run, on its own phase of the same buzz - a bent tube does not hum in
-   perfect step end to end, and the slight offset is most of what stops the two
-   pieces reading as one flat outline. */
+/* the filament, centred in that band: the tube runs 0-3px in from the edge, so its
+   middle is at 1.5px and a 1px line at inset 1px sits exactly on it. Same phase as
+   the glass, because it is one tube - the arc and the gas do not buzz separately. */
 .flair-neon::after {
-	inset: var(--neon-p2-inset, 0);
-	border-radius: var(--neon-p2-radius, 0);
-	border-top-width: var(--neon-p2-t, 0);
-	border-right-width: var(--neon-p2-r, 0);
-	border-bottom-width: var(--neon-p2-b, 1px);
-	border-left-width: var(--neon-p2-l, 1px);
-	animation-delay: calc(var(--neon-hum-delay, 0s) - 0.17s);
+	inset: 1px;
+	border: 1px solid #ffffff;
+	border-radius: 5px;
+	animation: flairNeonHum var(--neon-hum-dur, 0.9s) linear var(--neon-hum-delay, 0s) infinite;
 }
 
 /* The buzz. Shallow, fast, and deliberately NOT a sine: mains hum is a ragged thing,
@@ -1099,8 +1077,8 @@ textarea {
    Occluding rather than un-lighting is the trick - there is no way to switch off part
    of a border, but a piece of the background sitting on top of it is indistinguishable
    from a length of tube that has stopped conducting. It has to swallow the BLOOM as
-   well as the stroke, or the line goes dark while its glow keeps burning around the
-   gap, which reads as dirt on the glass.
+   well as the glass and the filament, or the line goes dark while its glow keeps
+   burning around the gap, which reads as dirt on the glass.
 
    An ellipse rather than a bar, because a bar has four hard edges and every one of
    them announces itself as a rectangle drawn over the effect. Fading to transparent
@@ -1112,7 +1090,7 @@ textarea {
 	bottom: var(--neon-dead-bottom, auto);
 	left: var(--neon-dead-x, 22%);
 	width: var(--neon-dead-w, 24%);
-	height: 11px;
+	height: 13px;
 	background: radial-gradient(closest-side, var(--bg) 0 70%, transparent 100%);
 	opacity: 0;
 	animation: flairNeonDead var(--neon-dead-dur, 15s) linear var(--neon-dead-delay, 0s) infinite;
@@ -1836,10 +1814,10 @@ textarea {
    it at anything less would look like a fault rather than a stilled effect. The dead
    segment parks OUT (opacity 0, which is also its resting value), because a frozen
    gap is a broken sign, not a quiet one. */
-/* a quiet neon keeps BOTH lengths of tube lit at full - the whole flair is the tube,
-   so parking either at anything less would look like a fault rather than a stilled
-   effect. The failing segment lives in the fx layer, which the shared rule above
-   already hides: a frozen gap is a broken sign, not a quiet one. */
+/* a quiet neon keeps the glass AND its filament lit at full - the whole flair is the
+   tube, so parking either at anything less would look like a fault rather than a
+   stilled effect. The failing segment lives in the fx layer, which the shared rule
+   above already hides: a frozen gap is a broken sign, not a quiet one. */
 .flair-neon.flairQuiet::before,
 .flair-neon.flairQuiet::after {
 	opacity: 1;

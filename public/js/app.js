@@ -2594,10 +2594,11 @@ let nameGateTyped = false;
 function openNameGate() {
 	nameInput.value = name || "";
 	updateNameHint();
-	// on first run this is a gate, not a panel: there's no name to fall back on, so
-	// there's nothing to close back to. Once you have one, reopening it is optional
-	// and dismissible.
-	nameGateClose.hidden = !name;
+	// Always dismissible, first run included. There IS nothing to close back to the
+	// first time, which is why closing then adopts a random name instead of leaving
+	// you nameless - see the close handler. Trapping someone behind a form to collect
+	// a value the app is perfectly happy to invent is the kind of gate that only ever
+	// annoys the person who didn't want to fill it in.
 	nameGate.classList.add("show");
 	if (!nameGateTyped) {
 		nameGateTyped = true;
@@ -5059,7 +5060,14 @@ settingsList.addEventListener("pointerdown", onSettingsInteract);
 settingsList.addEventListener("focusin", onSettingsInteract);
 // the name gate's own way into settings (more discoverable than the topbar)
 nameGateSettings.addEventListener("click", openSettings);
-nameGateClose.addEventListener("click", closeNameGate);
+nameGateClose.addEventListener("click", () => {
+	// With a name already set the gate is just a panel and closing it leaves you as
+	// you were. Without one, there is nothing to close back to - so closing means
+	// exactly what pressing enter on an empty field means, and you get an anon name.
+	// Either way the button works; nobody is held here to type something.
+	if (name) closeNameGate();
+	else commitName("");
+});
 
 usersClose.addEventListener("click", closeUsers);
 usersGate.addEventListener("click", (e) => {
@@ -5289,12 +5297,11 @@ function randomAnonName() {
 	return `anon${Math.floor(1000 + Math.random() * 9000)}`;
 }
 
-nameForm.addEventListener("submit", (e) => {
-	e.preventDefault();
-
+// adopt a name and put the gate away. Blank means "you pick one", which is what
+// makes pressing enter on an empty field and dismissing the gate the same gesture.
+function commitName(value) {
 	const prev = name;
-	const value = nameInput.value.trim().slice(0, 24);
-	name = value || randomAnonName();
+	name = String(value || "").trim().slice(0, 24) || randomAnonName();
 
 	setStoredName(name);
 	renderTopbar();
@@ -5305,6 +5312,11 @@ nameForm.addEventListener("submit", (e) => {
 	// welcomed again every time you glance at the panel wears out fast. `prev` is ""
 	// only on first run, which is why this one comparison covers both cases.
 	if (prev !== name) appendSystem(t("system.welcome", { name })); // ephemeral, fades like other notices
+}
+
+nameForm.addEventListener("submit", (e) => {
+	e.preventDefault();
+	commitName(nameInput.value);
 });
 
 // single entry point for every event source (relays + history api): filter to

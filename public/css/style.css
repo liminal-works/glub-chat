@@ -2079,9 +2079,18 @@ html.retro .flairScan {
 }
 
 /* lightning: the layer spans the row and holds a generated bolt + its whiteout.
-   Empty (and invisible) until a strike fires, emptied again when it ends. */
+   Empty until a strike fires, emptied again when it ends.
+
+   opacity:1 is load-bearing and was missing. The base .flairFx is opacity:0 - which
+   suits stars, where the layer IS the streak and the js animates the layer itself -
+   and every other flair that puts CONTENT in the layer turns it back on. Lightning
+   did not, so the bolt was built, animated and removed inside a fully transparent
+   box: it fired exactly as designed and could not be seen. That, not the rate, is
+   why the flair looked like it had no lightning in it, and why rain's borrowed bolt
+   was visible when the lightning flair's own never was - rain's layer is opaque. */
 .flair-lightning > .flairFx {
 	inset: 0;
+	opacity: 1;
 }
 
 .flairFx .strike {

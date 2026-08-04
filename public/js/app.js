@@ -6203,6 +6203,47 @@ function pickFxTarget(selector) {
 	return pool[(Math.random() * pool.length) | 0];
 }
 
+// every live, on-screen fx layer for `selector` - the pool a per-row effect rolls
+// over. No fallback to off-screen rows: a per-row effect exists to be watched, and
+// there is nothing to animate for on a row nobody can see.
+function liveFxTargets(selector) {
+	const box = terminal.getBoundingClientRect();
+	const out = [];
+	for (const el of terminal.querySelectorAll(selector)) {
+		const row = el.parentElement;
+		if (!row || row.classList.contains("flairQuiet")) continue;
+		const r = row.getBoundingClientRect();
+		if (r.bottom > box.top && r.top < box.bottom) out.push(el);
+	}
+	return out;
+}
+
+// Roll for EVERY row rather than once for the screen.
+//
+// pickFxTarget spends one roll on one row, which makes the rate a property of the
+// SCREEN: the same cadence divided by however many rows are up. With a dozen
+// lightning lines that worked out to one strike per row every couple of minutes, so
+// the flair read as having no lightning in it - and raising the number kept being
+// swallowed the moment the row count went up, because the two cancel out exactly.
+// Rolling per row makes it a property of the ROW instead: every lightning line is
+// having its own storm, which is the only way the bolt becomes part of what the
+// flair IS rather than a rare event that happens somewhere on screen.
+//
+// Capped per tick anyway, so a very long screenful can't start dozens of animations
+// in one frame. The start index rotates so it isn't always the topmost rows that get
+// in under the cap.
+function rollFxTargets(selector, chance, run, maxPerTick) {
+	const targets = liveFxTargets(selector);
+	if (!targets.length) return;
+	const start = (Math.random() * targets.length) | 0;
+	let fired = 0;
+	for (let i = 0; i < targets.length && fired < maxPerTick; i++) {
+		if (Math.random() >= chance) continue;
+		run(targets[(start + i) % targets.length]);
+		fired++;
+	}
+}
+
 // one timer drives every flair's rare one-shot effect. Each rolls independently, so
 // rates stay per-effect, and the tick costs nothing when no flaired line is up.
 // These are the ONE-SHOT events only. Each flair's ambient motion - lightning's
@@ -6210,12 +6251,15 @@ function pickFxTarget(selector) {
 // per-line randomized period (see flairVars) and has nothing to do with any of these
 // numbers. STRIKE_CHANCE is the generated bolt and only the generated bolt.
 //
-// The bolt used to be one per ~20s, and measured over a minute that is exactly what
-// it did - but the rate is shared across every lightning row on screen, so any ONE
-// row went minutes between strikes, and a 300ms flash on a row you weren't looking at
-// is a strike nobody saw. Roughly doubled: still an event, not a rhythm, but often
-// enough that watching the log for a moment reliably catches one.
-const STRIKE_CHANCE = 0.24; // per tick -> roughly one bolt every ~6s on screen
+// The bolt is the one effect rolled PER ROW (see rollFxTargets), and the reason is
+// worth writing down because raising the number three times did not fix it. A single
+// global roll makes the rate a property of the screen, divided by however many rows
+// are up: measured on a busy log it came out at fifteen bolts a minute across
+// twenty-seven live rows - one per row every couple of minutes - so the flair looked
+// like it had no lightning in it no matter what this number said. Per row, every
+// lightning line has its own storm and the bolt is finally part of what the flair is.
+const STRIKE_CHANCE = 0.05; // per row, per tick -> ~2 strikes a minute on any given row
+const STRIKE_MAX_PER_TICK = 8; // a very long screenful still can't start dozens at once
 const GUST_CHANCE = 0.11; // squalls are weather, not events - a little more frequent
 // Rain's borrowed bolt keeps its original rarity. It is a surprise INSIDE the rain,
 // and it is already the more noticeable of the two despite being the rarer: a bolt
@@ -6231,10 +6275,7 @@ setInterval(() => {
 		const el = pickFxTarget(".flair-stars > .flairFx");
 		if (el) shootStar(el);
 	}
-	if (Math.random() < STRIKE_CHANCE) {
-		const el = pickFxTarget(".flair-lightning > .flairFx");
-		if (el) lightningStrike(el);
-	}
+	rollFxTargets(".flair-lightning > .flairFx", STRIKE_CHANCE, lightningStrike, STRIKE_MAX_PER_TICK);
 	if (Math.random() < GUST_CHANCE) {
 		const el = pickFxTarget(".flair-rain > .flairFx");
 		if (el) rainGust(el);

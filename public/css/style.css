@@ -656,31 +656,34 @@ textarea {
 	}
 }
 
-/* neon's &g is the TUBE, spelled out: a hot pink field with a hard white core
-   punched through it twice a cycle. The white stops are doubled at adjacent
-   positions so the core is a crisp edge rather than a soft blend - a real tube's
-   filament doesn't fade into its glow, it sits inside it. Cyan stays out of the
-   text and lives in the halo around the row, so the two never compete. */
+/* neon's &g is the TUBE, spelled out: a cyan field with a hard white core punched
+   through it twice a cycle. The white stops are doubled at adjacent positions so the
+   core is a crisp edge rather than a soft blend - a real tube's filament doesn't fade
+   into its glow, it sits inside it.
+   Cyan rather than the pink, even though pink is the commoner tube: at text size the
+   hot pink sat right on top of the row's own pink glass and the two smeared together,
+   where cyan reads as a SECOND tube in the same sign - which is what a real sign with
+   two colours in it looks like. On a cyan-tubed row it simply matches. */
 .flair-neon .fmtRainbow {
 	background-image: repeating-linear-gradient(
 		90deg,
-		#ff2d95 0%,
-		#ff5cb0 7%,
+		#22e6ff 0%,
+		#7ceeff 7%,
 		#ffffff 9.5%,
 		#ffffff 11%,
-		#ff5cb0 13.5%,
-		#ff2d95 21%,
-		#ff2d95 27%,
-		#ff8fd0 32%,
+		#7ceeff 13.5%,
+		#22e6ff 21%,
+		#22e6ff 27%,
+		#b6f4ff 32%,
 		#ffffff 34%,
 		#ffffff 35.2%,
-		#ff8fd0 37%,
-		#ff2d95 44%,
-		#ff2d95 50%
+		#b6f4ff 37%,
+		#22e6ff 44%,
+		#22e6ff 50%
 	);
 	animation-duration: var(--neon-text-dur, 5.5s);
 	animation-delay: var(--neon-text-delay, 0s);
-	text-decoration-color: #ff8fd0;
+	text-decoration-color: #b6f4ff;
 }
 
 .flair-stars .fmtRainbow {
@@ -1057,10 +1060,7 @@ textarea {
 .flair-neon::before {
 	inset: 0;
 	border: 3px solid var(--neon-lit, #ff2d95);
-	/* bent glass, not a rounded rectangle: a tight radius on a thick stroke is the
-	   single most button-like thing this could do. Randomized per line, so no two
-	   tubes were bent on the same jig. */
-	border-radius: var(--neon-bend, 11px);
+	border-radius: 6px;
 	box-shadow:
 		0 0 2px var(--neon-lit, #ff2d95),
 		0 0 var(--neon-bloom, 8px) var(--neon-halo, #ff5cb0),
@@ -1079,7 +1079,7 @@ textarea {
 .flair-neon::after {
 	inset: 1px;
 	border: 1px solid #ffffff;
-	border-radius: calc(var(--neon-bend, 11px) - 1px);
+	border-radius: 5px;
 	box-shadow:
 		0 0 2px rgba(255, 255, 255, 0.65),
 		inset 0 0 2px rgba(255, 255, 255, 0.5);
@@ -1090,6 +1090,41 @@ textarea {
    that can collide with its neighbours. Everything else clips. */
 .line.flair.flair-neon {
 	margin-bottom: 12px;
+}
+
+/* The CRT glass, welded to neon rather than to the app.
+   The "retro terminal" setting lays scanlines over the WHOLE screen; this lays the
+   same hairlines over a neon row and nothing else, and does it whether or not that
+   setting is on. A tube read through a scanline is just what neon looks like - it is
+   the flair, not a preference - so it should not be something you have to go and
+   switch on somewhere else to get.
+
+   Unlike every other layer a flair owns, this one sits ABOVE the text (z-index 1,
+   inside the row's own stacking context): a CRT overlays what it is displaying, and
+   putting it under the glyphs would leave the words conspicuously the one thing in
+   the row not behind glass. It is a single static gradient, so it costs one
+   composited layer and no per-frame work - which is why, unlike .flairFx, it is
+   never parked by the animation budget. */
+.flairScan {
+	position: absolute;
+	inset: 0;
+	z-index: 1;
+	pointer-events: none;
+	border-radius: 6px;
+	background: repeating-linear-gradient(
+		0deg,
+		var(--scanline-color) 0px,
+		var(--scanline-color) 1px,
+		transparent 1px,
+		transparent 3px
+	);
+}
+
+/* with the whole-app CRT switched on, the global overlay is already drawing these
+   exact lines over this exact row - a second pass would only make neon rows darker
+   than everything around them. */
+html.retro .flairScan {
+	display: none;
 }
 
 /* The buzz. Shallow, fast, and deliberately NOT a sine: mains hum is a ragged thing,

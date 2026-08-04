@@ -26,7 +26,7 @@ import { isProfane } from "./censor.js";
 import { fetchConditions, wmoDescribe, geocodePlace, parseLatLon } from "./weather.js";
 import { THEMES, themeNames, activeTheme, applyTheme, persistTheme, initTheme, hexToRgb } from "./themes.js";
 import { stripFormat, hasFormat, renderFormat, renderRunSplittingEmoji, templatePaintsMsg, EMOJI_SEQ_RE } from "./format.js";
-import { FLAIRS, flairName, flairClass, flairLimit, flairVars, flairHasFx, flairFxInner, lightningStrikeMarkup, rainGustMarkup, plumeSurgeMarkup } from "./flair.js";
+import { FLAIRS, flairName, flairClass, flairLimit, flairVars, flairHasFx, flairFxInner, flairOverlayInner, lightningStrikeMarkup, rainGustMarkup, plumeSurgeMarkup } from "./flair.js";
 
 // re-apply the persisted theme before anything renders (module scripts run
 // before first paint, so a saved theme doesn't flash bitchat green first).
@@ -743,6 +743,7 @@ function flairChipHtml(f, label) {
 		`<span class="${flairClass(f)} flairChip">` +
 		`<span class="fmtRainbow">${escapeHtml(label)}</span>` +
 		(fx ? `<span class="flairFx" aria-hidden="true">${fx}</span>` : "") +
+		flairOverlayInner(f) +
 		`</span>`
 	);
 }
@@ -1528,7 +1529,10 @@ function messageHtml(entry) {
 	// positioned span the ticker animates. Emitted here rather than in renderEntryDom
 	// so it survives every in-place rerender (translation, ack, avatar, expand).
 	const fx = !entry.system && flairHasFx(entry.flair) ? `<span class="flairFx" aria-hidden="true">${flairFxInner(entry.flair)}</span>` : "";
-	return (focusedGeo ? "" : entry.geoPrefix || "") + body + fx;
+	// ...and the persistent overlay (neon's crt glass) rides along for the same
+	// reason: emitted here, it survives every in-place rerender.
+	const over = entry.system ? "" : flairOverlayInner(entry.flair);
+	return (focusedGeo ? "" : entry.geoPrefix || "") + body + fx + over;
 }
 
 // the translation block shown beneath a message once you've translated it (or
@@ -2002,8 +2006,11 @@ function applyFlairBudget() {
 	//
 	// Only candidates are measured, and the observer's margin bounds that to roughly
 	// a screenful, so this stays a small read rather than a walk of the whole buffer.
-	const viewTop = terminal.scrollTop;
-	const viewBottom = viewTop + terminal.clientHeight;
+	// Rects, for the same reason pickFxTarget uses them: offsetTop is measured from
+	// #app (the nearest positioned ancestor - #terminal isn't one) and so carries the
+	// topbar's height, while scrollTop is in the scroller's own coordinates. Comparing
+	// them slid this window by that much and mis-sorted the rows nearest the fold.
+	const box = terminal.getBoundingClientRect();
 	const onScreen = [];
 	const nearby = [];
 	for (let i = entries.length - 1; i >= 0; i--) {
@@ -2014,8 +2021,8 @@ function applyFlairBudget() {
 			el.classList.add("flairQuiet");
 			continue;
 		}
-		const top = el.offsetTop;
-		(top + el.offsetHeight > viewTop && top < viewBottom ? onScreen : nearby).push(entry);
+		const r = el.getBoundingClientRect();
+		(r.bottom > box.top && r.top < box.bottom ? onScreen : nearby).push(entry);
 	}
 
 	// each flair spends its own allowance, so a screenful of stars never crowds out
@@ -5941,7 +5948,10 @@ function lightningStrike(el) {
 			{ opacity: 0.15, offset: 0.66 },
 			{ opacity: 0 },
 		],
-		{ duration: 170 + Math.random() * 130, easing: "linear" },
+		// long enough to register. Under ~200ms the double-tap flicker reads as a
+		// single blink and half of it lands between two frames on a 60Hz panel, which
+		// is most of why the effect felt like it wasn't firing at all.
+		{ duration: 260 + Math.random() * 170, easing: "linear" },
 	);
 	anim.onfinish = () => strike.remove(); // leave nothing behind between strikes
 	anim.oncancel = () => strike.remove();
@@ -5998,21 +6008,41 @@ function plumeSurge(el) {
 function pickFxTarget(selector) {
 	const fx = terminal.querySelectorAll(selector);
 	if (!fx.length) return null;
-	const top = terminal.scrollTop;
-	const bottom = top + terminal.clientHeight;
-	const visible = [...fx].filter((el) => {
+	// A parked row's fx layer is `display: none` (see .flairQuiet), so an effect sent
+	// there is built, animated and removed with nobody able to see it. The old
+	// fallback - "no visible rows? then any row" - could hand every strike in a row
+	// to hidden layers, which is indistinguishable from the effect being broken.
+	// Nothing to aim at is a fine answer: the tick just does nothing this time.
+	const live = [];
+	for (const el of fx) {
 		const row = el.parentElement;
-		return row && row.offsetTop + row.offsetHeight > top && row.offsetTop < bottom;
+		if (row && !row.classList.contains("flairQuiet")) live.push(el);
+	}
+	if (!live.length) return null;
+	// Rects rather than offsetTop. #terminal is not a positioned ancestor, so a row's
+	// offsetTop is measured from #app and carries the topbar's height with it, while
+	// scrollTop/clientHeight are in the scroller's own coordinates - comparing the two
+	// slides the "visible" window by that much, and rows at the very bottom of a short
+	// log fall out of it entirely.
+	const box = terminal.getBoundingClientRect();
+	const visible = live.filter((el) => {
+		const r = el.parentElement.getBoundingClientRect();
+		return r.bottom > box.top && r.top < box.bottom;
 	});
-	const pool = visible.length ? visible : [...fx];
+	const pool = visible.length ? visible : live;
 	return pool[(Math.random() * pool.length) | 0];
 }
 
 // one timer drives every flair's rare one-shot effect. Each rolls independently, so
 // rates stay per-effect, and the tick costs nothing when no flaired line is up.
-const STRIKE_CHANCE = 0.075; // per tick -> roughly one bolt every ~20s on screen
+// A bolt used to be one per ~20s, and measured over a minute that is exactly what it
+// did - but the rate is shared across every lightning row on screen, so any ONE row
+// went minutes between strikes, and a 300ms flash on a row you weren't looking at is
+// a strike nobody saw. Roughly doubled: still an event, not a rhythm, but often
+// enough that watching the log for a moment reliably catches one.
+const STRIKE_CHANCE = 0.16; // per tick -> roughly one bolt every ~9s on screen
 const GUST_CHANCE = 0.11; // squalls are weather, not events - a little more frequent
-const RAIN_BOLT_CHANCE = 0.03; // ~one thunderclap every ~50s of rain on screen
+const RAIN_BOLT_CHANCE = 0.055; // ~one thunderclap every ~27s of rain on screen
 const SURGE_CHANCE = 0.13; // the plume is always burning, so this is the busiest of them
 setInterval(() => {
 	if (document.hidden) return;

@@ -109,6 +109,18 @@ export function flairFxInner(raw) {
 	return "";
 }
 
+// A persistent overlay laid over the row - including over its TEXT, which is what
+// separates it from the fx layer above. Two other things separate it: the ticker
+// never empties and refills it, and the animation budget never parks it. .flairFx is
+// hidden outright on a quiet row because particles cost frames; this is one static
+// gradient that costs none, and a row that lost it would visibly stop matching its
+// neighbours.
+//
+// Only neon wants one, so every other flair pays nothing - not even an empty node.
+export function flairOverlayInner(raw) {
+	return flairName(raw) === "neon" ? `<span class="flairScan" aria-hidden="true"></span>` : "";
+}
+
 // cool white-blues, so a field reads as starlight rather than confetti
 const STAR_TINTS = ["#ffffff", "#ffffff", "#cfe6ff", "#a8ccff", "#dbe9ff", "#bcd8ff", "#e9f2ff"];
 
@@ -499,12 +511,13 @@ export function flairVars(raw) {
 		return {
 			"--neon-lit": pink ? "#ff2d95" : "#22e6ff",
 			"--neon-halo": pink ? "#ff5cb0" : "#7ceeff",
-			// how hard this tube burns and how tightly its glass was bent. Hue alone
-			// was not enough per-line variety to read: two neon rows in a row looked
-			// like one sign printed twice, where two fire rows never do. Bloom is the
-			// one that carries - it changes how much of the row the tube lights.
+			// how hard this tube burns. Hue alone was not enough per-line variety to
+			// read: two neon rows in a row looked like one sign printed twice, where
+			// two fire rows never do. Bloom carries it - it changes how much of the
+			// row the tube lights. (The bend does NOT vary: the corner radius is the
+			// one thing here that reads as chrome rather than as glass, and a big or
+			// wandering one turns the row straight back into a button.)
 			"--neon-bloom": `${rnd(6, 11).toFixed(1)}px`,
-			"--neon-bend": `${rnd(8, 15).toFixed(1)}px`,
 			// the hum: fast, shallow, and on its own period per line so no two tubes
 			// buzz together. Anything slower than about a second stops reading as
 			// electrical and starts reading as breathing.

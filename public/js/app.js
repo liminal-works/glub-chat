@@ -2459,7 +2459,10 @@ function renderEvent(ev, guildFreq = "", ms = 0, live = true) {
 		rich, // raw "&"-coded text (glub/rich tag), or null - renders formatted in the plain-message path
 		fmt, // sender's line template (glub/fmt tag), or "" - wraps the line in the plain-message path
 		flair, // sender's ambient line effect (glub/flair tag), or "" - a class on the row
-		mine: ev.pubkey.toLowerCase() === identity.pk.toLowerCase(), // bitchat bolds your own messages
+		// your own message. Read by plenty of things - the own-colour, the pow
+		// exemption, the ping filter - but no longer by any weight rule: your rows are
+		// marked by colour alone now (see .line.mine in the stylesheet).
+		mine: ev.pubkey.toLowerCase() === identity.pk.toLowerCase(),
 		pendingAck: pending.has(ev.id), // a message we just sent, awaiting echo-back confirmation
 		action: isActionMessage(text),
 		reply: parseReplyMessage(text), // { targetUser, quotedText, body } if this quotes another message

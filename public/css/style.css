@@ -370,8 +370,10 @@ textarea {
 	font-weight: 700;
 }
 
-/* bitchat weights: other users get a medium name + regular body, while your
-   own messages render fully bold. The .mine class is added to the line in JS. */
+/* bitchat weights: a medium name over a regular body, for everyone. Your own
+   messages used to be fully bold on top of that (see .line.mine below, where the
+   rule was and why it went); they are weighted like everyone else's now and marked
+   only by their colour. */
 .user {
 	font-weight: 500;
 }
@@ -2367,12 +2369,12 @@ html.retro .flairScan {
 	opacity: 0.6;
 }
 
-.line.mine .bracket,
-.line.mine .user,
-.line.mine .tag,
-.line.mine .msg {
-	font-weight: 700;
-}
+/* Deliberately no weight rule for .line.mine. Native bitchat renders your own
+   messages fully bold, but the orange already says "this one is yours" on its own,
+   and bolding every glyph of it on top made your side of a conversation read as
+   shouted - the more so in pure-client mode, where profiles are off and every one of
+   your lines takes that colour. Your rows now carry exactly the weights everyone
+   else's do; only the colour marks them. */
 
 .ts {
 	color: var(--muted);

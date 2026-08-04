@@ -657,34 +657,38 @@ textarea {
 	}
 }
 
-/* neon's &g is the TUBE, spelled out: a cyan field with a hard white core punched
+/* neon's &g is the TUBE, spelled out: an aqua field with a hard white core punched
    through it twice a cycle. The white stops are doubled at adjacent positions so the
    core is a crisp edge rather than a soft blend - a real tube's filament doesn't fade
    into its glow, it sits inside it.
-   Cyan rather than the pink, even though pink is the commoner tube: at text size the
-   hot pink sat right on top of the row's own pink glass and the two smeared together,
-   where cyan reads as a SECOND tube in the same sign - which is what a real sign with
-   two colours in it looks like. On a cyan-tubed row it simply matches. */
+   The field is exactly &b's aqua (#55ffff, see COLORS in format.js), which reads more
+   like a lit tube than the deeper cyan that was here: a tube is bright and slightly
+   washed out, not saturated. Nothing darkens between the cores either - the only
+   variation across the run is the approach to white and back, which is all a real
+   tube has. Aqua rather than the pink even though pink is the commoner tube, because
+   at text size hot pink sat right on the row's own pink glass and the two smeared;
+   aqua reads as a SECOND tube in the same sign, and simply matches on a cyan row. */
 .flair-neon .fmtRainbow {
 	background-image: repeating-linear-gradient(
 		90deg,
-		#22e6ff 0%,
-		#7ceeff 7%,
-		#ffffff 9.5%,
-		#ffffff 11%,
-		#7ceeff 13.5%,
-		#22e6ff 21%,
-		#22e6ff 27%,
-		#b6f4ff 32%,
-		#ffffff 34%,
-		#ffffff 35.2%,
-		#b6f4ff 37%,
-		#22e6ff 44%,
-		#22e6ff 50%
+		#55ffff 0%,
+		#55ffff 6%,
+		#c7ffff 8.5%,
+		#ffffff 10%,
+		#ffffff 11.4%,
+		#c7ffff 13%,
+		#55ffff 16%,
+		#55ffff 28%,
+		#c7ffff 31%,
+		#ffffff 33%,
+		#ffffff 34.4%,
+		#c7ffff 36.5%,
+		#55ffff 40%,
+		#55ffff 50%
 	);
 	animation-duration: var(--neon-text-dur, 5.5s);
 	animation-delay: var(--neon-text-delay, 0s);
-	text-decoration-color: #b6f4ff;
+	text-decoration-color: #55ffff;
 }
 
 .flair-stars .fmtRainbow {

@@ -499,6 +499,12 @@ export function flairVars(raw) {
 		return {
 			"--neon-lit": pink ? "#ff2d95" : "#22e6ff",
 			"--neon-halo": pink ? "#ff5cb0" : "#7ceeff",
+			// how hard this tube burns and how tightly its glass was bent. Hue alone
+			// was not enough per-line variety to read: two neon rows in a row looked
+			// like one sign printed twice, where two fire rows never do. Bloom is the
+			// one that carries - it changes how much of the row the tube lights.
+			"--neon-bloom": `${rnd(6, 11).toFixed(1)}px`,
+			"--neon-bend": `${rnd(8, 15).toFixed(1)}px`,
 			// the hum: fast, shallow, and on its own period per line so no two tubes
 			// buzz together. Anything slower than about a second stops reading as
 			// electrical and starts reading as breathing.
@@ -509,8 +515,10 @@ export function flairVars(raw) {
 			// that you catch it out of the corner of your eye.
 			"--neon-dead-dur": `${rnd(11, 23).toFixed(2)}s`,
 			"--neon-dead-delay": `-${rnd(0, 22).toFixed(2)}s`,
-			"--neon-dead-top": onTop ? "-5px" : "auto",
-			"--neon-dead-bottom": onTop ? "auto" : "-5px",
+			// offset so the patch straddles whichever rail fails, biased inward - it
+			// has further to reach across the row than off it (see .neonDead)
+			"--neon-dead-top": onTop ? "-9px" : "auto",
+			"--neon-dead-bottom": onTop ? "auto" : "-9px",
 			"--neon-dead-x": `${Math.round(rnd(8, 62))}%`,
 			"--neon-dead-w": `${Math.round(rnd(14, 34))}%`,
 			"--neon-text-dur": `${rnd(4, 7).toFixed(2)}s`,

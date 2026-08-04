@@ -1024,43 +1024,72 @@ textarea {
      .neonDead  the failure, hosted in the shared fx layer
 
    The filament is the whole trick, and it is the opposite of what a first pass
-   reaches for. Glow does not come from spread - a wide halo just reads as a blurred
-   rectangle and crowds the rows either side of it. It comes from a hot white centre
-   with colour to either side of it, which is what a lit tube actually looks like:
-   the arc is white, the gas around it carries the hue. Get that right and three
-   pixels of bloom is enough.
+   reaches for. Glow does not come from spread - a wide BRIGHT halo just reads as a
+   blurred rectangle and crowds the rows either side of it. It comes from a hot white
+   centre with colour to either side of it, which is what a lit tube actually looks
+   like: the arc is white, the gas around it carries the hue. Everything strong
+   therefore stays within a few pixels of the glass; what reaches further out is
+   faint enough that it never resolves as an edge, and only makes the dark less dark.
+
+   The other thing that carries it is where the light GOES. Neon is the only flair
+   with a hard closed shape - the other five are weather, and weather has no edges -
+   so left throwing light outward only it reads as a css border with a glow bolted
+   on. It throws the same light inward, across the row it frames and onto the text
+   sitting there. A sign lights its own wall. A border does not.
 
    `overflow: visible` because a sign's whole character is the light that escapes it;
    the base .flair clips, which exists to keep PARTICLES in, and this flair has none
    to lose. */
 .flair-neon {
 	overflow: visible;
+	/* the row is inside the sign, so the sign's light is on its text too. Subtle
+	   enough not to soften the glyph edges, present enough that the words belong to
+	   the tube rather than sitting in front of it - which is what every other flair
+	   gets for free from its background wash, and what neon had no way to get. */
+	text-shadow: 0 0 7px color-mix(in srgb, var(--neon-halo, #ff5cb0) 38%, transparent);
 }
 
-/* the glass: a coloured band, with just enough bloom to lift it off the black.
-   The SAME bloom inward as outward - a real tube throws light in every direction,
-   and lighting only the outside is what made it read as a border with a glow bolted
-   on rather than as something switched on inside the row. */
+/* the glass. Three stops out and three in, each wider and fainter than the last.
+   The near stops are what you read as the tube; the far ones never resolve as an
+   edge at all, they just make the dark around the row slightly less dark, and that
+   is the difference between light and a stroke. The widest inward stop is the wash
+   across the row - it is why this frame has an interior at all. */
 .flair-neon::before {
 	inset: 0;
 	border: 3px solid var(--neon-lit, #ff2d95);
-	border-radius: 6px;
+	/* bent glass, not a rounded rectangle: a tight radius on a thick stroke is the
+	   single most button-like thing this could do. Randomized per line, so no two
+	   tubes were bent on the same jig. */
+	border-radius: var(--neon-bend, 11px);
 	box-shadow:
-		0 0 3px var(--neon-lit, #ff2d95),
-		0 0 7px var(--neon-halo, #ff5cb0),
-		inset 0 0 3px var(--neon-lit, #ff2d95),
-		inset 0 0 7px var(--neon-halo, #ff5cb0);
+		0 0 2px var(--neon-lit, #ff2d95),
+		0 0 var(--neon-bloom, 8px) var(--neon-halo, #ff5cb0),
+		0 0 calc(var(--neon-bloom, 8px) * 2.6) color-mix(in srgb, var(--neon-halo, #ff5cb0) 34%, transparent),
+		inset 0 0 2px var(--neon-lit, #ff2d95),
+		inset 0 0 var(--neon-bloom, 8px) color-mix(in srgb, var(--neon-halo, #ff5cb0) 62%, transparent),
+		inset 0 0 calc(var(--neon-bloom, 8px) * 4) color-mix(in srgb, var(--neon-lit, #ff2d95) 26%, transparent);
 	animation: flairNeonHum var(--neon-hum-dur, 0.9s) linear var(--neon-hum-delay, 0s) infinite;
 }
 
 /* the filament, centred in that band: the tube runs 0-3px in from the edge, so its
-   middle is at 1.5px and a 1px line at inset 1px sits exactly on it. Same phase as
-   the glass, because it is one tube - the arc and the gas do not buzz separately. */
+   middle is at 1.5px and a 1px line at inset 1px sits exactly on it. It carries a
+   tight white bloom of its own - the arc is the brightest thing in the assembly and
+   blows out slightly against the gas around it. Same phase as the glass, because it
+   is one tube: the arc and the gas do not buzz separately. */
 .flair-neon::after {
 	inset: 1px;
 	border: 1px solid #ffffff;
-	border-radius: 5px;
+	border-radius: calc(var(--neon-bend, 11px) - 1px);
+	box-shadow:
+		0 0 2px rgba(255, 255, 255, 0.65),
+		inset 0 0 2px rgba(255, 255, 255, 0.5);
 	animation: flairNeonHum var(--neon-hum-dur, 0.9s) linear var(--neon-hum-delay, 0s) infinite;
+}
+
+/* neon is the only flair whose decoration leaves its own box, so it is the only one
+   that can collide with its neighbours. Everything else clips. */
+.line.flair.flair-neon {
+	margin-bottom: 12px;
 }
 
 /* The buzz. Shallow, fast, and deliberately NOT a sine: mains hum is a ragged thing,
@@ -1097,11 +1126,90 @@ textarea {
 	}
 }
 
+/* A tube does not switch on, it CATCHES: the starter arcs, the gas won't hold, it
+   arcs again, and only after a few goes does it settle. So a neon row strikes up as
+   it arrives - which is the same physics as the dead segment, played at the other
+   end of the tube's life, and it is what gives this flair the thing the other five
+   all have and it did not: a motion with a story in it rather than a decoration.
+
+   `.arrive` is added once, to live arrivals only, and never to a rerender (see
+   app.js), so scrolling back through history doesn't re-fire a room full of signs.
+   The strike is listed AFTER the hum so it owns the opacity while it runs and hands
+   back cleanly the moment it ends - a non-forwards animation stops contributing
+   once it's done, and the hum is already there underneath.
+
+   :not(.flairQuiet) so a row that arrives already parked (off screen, or over the
+   animation budget) never strikes - it just is, which is the whole point of quiet.
+   The reduced-motion block below has to repeat the selector to outrank this one. */
+.line.arrive.flair-neon:not(.flairQuiet)::before,
+.line.arrive.flair-neon:not(.flairQuiet)::after {
+	animation:
+		flairNeonHum var(--neon-hum-dur, 0.9s) linear var(--neon-hum-delay, 0s) infinite,
+		flairNeonStrike 1.05s linear 1;
+}
+
+@keyframes flairNeonStrike {
+	0%,
+	6% {
+		opacity: 0;
+	}
+	8% {
+		opacity: 1;
+	}
+	12% {
+		opacity: 0.04;
+	}
+	21% {
+		opacity: 0;
+	}
+	23% {
+		opacity: 0.92;
+	}
+	27% {
+		opacity: 0.08;
+	}
+	34% {
+		opacity: 0.88;
+	}
+	38% {
+		opacity: 0.12;
+	}
+	46% {
+		opacity: 1;
+	}
+	51% {
+		opacity: 0.35;
+	}
+	59% {
+		opacity: 1;
+	}
+	66% {
+		opacity: 0.72;
+	}
+	100% {
+		opacity: 1;
+	}
+}
+
 /* neon's fx layer is not a particle field - it is a full-row canvas the failing
-   segment is placed on. Opacity 1 because the segment carries its own. */
+   segment is placed on. Opacity 1 because the segment carries its own.
+
+   The z-index shuffle is what makes the failure possible at all. Everything a flair
+   draws sits at -1, and among equal z-index the paint order is tree order: ::before
+   (glass), then .flairFx, then ::after (filament). So the segment could occlude the
+   glass but the white core ran straight through it, which is not a tube going out,
+   it is a smudge on one. Dropping both pseudo-elements a layer puts the fx canvas
+   above the whole assembly - and still below the text, which is the only thing that
+   must never be occluded. */
+.flair-neon::before,
+.flair-neon::after {
+	z-index: -2;
+}
+
 .flair-neon > .flairFx {
 	inset: 0;
 	opacity: 1;
+	z-index: -1;
 }
 
 /* The dead segment: a patch of the page's own background laid over one rail.
@@ -1114,15 +1222,25 @@ textarea {
    An ellipse rather than a bar, because a bar has four hard edges and every one of
    them announces itself as a rectangle drawn over the effect. Fading to transparent
    at the ends lets the dark blend back into the lit tube the way a section losing its
-   arc actually goes: dimmest in the middle, uncertain at the boundaries. */
+   arc actually goes: dimmest in the middle, uncertain at the boundaries.
+
+   It is deliberately much taller than the tube it covers. The bloom now reaches a
+   long way on both sides, and an occluder sized to the glass alone leaves the glow
+   still burning in a ring around the gap - which reads as dirt on the tube rather
+   than as a length of it going out. Whatever the tube lights, the dead section has
+   to stop lighting, so the patch has to be as big as the light. */
 .flair-neon .neonDead {
 	position: absolute;
-	top: var(--neon-dead-top, -5px);
+	top: var(--neon-dead-top, -9px);
 	bottom: var(--neon-dead-bottom, auto);
 	left: var(--neon-dead-x, 22%);
 	width: var(--neon-dead-w, 24%);
-	height: 13px;
-	background: radial-gradient(closest-side, var(--bg) 0 70%, transparent 100%);
+	/* biased inward: it has to reach far enough across the row to kill the wash the
+	   dead length was throwing, but only far enough OUTWARD to take the near bloom
+	   with it. Sized symmetrically it would reach past the row and start eating the
+	   glow off the message above, and one sign's fault cannot dim another's. */
+	height: 24px;
+	background: radial-gradient(ellipse closest-side, var(--bg) 0 45%, transparent 100%);
 	opacity: 0;
 	animation: flairNeonDead var(--neon-dead-dur, 15s) linear var(--neon-dead-delay, 0s) infinite;
 }
@@ -1841,10 +1959,6 @@ textarea {
 	opacity: 0;
 }
 
-/* a quiet neon keeps its tube lit at full - the whole flair IS the tube, so parking
-   it at anything less would look like a fault rather than a stilled effect. The dead
-   segment parks OUT (opacity 0, which is also its resting value), because a frozen
-   gap is a broken sign, not a quiet one. */
 /* a quiet neon keeps the glass AND its filament lit at full - the whole flair is the
    tube, so parking either at anything less would look like a fault rather than a
    stilled effect. The failing segment lives in the fx layer, which the shared rule
@@ -1902,9 +2016,15 @@ textarea {
 		animation: none;
 		filter: brightness(1);
 	}
-	/* both tubes stay lit and the fault never happens: a sign that is simply ON */
+	/* both tubes stay lit and the fault never happens: a sign that is simply ON.
+	   The arrival strike carries its own (higher) specificity, so switching it off
+	   takes the same selector back - the generic `.flair::before` rule above cannot
+	   reach it. */
 	.flair-neon::before,
-	.flair-neon::after {
+	.flair-neon::after,
+	.line.arrive.flair-neon:not(.flairQuiet)::before,
+	.line.arrive.flair-neon:not(.flairQuiet)::after {
+		animation: none;
 		opacity: 1;
 	}
 	.flair-neon .neonDead {

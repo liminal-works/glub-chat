@@ -146,6 +146,13 @@ export default {
 		status_read: "已读",
 	},
 
+	// 你当前未在阅读的频道里有人 @ 了你
+	ping: {
+		title: "提及",
+		empty: "暂无提及",
+		received: '@{name} 在 #{geo} 提到你："{preview}"',
+	},
+
 	users: {
 		title: "#{geo} 里的用户",
 		title_default: "用户",

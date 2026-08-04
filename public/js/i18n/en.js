@@ -155,6 +155,13 @@ export default {
 		status_read: "read",
 	},
 
+	// being @-mentioned in a channel you aren't currently reading
+	ping: {
+		title: "pings",
+		empty: "no pings yet",
+		received: '@{name} pinged you in #{geo}: "{preview}"',
+	},
+
 	users: {
 		title: "users in #{geo}",
 		title_default: "users",

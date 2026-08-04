@@ -426,6 +426,10 @@ const newMessagesBar = document.getElementById("newMessagesBar");
 const historyHint = document.getElementById("historyHint");
 const suggestBox = document.getElementById("suggestBox");
 const dmPill = document.getElementById("dmPill");
+const pingPill = document.getElementById("pingPill");
+const pingListGate = document.getElementById("pingListGate");
+const pingList = document.getElementById("pingList");
+const pingListClose = document.getElementById("pingListClose");
 const actionGate = document.getElementById("actionGate");
 const actionTitle = document.getElementById("actionTitle");
 const actionPreview = document.getElementById("actionPreview");
@@ -2380,7 +2384,9 @@ function pubkeyTint(pubkey) {
 
 // `ms` is an optional millisecond send-time, carried only by guild messages (see
 // entryOrd) - it orders a burst that shares one created_at second.
-function renderEvent(ev, guildFreq = "", ms = 0) {
+// `live` is threaded through only so a ping can tell news from a backlog replay (see
+// notePing): reconnecting must not re-announce every mention of the last hour.
+function renderEvent(ev, guildFreq = "", ms = 0, live = true) {
 	const geo = getGeohash(ev) || "?";
 	const who = getName(ev) || "anon";
 	const tag = ev.pubkey.slice(-4);
@@ -2472,6 +2478,10 @@ function renderEvent(ev, guildFreq = "", ms = 0) {
 		el: null,
 	};
 	insertEntry(entry);
+
+	// ...and if it named you somewhere you aren't looking, say so. After insertEntry,
+	// because the answer depends on whether the row ended up visible.
+	notePing(entry, live);
 
 	// inline avatar: if profiles are on and we don't know this author yet, fetch
 	// their profile and repaint the line once it (maybe) has an avatar. concurrent
@@ -4334,6 +4344,152 @@ function updateDmPill() {
 	dmPill.innerHTML = `DM<span class="dmCount">${unread}</span>`;
 }
 
+// --- channel pings ------------------------------------------------------------
+// Being @-mentioned somewhere you aren't looking.
+//
+// This needs no new transport and no server assist: the relay subscription has never
+// carried a "#g" filter (see subscribeFilter) and the assist stream is asked for
+// every channel too, so the whole network's chatter is already arriving. Whether a
+// message @-mentions you is likewise already decided for every message on the way in
+// (entry.mention, mention-bomb guard included). The only thing missing was somewhere
+// for a mention to GO when the view it belongs to isn't the one you're reading.
+//
+// Keyed by channel rather than by message: five people shouting your name in one
+// channel is one place to go, not five notifications. Each channel keeps its most
+// recent mention (that's the useful preview) and a count of how many there were.
+const pings = new Map(); // geo -> { geo, who, pubkey, text, ts, count }
+const PING_MAX_CHANNELS = 24; // oldest channel is evicted past this; the pill is a nudge, not an inbox
+const PING_PREVIEW_LEN = 60;
+
+// Everything here is already computed at ingest, so this is a filter and not a second
+// pass over the message. The order is "cheapest and most decisive first".
+function pingWorthy(entry, live) {
+	if (!live) return false; // a backlog replay on reload is not news
+	if (!entry.mention || entry.system) return false;
+	if (entry.mine) return false; // @-ing yourself is not a summons
+	// A guild is a closed room and the client only ever holds the one you're tuned to,
+	// so a guild mention is by definition already on your screen.
+	if (entry.guild) return false;
+	if (isBlocked(entry.pubkey)) return false;
+	if (!entryPassesPow(entry)) return false;
+	if (mutedChannels.has(entry.geo)) return false; // you said you didn't want to hear from there
+	if (entry.flooded || isGlobalSpam(entry)) return false; // the same quarantines the global feed applies
+	// ...and finally: if the row is on screen anyway, there is nothing to announce.
+	// This is what makes the global feed silent (it shows every channel already) and a
+	// focused channel loud only about the channels it is hiding.
+	return !entryVisible(entry);
+}
+
+function recordPing(entry) {
+	const prev = pings.get(entry.geo);
+	pings.delete(entry.geo); // re-insert so Map order stays "least recently pinged first"
+	pings.set(entry.geo, {
+		geo: entry.geo,
+		who: entry.who,
+		pubkey: entry.pubkey,
+		text: entry.text,
+		ts: entry.ts,
+		count: (prev ? prev.count : 0) + 1,
+	});
+	while (pings.size > PING_MAX_CHANNELS) pings.delete(pings.keys().next().value);
+}
+
+function totalPings() {
+	let n = 0;
+	for (const p of pings.values()) n += p.count;
+	return n;
+}
+
+function updatePingPill() {
+	const n = totalPings();
+	if (n <= 0) {
+		pingPill.hidden = true;
+		return;
+	}
+	pingPill.hidden = false;
+	pingPill.innerHTML = `@<span class="pingCount">${n}</span>`;
+}
+
+// Same shape as the DM notice, and deliberately so - one language for "something
+// happened somewhere else". Rate-limited by the same kind of bucket, because a
+// channel you aren't reading must never be able to fill the one you are.
+const pingNotifyBucket = { tokens: 3, last: Date.now() };
+function allowPingNotify() {
+	const now = Date.now();
+	pingNotifyBucket.tokens = Math.min(3, pingNotifyBucket.tokens + ((now - pingNotifyBucket.last) / 1000) * 0.05);
+	pingNotifyBucket.last = now;
+	if (pingNotifyBucket.tokens < 1) return false;
+	pingNotifyBucket.tokens -= 1;
+	return true;
+}
+
+function notePing(entry, live) {
+	if (!pingWorthy(entry, live)) return;
+	recordPing(entry);
+	updatePingPill();
+	if (pingListGate.classList.contains("show")) renderPingList();
+	if (allowPingNotify()) {
+		appendSystem(
+			t("ping.received", {
+				name: entry.who,
+				geo: clipText(entry.geo, MAX_GEO_LEN),
+				preview: clipText(entry.text, PING_PREVIEW_LEN),
+			}),
+			SYSTEM_TTL_LONG_MS
+		);
+	}
+}
+
+// Reading a channel is what clears it - the same rule DMs use. No "mark all read":
+// the count is only ever lowered by actually going and looking.
+function clearPing(geo) {
+	if (!geo || !pings.delete(geo)) return;
+	updatePingPill();
+	if (pingListGate.classList.contains("show")) renderPingList();
+}
+
+function clearAllPings() {
+	if (!pings.size) return;
+	pings.clear();
+	updatePingPill();
+	if (pingListGate.classList.contains("show")) renderPingList();
+}
+
+function pingRowHtml(p) {
+	const badge = p.count > 1 ? `<span class="dmRowUnread">${p.count}</span>` : "";
+	return (
+		`<div class="dmRow" data-ping-geo="${escapeHtml(p.geo)}">` +
+		`<span class="dmRowMain">` +
+		`<span class="dmRowName">` +
+		`<span class="pingRowGeo">#${escapeHtml(clipWithEllipsis(p.geo, MAX_GEO_LEN))}</span>` +
+		`${handleHtml(p.who, p.pubkey)}` +
+		`</span>` +
+		`<span class="dmRowPreview">${escapeHtml(clipText(p.text, PING_PREVIEW_LEN))}</span>` +
+		`</span>` +
+		`<span class="dmRowSide">` +
+		`<span class="dmRowTime">${escapeHtml(formatAgo(p.ts))}</span>` +
+		badge +
+		`</span>` +
+		`</div>`
+	);
+}
+
+function renderPingList() {
+	const list = [...pings.values()].sort((a, b) => b.ts - a.ts);
+	// left genuinely empty when there's nothing: the placeholder is a css :empty rule,
+	// the same way the users and dm lists do it
+	pingList.innerHTML = list.map(pingRowHtml).join("");
+}
+
+function openPingList() {
+	renderPingList();
+	pingListGate.classList.add("show");
+}
+
+function closePingList() {
+	pingListGate.classList.remove("show");
+}
+
 // --- inbound ---------------------------------------------------------------
 
 // `historical` = a stored/backlog gift wrap replayed by a relay before EOSE (e.g.
@@ -4820,6 +4976,20 @@ brandEl.addEventListener("click", () => {
 
 // tapping the topbar envelope opens the DM inbox
 dmPill.addEventListener("click", openDmList);
+
+pingPill.addEventListener("click", openPingList);
+pingListClose.addEventListener("click", closePingList);
+pingListGate.addEventListener("click", (e) => {
+	if (e.target === pingListGate) closePingList();
+});
+pingList.addEventListener("click", (e) => {
+	const row = e.target.closest("[data-ping-geo]");
+	if (!row) return;
+	closePingList();
+	// focusChannel clears the ping itself, so going by any other route (the topbar,
+	// a #geo tap in the feed) settles it the same way this does.
+	focusChannel(row.getAttribute("data-ping-geo"));
+});
 
 // --- DM event wiring ---
 
@@ -5598,7 +5768,7 @@ function ingestEvent(ev, live = true) {
 	// its sender's tokens.
 	if (live && !isOwnEvent(ev) && !chatLimiter.allow("nostr:" + ev.pubkey.toLowerCase(), ev.content)) return;
 
-	renderEvent(ev);
+	renderEvent(ev, "", 0, live);
 
 	// ripple the globe wherever a live message just landed, and drift its text into
 	// the ambient chat ticker (map open only, live mode only - notes mode swaps
@@ -6148,6 +6318,7 @@ function updateSendLabel() {
 
 function focusChannel(geo) {
 	focusedGeo = geo;
+	clearPing(geo); // you came to look; that is what settles a ping
 	updatePlaceholder();
 	updateFocusedUserCount();
 	updateNotesButton();
@@ -6161,6 +6332,9 @@ function focusChannel(geo) {
 
 function exitFocus() {
 	focusedGeo = null;
+	// the global feed carries every channel, and rerenderTerminal below is about to
+	// put those mentions back on screen - so there is nothing left to be notified of.
+	clearAllPings();
 	suggest.hide();
 	closeNotes(); // notes are channel-scoped; leaving the channel closes them
 	updatePlaceholder();

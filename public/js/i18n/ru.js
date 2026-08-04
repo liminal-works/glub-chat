@@ -150,6 +150,13 @@ export default {
 		status_read: "прочитано",
 	},
 
+	// вас упомянули в канале, который вы сейчас не читаете
+	ping: {
+		title: "упоминания",
+		empty: "упоминаний пока нет",
+		received: '@{name} упомянул вас в #{geo}: "{preview}"',
+	},
+
 	users: {
 		title: "кто в #{geo}",
 		title_default: "участники",

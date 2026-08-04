@@ -145,6 +145,13 @@ export default {
 		status_read: "पढ़ा गया",
 	},
 
+	// किसी ऐसे चैनल में आपका ज़िक्र जिसे आप अभी नहीं पढ़ रहे
+	ping: {
+		title: "पिंग",
+		empty: "अभी कोई पिंग नहीं",
+		received: '@{name} ने #{geo} में आपको पिंग किया: "{preview}"',
+	},
+
 	users: {
 		title: "#{geo} में लोग",
 		title_default: "लोग",

@@ -48,6 +48,7 @@
 	--label-no-users: "no one here yet";
 	--label-dm-empty: "no messages yet";
 	--label-no-convos: "no conversations yet";
+	--label-no-pings: "no pings yet";
 }
 
 html,
@@ -4571,11 +4572,27 @@ html.retro .flairScan {
 /* floating DM pill: sits just below the topbar, top-right, over the chat. It
    only appears while there are unread DMs (kept off the topbar so long usernames
    have room), and the /dms command opens the inbox any time. */
-.dmPill {
+/* Both floating notifications live in one column so they can never land on top of
+   each other. The stack is click-through - it spans the full pill width and the gap
+   between them, and none of that should swallow a tap meant for the chat behind. */
+.pillStack {
 	position: fixed;
 	top: calc(var(--topbar-h, 48px) + 8px);
 	right: 12px;
 	z-index: 900;
+	display: flex;
+	flex-direction: column;
+	align-items: flex-end;
+	gap: 6px;
+	pointer-events: none;
+}
+
+.pillStack > * {
+	pointer-events: auto;
+}
+
+.dmPill,
+.pingPill {
 	display: inline-flex;
 	align-items: center;
 	border: 1px solid var(--chrome-border-strong);
@@ -4594,21 +4611,43 @@ html.retro .flairScan {
 	animation: barIn 0.18s ease-out;
 }
 
-.dmPill[hidden] {
+.dmPill[hidden],
+.pingPill[hidden] {
 	display: none;
 }
 
-.dmPill:active {
+.dmPill:active,
+.pingPill:active {
 	transform: translateY(1px);
 }
 
-.dmPill .dmCount {
+.dmPill .dmCount,
+.pingPill .pingCount {
 	color: var(--bg);
 	background: var(--accent);
 	border-radius: 8px;
 	padding: 0 5px;
 	margin-left: 6px;
 	font-size: 0.85em;
+}
+
+/* a ping is about a CHANNEL, so it wears the channel colour - the same blue every
+   #geohash in the log is drawn in. That is what tells the two pills apart at a
+   glance without either needing a word on it: green is a person, blue is a room. */
+.pingPill {
+	color: var(--geo);
+}
+
+.pingPill .pingCount {
+	background: var(--geo);
+}
+
+/* a ping row is a dm row with the channel promoted to the front: you decide whether
+   to go by WHERE it came from at least as much as by who sent it. */
+.pingRowGeo {
+	color: var(--geo);
+	font-weight: 700;
+	margin-right: 8px;
 }
 
 /* --- action popup (tap a name/message) --- */
@@ -4977,6 +5016,12 @@ html.retro .flairScan {
 
 #dmList:empty::before {
 	content: var(--label-no-convos);
+	color: var(--muted);
+	font-size: 13px;
+}
+
+#pingList:empty::before {
+	content: var(--label-no-pings);
 	color: var(--muted);
 	font-size: 13px;
 }

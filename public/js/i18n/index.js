@@ -189,6 +189,7 @@ export function applyStaticDom() {
 	root.setProperty("--label-no-users", JSON.stringify(t("users.empty")));
 	root.setProperty("--label-dm-empty", JSON.stringify(t("dm.empty")));
 	root.setProperty("--label-no-convos", JSON.stringify(t("dm.no_conversations")));
+	root.setProperty("--label-no-pings", JSON.stringify(t("ping.empty")));
 }
 
 // switch the active locale (loading its dictionary if needed), update the Intl

@@ -398,6 +398,17 @@
 				</div>
 			</div>
 
+			<!-- channels that @-mentioned you while you were reading somewhere else -->
+			<div id="pingListGate" class="gate">
+				<div class="usersPanel">
+					<div class="usersHeader">
+						<span id="pingListTitle" data-i18n="ping.title">pings</span>
+						<strong id="pingListClose" class="usersExit" data-i18n="users.exit">[EXIT]</strong>
+					</div>
+					<div id="pingList" class="usersList"></div>
+				</div>
+			</div>
+
 			<div id="dmGate" class="gate">
 				<div class="dmPanel">
 					<div class="usersHeader">
@@ -419,7 +430,12 @@
 				<span id="status"><strong data-i18n="topbar.relays">RELAYS</strong>: --/--</span>
 			</div>
 
-			<button id="dmPill" class="dmPill" type="button" hidden></button>
+			<!-- floating notifications, stacked top-right over the chat. The stack itself
+			     is click-through so its gaps never eat a tap meant for the feed. -->
+			<div id="pillStack" class="pillStack">
+				<button id="dmPill" class="dmPill" type="button" hidden></button>
+				<button id="pingPill" class="pingPill" type="button" hidden></button>
+			</div>
 
 			<!-- shown at the top of a guild while a page of older history is in flight -->
 			<div id="historyHint" data-i18n="guild.history_loading" hidden>loading older messages...</div>

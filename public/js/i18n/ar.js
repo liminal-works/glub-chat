@@ -160,6 +160,13 @@ export default {
 		status_read: "قُرئت",
 	},
 
+	// أن يذكرك أحد في قناة لا تقرأها حاليًا
+	ping: {
+		title: "المناداة",
+		empty: "لا مناداة بعد",
+		received: 'ناداك @{name} في #{geo}: "{preview}"',
+	},
+
 	users: {
 		title: "الموجودون في #{geo}",
 		title_default: "المستخدمون",

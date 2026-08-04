@@ -1407,7 +1407,13 @@ html.retro .flairScan {
 	font-family: "Hiragino Kaku Gothic ProN", "Yu Gothic", "Noto Sans CJK JP", "Noto Sans JP", "MS Gothic", monospace;
 	white-space: nowrap;
 	opacity: var(--m-op, 0.8);
-	animation: flairMatrixFall var(--m-fall, 3s) linear var(--m-delay, 0s) infinite;
+	/* STEPPED, not linear. A terminal advances by whole character cells - it does not
+	   glide - and a smooth translate is the single thing that made this read as snow
+	   drifting rather than as a machine printing. Eight jumps across the travel puts
+	   each one at roughly a glyph height for the sizes in use, so a column appears to
+	   scroll a line at a time. It quantizes the fade in the same keyframes, which is
+	   no loss: a terminal's output arrives, it doesn't ease in. */
+	animation: flairMatrixFall var(--m-fall, 0.9s) steps(8) var(--m-delay, 0s) infinite;
 }
 
 /* every cell is exactly one glyph square, whatever font ends up drawing it */

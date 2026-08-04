@@ -486,12 +486,21 @@ export function matrixColumnMarkup() {
 			`--m-x:${Math.max(0, Math.min(97, x)).toFixed(1)}%`,
 			`--m-size:${rnd(10, 13).toFixed(1)}px`,
 			`--m-op:${rnd(0.8, 1).toFixed(2)}`,
-			// the fall and the head's churn are deliberately unrelated periods, so a
-			// column never lands on the same glyph at the same height twice
-			`--m-fall:${rnd(1.9, 4.6).toFixed(2)}s`,
-			`--m-delay:-${rnd(0, 5).toFixed(2)}s`,
-			`--m-reel:${rnd(0.45, 1.15).toFixed(2)}s`,
-			`--m-reel-delay:-${rnd(0, 1.2).toFixed(2)}s`,
+			// Fast, because this is a terminal spitting out lines rather than snow
+			// drifting past. A column crosses the row in about a second, and the head
+			// churns several times inside that - the churn is what actually reads as
+			// a machine printing, so it's the quicker of the two by a wide margin.
+			// The two periods stay unrelated, so a column never lands on the same
+			// glyph at the same height twice.
+			`--m-fall:${rnd(0.55, 1.3).toFixed(3)}s`,
+			`--m-delay:-${rnd(0, 2).toFixed(3)}s`,
+			// This is a period for the WHOLE strip, so the per-character rate is this
+			// over MATRIX_REEL_LEN. Pushed much below about a quarter-second the head
+			// stops reading as characters at all and becomes a flickering dot - which
+			// is faster but says less. Around 10-20 changes a second it still reads as
+			// a machine printing something.
+			`--m-reel:${rnd(0.26, 0.5).toFixed(3)}s`,
+			`--m-reel-delay:-${rnd(0, 0.5).toFixed(3)}s`,
 		].join(";");
 		html += `<span class="mtxCol" style="${style}">${body}<span class="mtxHead">${matrixReel()}</span></span>`;
 	}

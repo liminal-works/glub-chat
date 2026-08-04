@@ -6215,7 +6215,7 @@ function pickFxTarget(selector) {
 // row went minutes between strikes, and a 300ms flash on a row you weren't looking at
 // is a strike nobody saw. Roughly doubled: still an event, not a rhythm, but often
 // enough that watching the log for a moment reliably catches one.
-const STRIKE_CHANCE = 0.16; // per tick -> roughly one bolt every ~9s on screen
+const STRIKE_CHANCE = 0.24; // per tick -> roughly one bolt every ~6s on screen
 const GUST_CHANCE = 0.11; // squalls are weather, not events - a little more frequent
 // Rain's borrowed bolt keeps its original rarity. It is a surprise INSIDE the rain,
 // and it is already the more noticeable of the two despite being the rarer: a bolt

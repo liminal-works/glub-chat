@@ -16,7 +16,7 @@
 // whitelist here is load-bearing: unknown names resolve to "" rather than being
 // interpolated into markup.
 
-export const FLAIRS = ["fire", "lightning", "stars", "rain", "plume", "neon"];
+export const FLAIRS = ["fire", "lightning", "stars", "rain", "plume", "neon", "matrix"];
 
 const KNOWN = new Set(FLAIRS);
 
@@ -41,6 +41,12 @@ const FLAIR_LIMITS = {
 	// two pseudo-elements animating opacity and nothing else - no blur, no blend, no
 	// particles. Cheaper than any of the others, so it starts uncapped like they did.
 	neon: 0,
+	// The only flair made of TEXT, and it is the node count that earns it a cap
+	// rather than blur: a column is a stack of glyph cells plus a strip of them for
+	// the head, so one row builds ~110 elements where rain builds ten. Measured at
+	// ~20 composited animations per row, which is fine by itself and is not fine
+	// twenty rows deep. Capped a little above plume, whose blur is dearer per row.
+	matrix: 4,
 };
 
 // how many of `raw` may animate at once; 0 for unlimited (and for unknown names,
@@ -88,7 +94,7 @@ const pick = (arr) => arr[(Math.random() * arr.length) | 0];
 // (fire and rain instead use it as a persistent container of individual particles:
 // one element per spark/drop is the only way each gets its own spawn time and path,
 // which a box-shadow field - one element, one animation - cannot give.)
-const FX_FLAIRS = new Set(["stars", "lightning", "fire", "rain", "plume", "neon"]);
+const FX_FLAIRS = new Set(["stars", "lightning", "fire", "rain", "plume", "neon", "matrix"]);
 
 export function flairHasFx(raw) {
 	return FX_FLAIRS.has(flairName(raw));
@@ -106,6 +112,7 @@ export function flairFxInner(raw) {
 	// gives out. Both pseudo-elements are spoken for - one is the coloured glass,
 	// the other the filament running down the middle of it.
 	if (n === "neon") return `<span class="neonDead"></span>`;
+	if (n === "matrix") return matrixColumnMarkup();
 	return "";
 }
 
@@ -116,9 +123,12 @@ export function flairFxInner(raw) {
 // gradient that costs none, and a row that lost it would visibly stop matching its
 // neighbours.
 //
-// Only neon wants one, so every other flair pays nothing - not even an empty node.
+// Two flairs want one and both want the same thing - a screen you are reading THROUGH
+// rather than at. Every other flair pays nothing, not even an empty node.
+const SCANLINE_FLAIRS = new Set(["neon", "matrix"]);
+
 export function flairOverlayInner(raw) {
-	return flairName(raw) === "neon" ? `<span class="flairScan" aria-hidden="true"></span>` : "";
+	return SCANLINE_FLAIRS.has(flairName(raw)) ? `<span class="flairScan" aria-hidden="true"></span>` : "";
 }
 
 // cool white-blues, so a field reads as starlight rather than confetti
@@ -417,6 +427,77 @@ export function rainGustMarkup() {
 	return `<span class="gust" style="--g-tilt:${tilt.toFixed(1)}deg"></span>`;
 }
 
+// --- matrix ---------------------------------------------------------------------
+// The first flair made of TEXT. Every other effect here is a fill - a gradient, a
+// box-shadow field, a blurred blob - and this one is glyphs, which is the whole
+// reason it looks like nothing else in the list.
+//
+// The signature detail of the falling-code look isn't the falling. It's that the
+// glyph at the head of a column KEEPS CHANGING while it falls. That normally means
+// rewriting text content every few frames, which is exactly the per-frame JavaScript
+// this module has never needed - so instead the head is a sprite sheet made of text:
+// a cell clipped to one glyph tall, holding a vertical strip of glyphs, translated by
+// a `steps()` animation. The strip jumps a whole glyph at a time, the cell shows one,
+// and the character appears to churn. One compositor animation, no JS, no reflow.
+//
+// Half-width katakana, as the film uses. They are the risk in this flair: a monospace
+// stack that has no CJK coverage falls back per-glyph, and fallback advance widths
+// vary. So every cell is a fixed 1em box with the glyph centred in it - a substituted
+// glyph can look different, but it cannot move the column it sits in.
+const MATRIX_GLYPHS = "ｱｲｳｴｵｶｷｸｹｺｻｼｽｾｿﾀﾁﾂﾃﾄﾅﾆﾇﾈﾉﾊﾋﾌﾍﾎﾏﾐﾑﾒﾓﾔﾕﾖﾗﾘﾙﾚﾛﾜﾝ0123456789";
+// Glyphs in a head's strip. Mirrored by `steps()` and the translate distance in
+// .mtxReel's keyframes - CSS cannot read a custom property inside steps(), so the
+// two have to agree by hand. A harness asserts they do.
+const MATRIX_REEL_LEN = 5;
+const MATRIX_TRAIL_MIN = 2;
+const MATRIX_TRAIL_MAX = 3;
+const MATRIX_COL_MIN = 8;
+const MATRIX_COL_MAX = 11;
+
+const glyph = () => MATRIX_GLYPHS[(Math.random() * MATRIX_GLYPHS.length) | 0];
+
+function matrixReel() {
+	let out = "";
+	for (let i = 0; i < MATRIX_REEL_LEN; i++) out += `<i>${glyph()}</i>`;
+	return `<span class="mtxReel">${out}</span>`;
+}
+
+export function matrixColumnMarkup() {
+	const count = MATRIX_COL_MIN + ((Math.random() * (MATRIX_COL_MAX - MATRIX_COL_MIN + 1)) | 0);
+	// Columns are spread by a jittered STEP rather than placed at uniform-random x,
+	// for the same reason the particle fields are (see particleField): pure noise
+	// clumps, and a clump plus a bare patch reads as a handful of stray glyphs rather
+	// than as rain. The step keeps them apart; the jitter keeps them off a grid.
+	const step = 100 / count;
+	let x = rnd(-step * 0.4, step * 0.4);
+	let html = "";
+	for (let i = 0; i < count; i++) {
+		x += step * rnd(0.62, 1.38);
+		const trail = MATRIX_TRAIL_MIN + ((Math.random() * (MATRIX_TRAIL_MAX - MATRIX_TRAIL_MIN + 1)) | 0);
+		// the trail is drawn ABOVE the head and dims with distance from it: the column
+		// is falling, so what's behind it is what it has already lit and left.
+		let body = "";
+		for (let d = trail; d >= 1; d--) {
+			// falls off with distance from the head, but never to nothing - a trail that
+			// fades to invisible is just a head, and the tail is what reads as a column.
+			body += `<span class="mtxGlyph" style="--m-dim:${(1 / (1 + d * 0.45)).toFixed(2)}">${glyph()}</span>`;
+		}
+		const style = [
+			`--m-x:${Math.max(0, Math.min(97, x)).toFixed(1)}%`,
+			`--m-size:${rnd(10, 13).toFixed(1)}px`,
+			`--m-op:${rnd(0.8, 1).toFixed(2)}`,
+			// the fall and the head's churn are deliberately unrelated periods, so a
+			// column never lands on the same glyph at the same height twice
+			`--m-fall:${rnd(1.9, 4.6).toFixed(2)}s`,
+			`--m-delay:-${rnd(0, 5).toFixed(2)}s`,
+			`--m-reel:${rnd(0.45, 1.15).toFixed(2)}s`,
+			`--m-reel-delay:-${rnd(0, 1.2).toFixed(2)}s`,
+		].join(";");
+		html += `<span class="mtxCol" style="${style}">${body}<span class="mtxHead">${matrixReel()}</span></span>`;
+	}
+	return html;
+}
+
 // the CSS custom properties a flaired line wants, as { "--name": value }. Unknown
 // or var-less flairs get {} - the stylesheet carries fallbacks for every var, so a
 // line (or a /flair preview chip) with no vars set still renders correctly.
@@ -536,6 +617,18 @@ export function flairVars(raw) {
 			"--neon-dead-w": `${Math.round(rnd(14, 34))}%`,
 			"--neon-text-dur": `${rnd(4, 7).toFixed(2)}s`,
 			"--neon-text-delay": `-${rnd(0, 6).toFixed(2)}s`,
+		};
+	}
+	// the columns carry their own timing (see matrixColumnMarkup); these are the row's
+	// ambient layers - the phosphor wash and the bloom the falling code throws onto the
+	// glass it's behind.
+	if (n === "matrix") {
+		return {
+			"--mtx-wash-dur": `${rnd(4.5, 9).toFixed(2)}s`,
+			"--mtx-wash-delay": `-${rnd(0, 8).toFixed(2)}s`,
+			"--mtx-wash-peak": rnd(0.5, 0.85).toFixed(2),
+			"--mtx-text-dur": `${rnd(3.5, 6.5).toFixed(2)}s`,
+			"--mtx-text-delay": `-${rnd(0, 6).toFixed(2)}s`,
 		};
 	}
 	if (n !== "stars") return {};

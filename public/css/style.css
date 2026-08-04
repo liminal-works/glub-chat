@@ -1093,12 +1093,13 @@ textarea {
 	margin-bottom: 12px;
 }
 
-/* The CRT glass, welded to neon rather than to the app.
+/* The CRT glass, welded to the flairs that are ABOUT being a screen - neon and
+   matrix - rather than to the app.
    The "retro terminal" setting lays scanlines over the WHOLE screen; this lays the
-   same hairlines over a neon row and nothing else, and does it whether or not that
-   setting is on. A tube read through a scanline is just what neon looks like - it is
-   the flair, not a preference - so it should not be something you have to go and
-   switch on somewhere else to get.
+   same hairlines over those rows and nothing else, and does it whether or not that
+   setting is on. A tube (or falling code) read through a scanline is just what those
+   look like - it is the flair, not a preference - so it should not be something you
+   have to go and switch on somewhere else to get.
 
    Unlike every other layer a flair owns, this one sits ABOVE the text (z-index 1,
    inside the row's own stacking context): a CRT overlays what it is displaying, and
@@ -1111,7 +1112,9 @@ textarea {
 	inset: 0;
 	z-index: 1;
 	pointer-events: none;
-	border-radius: 6px;
+	/* follows whatever the row is rounded to, so it never cuts a corner the flair
+	   underneath it didn't (neon widens both - see .flair-neon .flairScan) */
+	border-radius: inherit;
 	background: repeating-linear-gradient(
 		0deg,
 		var(--scanline-color) 0px,
@@ -1126,6 +1129,12 @@ textarea {
    than everything around them. */
 html.retro .flairScan {
 	display: none;
+}
+
+/* neon's glass is rounded a little wider than the row it frames, so its scanlines
+   match the tube rather than the row. */
+.flair-neon .flairScan {
+	border-radius: 6px;
 }
 
 /* The buzz. Shallow, fast, and deliberately NOT a sine: mains hum is a ragged thing,
@@ -1322,6 +1331,174 @@ html.retro .flairScan {
 	100% {
 		opacity: 0;
 	}
+}
+
+/* --- matrix: falling code behind the row --------------------------------------
+   The only flair made of glyphs. Everything else here is a fill; this is text, and
+   that is the whole reason it reads differently from the rest of the list.
+
+   Three layers, as usual, plus the shared CRT glass over the top (see .flairScan -
+   matrix and neon are the two flairs that are ABOUT being a screen):
+     ::before   the phosphor wash - the green a monitor throws on its own bezel
+     ::after    a soft bloom off the bottom edge, where the code has piled up
+     .flairFx   the columns themselves
+
+   Note there is deliberately NO green cast on the message text. Every other
+   character in the row belongs to somebody, and tinting it would take that away;
+   the code falls BEHIND what people said, it doesn't recolour it. */
+.flair-matrix::before {
+	inset: 0;
+	background: linear-gradient(180deg, rgba(0, 255, 65, 0.15), rgba(0, 255, 65, 0.05) 55%, transparent);
+	animation: flairMatrixWash var(--mtx-wash-dur, 6s) ease-in-out var(--mtx-wash-delay, 0s) infinite;
+}
+
+.flair-matrix::after {
+	left: 0;
+	right: 0;
+	bottom: -1px;
+	height: 9px;
+	background: linear-gradient(0deg, rgba(0, 255, 65, 0.3), transparent);
+	animation: flairMatrixWash var(--mtx-wash-dur, 6s) ease-in-out var(--mtx-wash-delay, 0s) infinite;
+}
+
+@keyframes flairMatrixWash {
+	0%,
+	100% {
+		opacity: calc(var(--mtx-wash-peak, 0.7) * 0.55);
+	}
+	50% {
+		opacity: var(--mtx-wash-peak, 0.7);
+	}
+}
+
+.flair-matrix > .flairFx {
+	inset: 0;
+	opacity: 1;
+	overflow: hidden;
+}
+
+/* one falling column: a stack of glyph cells that travels the height of the row and
+   keeps going, so it is always entering or leaving rather than sitting still. */
+.flair-matrix .mtxCol {
+	position: absolute;
+	left: var(--m-x, 20%);
+	top: 0;
+	/* Height is the ROW's, not the glyph stack's, and that is load-bearing: a
+	   translateY percentage resolves against the element's own height, so a column
+	   sized to its glyphs would measure its fall in glyph-heights and spend most of
+	   the cycle out of sight above or below a 26px row. Sized to the row, the same
+	   percentages mean row-heights and the fall lands where it can be seen. The
+	   stack overflows this box freely - the fx layer is what clips. */
+	height: 100%;
+	display: flex;
+	flex-direction: column;
+	/* anchored to the bottom so the HEAD leads: it is the lowest glyph, so it is the
+	   first thing to enter the row and the last to leave it. */
+	justify-content: flex-end;
+	font-size: var(--m-size, 10px);
+	line-height: 1;
+	/* a stack that has CJK coverage before the ui font's fallback gets a say. The
+	   1em cells below mean a substituted glyph can look different but cannot shift
+	   the column, so this is about quality, not correctness. */
+	font-family: "Hiragino Kaku Gothic ProN", "Yu Gothic", "Noto Sans CJK JP", "Noto Sans JP", "MS Gothic", monospace;
+	white-space: nowrap;
+	opacity: var(--m-op, 0.8);
+	animation: flairMatrixFall var(--m-fall, 3s) linear var(--m-delay, 0s) infinite;
+}
+
+/* every cell is exactly one glyph square, whatever font ends up drawing it */
+.flair-matrix .mtxGlyph,
+.flair-matrix .mtxHead {
+	display: block;
+	width: 1em;
+	height: 1em;
+	text-align: center;
+	overflow: hidden;
+}
+
+.flair-matrix .mtxGlyph {
+	color: #22ff5e;
+	opacity: var(--m-dim, 0.5);
+	text-shadow: 0 0 4px rgba(0, 255, 65, 0.5);
+}
+
+/* the head: the bright one at the leading edge, near-white the way an over-driven
+   phosphor goes, with the green bleeding out around it. */
+.flair-matrix .mtxHead {
+	color: #eaffef;
+	text-shadow:
+		0 0 3px rgba(216, 255, 230, 0.9),
+		0 0 7px rgba(0, 255, 65, 0.95),
+		0 0 14px rgba(0, 255, 65, 0.5);
+}
+
+/* ...and the sprite sheet that makes it churn. The strip is MATRIX_REEL_LEN glyphs
+   tall (see flair.js); stepping the translate by whole glyphs means the cell above
+   only ever shows one of them, cleanly, and the character appears to change without
+   a single byte of text being rewritten. */
+.flair-matrix .mtxReel {
+	display: block;
+	animation: flairMatrixReel var(--m-reel, 0.8s) steps(5) var(--m-reel-delay, 0s) infinite;
+}
+
+.flair-matrix .mtxReel i {
+	display: block;
+	width: 1em;
+	height: 1em;
+	font-style: normal;
+}
+
+/* steps() and this distance are MATRIX_REEL_LEN from flair.js - see the note
+   there. Stepping by whole glyphs is what keeps the cell showing exactly one. */
+@keyframes flairMatrixReel {
+	to {
+		transform: translateY(-5em);
+	}
+}
+
+/* Falls from clear of the top to clear of the bottom - the row clips it, so a column
+   is only ever a slice of a longer fall you never see the whole of. It fades in and
+   out at the ends rather than popping, which is what keeps the row's edges soft
+   instead of looking like a marquee. */
+@keyframes flairMatrixFall {
+	0% {
+		transform: translateY(-140%);
+		opacity: 0;
+	}
+	9% {
+		opacity: var(--m-op, 0.85);
+	}
+	88% {
+		opacity: var(--m-op, 0.85);
+	}
+	100% {
+		transform: translateY(115%);
+		opacity: 0;
+	}
+}
+
+/* matrix's &g is the code itself: phosphor green with the over-driven near-white
+   heads punched through it, on the same scroll every other wildcard uses. */
+.flair-matrix .fmtRainbow {
+	background-image: repeating-linear-gradient(
+		90deg,
+		#00913a 0%,
+		#00ff41 9%,
+		#d8ffe6 13%,
+		#d8ffe6 14.2%,
+		#00ff41 18%,
+		#00913a 27%,
+		#00913a 33%,
+		#00ff41 39%,
+		#d8ffe6 42%,
+		#d8ffe6 43.2%,
+		#00ff41 47%,
+		#00913a 54%,
+		#00913a 60%
+	);
+	animation-duration: var(--mtx-text-dur, 5s);
+	animation-delay: var(--mtx-text-delay, 0s);
+	text-decoration-color: #00ff41;
 }
 
 /* stars: two dot fields twinkling out of phase. Every value that shapes the sky -
@@ -2028,6 +2205,14 @@ html.retro .flairScan {
 	transform: none;
 }
 
+/* a quiet matrix keeps its phosphor wash - that is the tint that says "flaired" -
+   and loses the code, which the shared .flairQuiet rule above already hides with the
+   rest of the fx layer. Parked bright rather than mid-breath. */
+.flair-matrix.flairQuiet::before,
+.flair-matrix.flairQuiet::after {
+	opacity: var(--mtx-wash-peak, 0.7);
+}
+
 @media (prefers-reduced-motion: reduce) {
 	/* keep each flair's ambient tint (so a flaired line still reads as flaired)
 	   but stop the motion, parking the moving parts out of sight rather than
@@ -2048,9 +2233,16 @@ html.retro .flairScan {
 	.flair-fire .fmtRainbow,
 	.flair-rain .fmtRainbow,
 	.flair-neon .fmtRainbow,
+	.flair-matrix .fmtRainbow,
 	.flair-plume .fmtRainbow {
 		animation: none;
 		filter: brightness(1);
+	}
+	/* the wash stays, parked lit; the code is in the fx layer, which the shared rule
+	   below hides outright. Nothing falls for a reader who asked for less motion. */
+	.flair-matrix::before,
+	.flair-matrix::after {
+		opacity: var(--mtx-wash-peak, 0.7);
 	}
 	/* both tubes stay lit and the fault never happens: a sign that is simply ON.
 	   The arrival strike carries its own (higher) specificity, so switching it off

@@ -6035,14 +6035,23 @@ function pickFxTarget(selector) {
 
 // one timer drives every flair's rare one-shot effect. Each rolls independently, so
 // rates stay per-effect, and the tick costs nothing when no flaired line is up.
-// A bolt used to be one per ~20s, and measured over a minute that is exactly what it
-// did - but the rate is shared across every lightning row on screen, so any ONE row
-// went minutes between strikes, and a 300ms flash on a row you weren't looking at is
-// a strike nobody saw. Roughly doubled: still an event, not a rhythm, but often
+// These are the ONE-SHOT events only. Each flair's ambient motion - lightning's
+// sheet-flicker and haze, rain's overcast wash, fire's huff - is pure CSS on a
+// per-line randomized period (see flairVars) and has nothing to do with any of these
+// numbers. STRIKE_CHANCE is the generated bolt and only the generated bolt.
+//
+// The bolt used to be one per ~20s, and measured over a minute that is exactly what
+// it did - but the rate is shared across every lightning row on screen, so any ONE
+// row went minutes between strikes, and a 300ms flash on a row you weren't looking at
+// is a strike nobody saw. Roughly doubled: still an event, not a rhythm, but often
 // enough that watching the log for a moment reliably catches one.
 const STRIKE_CHANCE = 0.16; // per tick -> roughly one bolt every ~9s on screen
 const GUST_CHANCE = 0.11; // squalls are weather, not events - a little more frequent
-const RAIN_BOLT_CHANCE = 0.055; // ~one thunderclap every ~27s of rain on screen
+// Rain's borrowed bolt keeps its original rarity. It is a surprise INSIDE the rain,
+// and it is already the more noticeable of the two despite being the rarer: a bolt
+// over a calm shower is unmistakable, where a bolt over a row that is already
+// flickering with sheet lightning has to compete with the flair's own weather.
+const RAIN_BOLT_CHANCE = 0.03; // ~one thunderclap every ~50s of rain on screen
 const SURGE_CHANCE = 0.13; // the plume is always burning, so this is the busiest of them
 setInterval(() => {
 	if (document.hidden) return;

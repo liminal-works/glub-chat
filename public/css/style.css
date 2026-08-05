@@ -3307,6 +3307,41 @@ html.retro .flairScan {
 	border-color: var(--accent);
 }
 
+/* A picture whose host has dropped the file. It still renders here - it is coming
+   out of this browser's cache - so the tile has to say what everyone else sees, and
+   say it over the image rather than instead of it: replacing the thumbnail would
+   leave the reader unable to tell WHICH saved picture had died. Dimmed and desaturated
+   so it reads as gone at a glance, with the word for anyone who scans rather than
+   reads. The X to remove it is already there. */
+.galleryGoneTag {
+	display: none;
+}
+
+.galleryItem.galleryGone {
+	border-color: color-mix(in srgb, var(--danger) 55%, transparent);
+}
+
+.galleryItem.galleryGone .galleryImg {
+	filter: grayscale(1) brightness(0.42);
+}
+
+.galleryItem.galleryGone .galleryGoneTag {
+	display: block;
+	position: absolute;
+	left: 0;
+	right: 0;
+	bottom: 0;
+	padding: 2px 4px;
+	background: color-mix(in srgb, var(--danger) 78%, transparent);
+	color: var(--bg);
+	font-size: 9px;
+	font-weight: 700;
+	letter-spacing: 0.04em;
+	text-align: center;
+	text-transform: lowercase;
+	pointer-events: none;
+}
+
 /* a saved message. Same square cell as a picture, so the grid stays aligned however
    the two are mixed - the tile just has type in it instead of pixels. */
 .galleryItemText {

@@ -293,7 +293,9 @@ export default {
 			many: "حُفظ {count} عنصرًا في المعرض",
 			other: "حُفظ {count} في المعرض",
 		},
-		ephemeral: "وسائط glub.chat تُحذف بعد يوم — لا شيء ليُحفظ",
+		rehosting: "وسائط glub.chat تنتهي صلاحيتها — يجري النسخ إلى تخزين دائم...",
+		rehost_failed: "تعذّر النسخ إلى تخزين دائم — لم يُحفظ",
+		gone: "الرابط ميت",
 	},
 
 	suggest: {

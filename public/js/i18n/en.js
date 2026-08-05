@@ -269,7 +269,9 @@ export default {
 		empty: "nothing saved yet — tap any message in chat to keep it",
 		remove: "remove",
 		saved: { one: "saved to gallery", other: "saved {count} to gallery" },
-		ephemeral: "glub.chat media is deleted after a day — nothing to save",
+		rehosting: "glub.chat media expires — copying to permanent storage...",
+		rehost_failed: "couldn't copy that to permanent storage — not saved",
+		gone: "link is dead",
 	},
 
 	suggest: {

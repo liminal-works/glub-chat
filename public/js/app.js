@@ -147,12 +147,12 @@ function saveGallery() {
 	} catch {} // quota/private-mode: the in-memory list still works for this session
 }
 
-// Our own media host prunes after a day, so a url from it is guaranteed to rot.
-// Saving one would leave a permanent hole in a grid whose whole point is that
-// everything in it still works, and the user would have no way to know why. Refusing
-// it once, with a reason, is a smaller cost than a broken tile they have to identify
-// and clean up later. Nostr.build (where guild photos and avatars go) is permanent
-// and saves fine.
+// Our own media host prunes after a day, so a url from it is guaranteed to rot, and
+// a gallery whose whole point is that everything in it still works cannot hold one.
+// Refusing the save was the first answer; copying the file somewhere permanent is
+// the better one, and costs the reader nothing but a moment (see rehostForGallery).
+// Nostr.build - where guild photos, notes media and avatars already go - is the
+// permanent half of that pair and saves directly.
 function isEphemeralMedia(url) {
 	try {
 		const origin = new URL(url, location.href).origin;
@@ -186,6 +186,33 @@ function galleryAddText(text) {
 function galleryRemove(key) {
 	gallery = gallery.filter((i) => galleryKey(i) !== key);
 	saveGallery();
+}
+
+// --- keeping a picture that was never meant to last -----------------------------
+// Pull the bytes back off our own short-lived host and re-upload them to
+// nostr.build, so what lands in the gallery is a url that outlives the chat it came
+// from. Same upload path notes and avatars use, so it needs no new plumbing and no
+// server help - the file goes straight from this device to nostr.build under a
+// one-off signed header.
+//
+// Resolves to the permanent url, or null if anything went wrong: the file may
+// already have been pruned (the likeliest case, and exactly why this exists), it may
+// be over the host's free-tier cap, or the upload may simply fail. The caller says so
+// rather than saving a url it hasn't confirmed.
+async function rehostForGallery(url) {
+	try {
+		const res = await fetch(url, { cache: "no-store" });
+		if (!res.ok) return null;
+		const blob = await res.blob();
+		if (!blob.size || blob.size > NOSTR_BUILD_MAX_BYTES) return null;
+		// keep the extension so the hosted url still looks like an image to anything
+		// that sniffs by name rather than content-type
+		const name = (url.split("/").pop() || "image").split("?")[0] || "image";
+		const hosted = await uploadImageToNostrBuild(new File([blob], name, { type: blob.type || "image/jpeg" }), identity);
+		return hosted && hosted.url ? hosted.url : null;
+	} catch {
+		return null;
+	}
 }
 
 // client-only block list (lowercased pubkeys), persisted to localStorage so a
@@ -5085,16 +5112,30 @@ actionSaveMedia.addEventListener("click", () => {
 		}
 		return;
 	}
+	// Anything already on a permanent host is saved immediately - there is nothing to
+	// wait for, and a picture appearing in the grid the instant you asked is the whole
+	// feel of the thing. Only our own expiring urls take the slow path.
 	const keep = urls.filter((u) => !isEphemeralMedia(u));
+	const temporary = urls.filter((u) => isEphemeralMedia(u));
 	for (const u of keep) galleryAddImage(u);
 	syncMediaBtn(); // the first save can be what puts the "+" on screen
-	if (!keep.length) {
-		appendSystem(t("gallery.ephemeral"));
-		return;
-	}
-	appendSystem(t("gallery.saved", { count: keep.length }));
-	// a mixed message shouldn't look like a clean success
-	if (keep.length < urls.length) appendSystem(t("gallery.ephemeral"));
+	if (keep.length) appendSystem(t("gallery.saved", { count: keep.length }));
+	if (!temporary.length) return;
+
+	appendSystem(t("gallery.rehosting"));
+	(async () => {
+		let saved = 0;
+		for (const u of temporary) {
+			const hosted = await rehostForGallery(u);
+			if (!hosted) continue;
+			galleryAddImage(hosted);
+			saved++;
+		}
+		syncMediaBtn();
+		if (galleryGate.classList.contains("show")) renderGallery();
+		if (saved) appendSystem(t("gallery.saved", { count: saved }));
+		if (saved < temporary.length) appendSystem(t("gallery.rehost_failed"));
+	})();
 });
 
 actionHide.addEventListener("click", () => {
@@ -6810,9 +6851,13 @@ function renderGallery() {
 					`</div>`
 				);
 			}
+			// a known-dead url keeps its mark across a re-render; checkGalleryLinks
+			// adds it to the rest as their probes come back
+			const gone = galleryAlive.get(item.url) === false ? " galleryGone" : "";
 			return (
-				`<div class="galleryItem" data-gallery-key="${key}">` +
+				`<div class="galleryItem${gone}" data-gallery-key="${key}">` +
 				`<img class="galleryImg" src="${escapeHtml(item.url)}" alt="" loading="lazy">` +
+				`<span class="galleryGoneTag">${escapeHtml(t("gallery.gone"))}</span>` +
 				drop +
 				`</div>`
 			);
@@ -6853,12 +6898,77 @@ window.addEventListener("resize", () => {
 	if (galleryGate.classList.contains("show")) fitGalleryText();
 });
 
+// --- is this picture still there? ------------------------------------------------
+// A tile whose host has dropped the file keeps rendering perfectly for the one
+// person who saved it, because it is coming out of their browser cache - and looks
+// dead to everybody else. That is the worst shape a broken link can take: the only
+// reader who could fix it is the only one who can't see the problem.
+//
+// So the probe deliberately defeats the cache. An <img> is used rather than fetch
+// because loading an image is not subject to CORS, and "can an <img> tag render
+// this" is exactly the question being asked - a fetch would answer a different one
+// and be blocked on half the hosts anyway. The cache-busting parameter is what makes
+// the answer about the SERVER rather than about this device.
+//
+// Results are memoized for the session: sixty tiles is sixty requests, worth paying
+// once when the grid opens and not again every time it is reopened.
+const galleryAlive = new Map(); // url -> true (alive) | false (gone)
+
+function probeGalleryUrl(url) {
+	if (galleryAlive.has(url)) return Promise.resolve(galleryAlive.get(url));
+	return new Promise((resolve) => {
+		const img = new Image();
+		let settled = false;
+		const done = (alive) => {
+			if (settled) return;
+			settled = true;
+			galleryAlive.set(url, alive);
+			resolve(alive);
+		};
+		img.onload = () => done(true);
+		img.onerror = () => done(false);
+		// a host that never answers is not usable either, but give it a real chance
+		setTimeout(() => done(false), 12000);
+		try {
+			const bust = new URL(url, location.href);
+			bust.searchParams.set("_glubcheck", String(Date.now()));
+			img.src = bust.href;
+		} catch {
+			done(false);
+		}
+	});
+}
+
+// Probe every picture in the grid and mark the dead ones in place. Tiles are patched
+// individually rather than re-rendering: a rebuild would drop the reader's scroll
+// position and re-run the ascii fit pass for every text tile, both for nothing.
+function checkGalleryLinks() {
+	for (const item of gallery) {
+		if (item.kind !== "image") continue;
+		const url = item.url;
+		probeGalleryUrl(url).then((alive) => {
+			if (alive) return;
+			const key = galleryKey(item);
+			const tile = galleryGrid.querySelector(`[data-gallery-key="${cssEscape(key)}"]`);
+			if (tile) tile.classList.add("galleryGone");
+		});
+	}
+}
+
+// CSS.escape isn't in every engine this runs on, and a gallery key is an arbitrary
+// url, so quote it defensively rather than interpolating raw.
+function cssEscape(value) {
+	if (window.CSS && typeof CSS.escape === "function") return CSS.escape(value);
+	return String(value).replace(/["\\\]\[]/g, "\\$&");
+}
+
 function openGallery() {
 	// shown BEFORE the fit pass: a hidden gate measures every cell as zero-width, and
 	// a scale computed from that comes out as 1 for everything - which looks exactly
 	// like a tile that didn't need scaling.
 	galleryGate.classList.add("show");
 	renderGallery();
+	checkGalleryLinks();
 }
 
 function closeGallery() {

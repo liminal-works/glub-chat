@@ -258,7 +258,9 @@ export default {
 		empty: "还没有保存任何内容——点按聊天中的任意消息即可留存",
 		remove: "移除",
 		saved: { one: "已保存到图库", other: "已保存 {count} 项到图库" },
-		ephemeral: "glub.chat 的媒体一天后即删除——没有可保存的内容",
+		rehosting: "glub.chat 媒体会过期 — 正在复制到永久存储...",
+		rehost_failed: "无法复制到永久存储 — 未保存",
+		gone: "链接已失效",
 	},
 
 

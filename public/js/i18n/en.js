@@ -449,7 +449,7 @@ export default {
 		nsec_paste_failed: "couldn't read clipboard",
 		nsec_invalid: "invalid nsec",
 		nsec_imported: "imported",
-		unknown_command: "unknown command: /{name}",
+		unknown_command: "unknown command: /{name} (try /help)",
 		commands_header: "available commands",
 		themes_header: "available themes",
 		theme_current: "current",

@@ -430,7 +430,7 @@ export default {
 		nsec_paste_failed: "无法读取剪贴板",
 		nsec_invalid: "无效的 nsec",
 		nsec_imported: "已导入",
-		unknown_command: "未知命令：/{name}",
+		unknown_command: "未知命令：/{name}（试试 /help）",
 		commands_header: "可用命令",
 		themes_header: "可用主题",
 		theme_current: "当前",

@@ -429,7 +429,7 @@ export default {
 		nsec_paste_failed: "क्लिपबोर्ड पढ़ नहीं सके",
 		nsec_invalid: "अमान्य nsec",
 		nsec_imported: "आयात हुआ",
-		unknown_command: "अनजान कमांड: /{name}",
+		unknown_command: "अनजान कमांड: /{name} (/help आज़माएँ)",
 		commands_header: "उपलब्ध कमांड",
 		themes_header: "उपलब्ध थीम",
 		theme_current: "वर्तमान",

@@ -478,7 +478,7 @@ export default {
 		nsec_paste_failed: "تعذّرت قراءة الحافظة",
 		nsec_invalid: "nsec غير صالح",
 		nsec_imported: "استُورد",
-		unknown_command: "أمر غير معروف: /{name}",
+		unknown_command: "أمر غير معروف: /{name} (جرّب /help)",
 		commands_header: "الأوامر المتاحة",
 		themes_header: "الأنظمة المتاحة",
 		theme_current: "الحالي",

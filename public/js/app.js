@@ -7706,15 +7706,33 @@ const COMMANDS = [
 	},
 ];
 
-// run a "/command ..." line locally. returns true if it matched a known command
-// (so send() won't also transmit it). an unknown "/..." returns false and falls
-// through as a normal message, so a literal slash message still works.
+// A line that is TRYING to be a command: a slash, then a word that starts with a
+// letter, then whitespace or the end.
+//
+// The point of being fussy is that plenty of ordinary messages start with a slash
+// and must still send. Requiring a leading letter lets "/123" through; requiring
+// whitespace-or-end after the word lets any path through ("/home/user/notes",
+// "/usr/bin/env"), since the character after the first word there is another slash;
+// and a bare "/" or a doubled "//" fails on the first character. What is left is
+// almost exactly the set of things a person meant as a command.
+const COMMAND_ATTEMPT_RE = /^\/[a-z][a-z0-9_-]*(\s|$)/i;
+
+// run a "/command ..." line locally. Returns true if the line was CONSUMED - either
+// it ran, or it looked like a command and no such command exists, in which case it
+// gets an error rather than being broadcast. Sending "/wordl" to a channel tells
+// everyone there about your typo and does nothing you wanted; saying so locally is
+// what every other client does and what the (until now unused) string was written
+// for. Anything that isn't command-shaped returns false and sends as normal text.
 function runCommand(raw) {
 	const text = raw.trim();
 	if (!text.startsWith("/")) return false;
 	const [word, ...rest] = text.slice(1).split(/\s+/);
 	const cmd = COMMANDS.find((c) => c.name === word.toLowerCase());
-	if (!cmd) return false;
+	if (!cmd) {
+		if (!COMMAND_ATTEMPT_RE.test(text)) return false;
+		appendSystem(t("system.unknown_command", { name: clipText(word.toLowerCase(), 24) }));
+		return true;
+	}
 	cmd.run(rest.join(" ").trim());
 	return true;
 }

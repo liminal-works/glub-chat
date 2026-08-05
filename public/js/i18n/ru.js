@@ -444,7 +444,7 @@ export default {
 		nsec_paste_failed: "не удалось прочитать буфер обмена",
 		nsec_invalid: "неверный nsec",
 		nsec_imported: "импортировано",
-		unknown_command: "неизвестная команда: /{name}",
+		unknown_command: "неизвестная команда: /{name} (см. /help)",
 		commands_header: "доступные команды",
 		themes_header: "доступные темы",
 		theme_current: "текущая",

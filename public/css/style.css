@@ -3155,6 +3155,18 @@ html.retro .flairScan {
 	}
 }
 
+/* the globe's clock: the local time where you're looking. Deliberately the same
+   voice as .mapHint - muted, small, uninsistent - because it is ambient context for
+   the day/night shading rather than something to act on. */
+.mapClock {
+	margin-top: 2px;
+	text-align: center;
+	color: var(--muted);
+	font-size: 11.5px;
+	letter-spacing: 0.02em;
+	min-height: 1em; /* reserve the line so the globe doesn't jump when it arrives */
+}
+
 .mapHint {
 	margin-top: 8px;
 	text-align: center;

@@ -14,7 +14,7 @@ import { RelayPool } from "./nostr/relayPool.js";
 import { buildChatEvent, buildPresenceEvent, signEvent, makeProfileEvent, getGeohash, getName, getClient, CHAT_KIND, PRESENCE_KIND, sortRelaysByGeohash, geohashCell, encodeGeohash, verifyEvent } from "./nostr/protocol.js";
 import { mineNonceTag, POW_DIFFICULTY, idDifficulty, committedDifficulty } from "./nostr/pow.js";
 import { createMessageRateLimiter, createPresenceRateLimiter } from "./ratelimit.js";
-import { t, formatAgo, formatDayAgo, setLocale, detectLocale, onLocaleChange, preferredContentLanguage } from "./i18n/index.js";
+import { t, formatAgo, formatDayAgo, setLocale, detectLocale, onLocaleChange, preferredContentLanguage, getLocale } from "./i18n/index.js";
 import { createSuggest } from "./ui/suggest.js";
 import { createMap } from "./ui/map.js";
 import { createDmClient, DM_MAX_CONTENT_BYTES } from "./nostr/dm.js";
@@ -412,6 +412,7 @@ const mapFeed = document.getElementById("mapFeed");
 const mapMenuBtn = document.getElementById("mapMenuBtn");
 const mapMenu = document.getElementById("mapMenu");
 const mapHint = document.getElementById("mapHint");
+const mapClock = document.getElementById("mapClock");
 const usersNotes = document.getElementById("usersNotes");
 const notesGate = document.getElementById("notesGate");
 const notesTitle = document.getElementById("notesTitle");
@@ -3289,6 +3290,92 @@ function applyMapMode() {
 	}
 }
 
+// --- the globe's clock --------------------------------------------------------
+// The local time wherever the globe is centred, so spinning it answers "is it the
+// middle of the night there?" in the same glance as the day/night shading.
+//
+// Entirely local after one small module load. tz-lookup turns a lat/lon into an IANA
+// zone name (~29kb gzipped), and Intl.DateTimeFormat already carries the zone
+// database in the browser - so DST, half-hour offsets like Kolkata, and oddities
+// like Asia/Urumqi keeping its own time all come out right with no api behind it.
+// Loaded lazily on the first globe open, because someone who never opens the map
+// should never pay for it.
+let tzLookup = null;
+let tzLoading = null;
+let clockCenter = null; // { lat, lon } of the view centre
+let clockTimer = null;
+const clockZones = new Map(); // rounded "lat,lon" -> zone name
+const clockFormats = new Map(); // zone -> { h12, h24 }
+
+function loadTzLookup() {
+	if (tzLookup || tzLoading) return tzLoading;
+	tzLoading = import("https://esm.sh/tz-lookup@6.1.25")
+		.then((m) => {
+			tzLookup = m.default || m;
+			renderMapClock();
+		})
+		.catch(() => {
+			// offline, or the cdn is blocked. No clock is a fine outcome; the globe
+			// itself is fully local and must not care.
+			tzLoading = null;
+		});
+	return tzLoading;
+}
+
+function zoneAt(lat, lon) {
+	// a tenth of a degree is ~11km, finer than any timezone boundary matters at this
+	// zoom, and it turns a drag across a continent into a handful of real lookups
+	const key = `${lat.toFixed(1)},${lon.toFixed(1)}`;
+	if (clockZones.has(key)) return clockZones.get(key);
+	let zone = null;
+	try {
+		zone = tzLookup(lat, lon);
+	} catch {
+		zone = null; // tz-lookup throws on out-of-range input rather than returning null
+	}
+	if (clockZones.size > 800) clockZones.clear();
+	clockZones.set(key, zone);
+	return zone;
+}
+
+function renderMapClock() {
+	if (!mapClock) return;
+	if (!tzLookup || !clockCenter) return; // leave whatever's there; empty until it loads
+	const zone = zoneAt(clockCenter.lat, clockCenter.lon);
+	if (!zone) {
+		mapClock.textContent = "";
+		return;
+	}
+	let f = clockFormats.get(zone);
+	if (!f) {
+		// the app's own locale, but pinned to latin digits: this sits in a terminal
+		// frame beside latin-digit coordinates, and a clock in a different numbering
+		// system reads as a rendering fault rather than a translation.
+		const loc = `${getLocale() || "en"}-u-nu-latn`;
+		f = {
+			h12: new Intl.DateTimeFormat(loc, { timeZone: zone, hour: "numeric", minute: "2-digit", hour12: true }),
+			h24: new Intl.DateTimeFormat(loc, { timeZone: zone, hour: "2-digit", minute: "2-digit", hour12: false }),
+		};
+		clockFormats.set(zone, f);
+	}
+	const now = new Date();
+	mapClock.textContent = `${f.h12.format(now).toLowerCase()} · ${f.h24.format(now)}`;
+}
+
+function startMapClock() {
+	loadTzLookup();
+	renderMapClock();
+	// a second is finer than the display needs, but it means the minute rolls over
+	// when it actually rolls over rather than up to a minute late. renderMapClock is
+	// two cache lookups and a format, so the cost is nil.
+	if (!clockTimer) clockTimer = setInterval(renderMapClock, 1000);
+}
+
+function stopMapClock() {
+	if (clockTimer) clearInterval(clockTimer);
+	clockTimer = null;
+}
+
 function openMap() {
 	if (!mapInstance) {
 		mapInstance = createMap({
@@ -3302,11 +3389,16 @@ function openMap() {
 			// notes mode: any tap means "show me the notes here" - the sheet opens
 			// over the map, so [EXIT] drops you right back on it
 			onNotesPick: (gh) => openNotesForGeo(gh),
+			onCenter: (lat, lon) => {
+				clockCenter = { lat, lon };
+				renderMapClock();
+			},
 		});
 		mapInstance.setOptions(mapConfig);
 	}
 	closeUsers();
 	if (mapFeed) mapFeed.innerHTML = ""; // start the live-chat ticker empty
+	startMapClock();
 	mapGate.classList.add("show");
 	mapInstance.setActivity(buildActivityMap(), buildCountMap());
 	// the canvas has no size until the gate is visible - size it next frame
@@ -3330,6 +3422,7 @@ function closeMap() {
 	stopMapNotes();
 	if (mapFeed) mapFeed.innerHTML = "";
 	if (mapInstance) mapInstance.close();
+	stopMapClock();
 }
 
 // --- map notes: fetch what's under the viewport, pin it -----------------------
@@ -6168,6 +6261,10 @@ onLocaleChange(() => {
 	updateNewMessagesBar();
 	renderSettingsDesc(); // the settings blurb is set imperatively, not via data-i18n
 	rerenderTerminal();
+	// the clock's formatters are built per zone AND per locale, so a language change
+	// has to throw them away or the globe keeps telling the time in the old one
+	clockFormats.clear();
+	renderMapClock();
 });
 
 // presence/activity decays with time, so re-evaluate the focused channel on a
@@ -6526,6 +6623,9 @@ function updatePlaceholder() {
 function updateSendLabel() {
 	const sends = focusedGeo || focusedGuild || !!addressedDraft(chatInput.value);
 	sendBtn.textContent = t(sends ? "composer.send" : "composer.join");
+	// the phone keyboard's action key is part of the same promise the button makes,
+	// so it moves with it: "go" for a picker, "send" for a composer
+	chatInput.enterKeyHint = sends ? "send" : "go";
 }
 
 function focusChannel(geo) {

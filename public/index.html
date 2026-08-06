@@ -286,6 +286,10 @@
 						</button>
 						<strong id="mapClose" class="usersExit" data-i18n="users.exit">[EXIT]</strong>
 					</div>
+					<!-- the local time wherever the globe is centred, updating as you spin.
+					     Empty until the timezone module loads (and stays empty if it can't),
+					     so the layout never reserves space for a clock that isn't coming. -->
+					<div id="mapClock" class="mapClock" aria-hidden="true"></div>
 					<div class="mapStage">
 						<canvas id="mapCanvas" class="mapCanvas"></canvas>
 						<!-- ephemeral live-chat ticker: fresh messages from anywhere drift up
@@ -461,9 +465,13 @@
 				<div id="inputbar">
 					<input id="mediaFile" type="file" accept="image/*" hidden />
 					<span class="prompt" aria-hidden="true">&gt;</span>
-					<input id="chatInput" type="text" enterkeyhint="send" spellcheck="true" autocorrect="on" autocapitalize="sentences" autocomplete="off" placeholder="#channel message..." data-i18n-placeholder="composer.placeholder_global" />
+					<input id="chatInput" type="text" enterkeyhint="send" spellcheck="true" autocorrect="on" autocapitalize="sentences" autocomplete="off" placeholder="#channel to join..." data-i18n-placeholder="composer.placeholder_global" />
 					<button id="mediaBtn" type="button" aria-haspopup="menu" hidden>+</button>
-					<button id="sendBtn" type="button" data-i18n="composer.send">send</button>
+					<!-- The app boots into the global feed, which is a channel picker, so the
+					     pre-JS fallbacks have to say what the composer will actually do. These
+					     are what a reader sees for the frame or two before i18n runs, and
+					     "send" over a box that joins is the wrong first impression. -->
+					<button id="sendBtn" type="button" data-i18n="composer.join">join</button>
 				</div>
 
 				<!-- the "+" menu: upload a photo, record audio, or re-send something saved -->

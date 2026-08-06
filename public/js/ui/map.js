@@ -92,7 +92,7 @@ function geohashBounds(gh) {
 	return { latLo, latHi, lonLo, lonHi };
 }
 
-export function createMap({ canvas, onPick, onNotesPick, colors }) {
+export function createMap({ canvas, onPick, onNotesPick, onCenter, colors }) {
 	const ctx = canvas.getContext("2d");
 	let W = 0, H = 0, cx = 0, cy = 0, dpr = 1;
 
@@ -1234,7 +1234,30 @@ export function createMap({ canvas, onPick, onNotesPick, colors }) {
 			if (pings.some((p) => p.born <= cutoff)) pings = pings.filter((p) => p.born > cutoff);
 		}
 		draw();
+		reportCenter();
 		raf = requestAnimationFrame(frame);
+	}
+
+	// Tell the outside world where the globe is pointing - the clock reads it. Only
+	// when it has actually moved, and never more than a few times a second: the idle
+	// spin nudges yaw every single frame, and waking a timezone lookup 60 times a
+	// second to be told it's still the same place is work nobody asked for.
+	let lastCLat = NaN;
+	let lastCLon = NaN;
+	let lastCAt = 0;
+	function reportCenter() {
+		if (!onCenter) return;
+		const nowMs = performance.now();
+		if (nowMs - lastCAt < 150) return;
+		const lat = pitch;
+		const lon = wrapLon(yaw);
+		// a quarter degree is far finer than any timezone boundary, so this never
+		// misses a change that would alter the answer
+		if (Math.abs(lat - lastCLat) < 0.25 && Math.abs(lon - lastCLon) < 0.25) return;
+		lastCAt = nowMs;
+		lastCLat = lat;
+		lastCLon = lon;
+		onCenter(lat, lon);
 	}
 
 	// --- public ----------------------------------------------------------------
@@ -1243,6 +1266,11 @@ export function createMap({ canvas, onPick, onNotesPick, colors }) {
 		resize();
 		running = true;
 		lastInteract = performance.now();
+		// force the next reportCenter through: reopening on the same spot is still a
+		// moment the clock needs to be told about, and the movement test would swallow it
+		lastCLat = NaN;
+		lastCLon = NaN;
+		lastCAt = 0;
 		if (!raf) raf = requestAnimationFrame(frame);
 	}
 	function close() {

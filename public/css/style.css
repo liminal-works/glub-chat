@@ -3160,7 +3160,11 @@ html.retro .flairScan {
    the day/night shading rather than something to act on. */
 .mapClock {
 	margin-top: 2px;
-	text-align: center;
+	/* flush with the "geohash map" title above it: both are direct children of
+	   .mapPanel and the title's button has no padding of its own, so start-aligning
+	   is all it takes. "start" rather than "left" so it follows the text direction
+	   under an rtl locale, like the rest of the frame. */
+	text-align: start;
 	color: var(--muted);
 	font-size: 11.5px;
 	letter-spacing: 0.02em;

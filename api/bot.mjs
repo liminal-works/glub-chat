@@ -145,6 +145,16 @@ const PROMO_RATE = (() => {
 })();
 const PROMO_TEXT = "\n\ntry https://glub.chat/";
 
+// --- shouts (admin broadcast) ----------------------------------------------
+// A shout is deliberately NOT a fan-out to every channel we know about. It stays
+// live for a window and drops into a channel the FIRST time that channel shows
+// activity, so it only ever lands somewhere a person is currently present to read
+// it. Blasting the index instead would reach mostly-empty geohashes, and would look
+// exactly like the spam the bot exists to not be.
+const SHOUT_WINDOW_SEC = Number(process.env.GLUB_SHOUT_WINDOW_SEC) || 420; // how long a shout stays live
+const SHOUT_MAX_CHANNELS = Number(process.env.GLUB_SHOUT_MAX_CHANNELS) || 250; // safety cap per shout
+const SHOUT_INTERVAL_MS = Number(process.env.GLUB_SHOUT_INTERVAL_MS) || 400; // min gap between deliveries, across ALL jobs
+
 // --- !news: world headlines from public rss ----------------------------------
 // Ported from the original bitbot. Plain RSS/Atom over https: no api key, no
 // quota, nothing to bill. The cache is there to be polite to the feeds rather
@@ -795,6 +805,65 @@ export function createBot({
 		console.log(`[bot] announce -> #${geohash} (${sent ?? 0} relays)`);
 	}
 
+	// --- shouts -----------------------------------------------------------------
+	// Ported from the standalone bitbot, and the reason it works this way is worth
+	// keeping: a shout is opportunistic, not a broadcast. The job sits in a list for
+	// its window and gets delivered to a channel the first time that channel shows
+	// live activity - so it reaches people who are there, in the order they turn up,
+	// rather than every geohash the index has ever seen.
+	const shouts = [];
+	let shoutSeq = 0;
+	let shoutLastMs = 0; // global across all jobs, so two shouts can't double the rate
+
+	function startShout(message) {
+		const msg = String(message || "").trim();
+		if (!msg) return null;
+		const job = { id: ++shoutSeq, msg, until: now() + SHOUT_WINDOW_SEC, channels: new Set() };
+		shouts.push(job);
+		console.log(`[bot] shout #${job.id} queued for ${SHOUT_WINDOW_SEC}s`);
+		return job;
+	}
+
+	// Drop jobs that ran out of time or hit their channel cap.
+	function pruneShouts() {
+		const t = now();
+		for (let i = shouts.length - 1; i >= 0; i--) {
+			const job = shouts[i];
+			if (t < job.until && job.channels.size < SHOUT_MAX_CHANNELS) continue;
+			shouts.splice(i, 1);
+			console.log(`[bot] shout #${job.id} done, reached ${job.channels.size} channels`);
+		}
+	}
+
+	function stopShouts() {
+		const n = shouts.length;
+		shouts.length = 0;
+		if (n) console.log(`[bot] stopped ${n} shout(s)`);
+		return n;
+	}
+
+	// Called for every channel we see activity in. Delivers at most ONE shout per
+	// sighting: with several queued, a single busy channel would otherwise receive
+	// all of them back to back, which is the exact thing that reads as spam.
+	function maybeShout(geo) {
+		pruneShouts();
+		if (!geo || !shouts.length) return;
+
+		const ms = Date.now();
+		if (ms - shoutLastMs < SHOUT_INTERVAL_MS) return;
+
+		for (const job of shouts) {
+			if (job.channels.has(geo)) continue; // already reached; never twice
+			job.channels.add(geo);
+			shoutLastMs = ms;
+			announce(job.msg, geo);
+			console.log(`[bot] shout #${job.id} -> #${geo} (${job.channels.size})`);
+			break; // one per sighting keeps delivery gentle
+		}
+
+		pruneShouts();
+	}
+
 	// called by the patron sweep when an invoice settles. The thank-you goes back to
 	// the channel the donation was asked for in, which is also the channel that
 	// watched them decide to do it.
@@ -1304,6 +1373,39 @@ export function createBot({
 		else reply("not authorized", c.geo);
 	}
 
+	// !shout: queue a message for opportunistic delivery. Admin-only for now; the
+	// machinery is rate-limited per job rather than per caller, so opening it up to
+	// patrons later is a gate change rather than a redesign.
+	function cmdShout(c) {
+		pruneShouts();
+		const arg = String(c.argStr || "").trim();
+
+		if (!arg) {
+			if (!shouts.length) {
+				reply("no shouts", c.geo);
+				return;
+			}
+			const reach = shouts.reduce((n, j) => n + j.channels.size, 0);
+			reply(`${shouts.length} active, ${reach} channels reached`, c.geo);
+			return;
+		}
+
+		if (arg.toLowerCase() === "stop") {
+			reply(stopShouts() ? "stopped" : "no shouts", c.geo);
+			return;
+		}
+
+		const job = startShout(arg);
+		if (!job) {
+			reply("shout failed", c.geo);
+			return;
+		}
+		// everyone in this channel just watched it being typed, so mark it delivered
+		// here rather than echoing it back at them
+		job.channels.add(c.geo);
+		reply("queued", c.geo);
+	}
+
 	// --- the vault (admin) ------------------------------------------------------
 	// Cashu proofs the bot is holding. The `admin: true` flag on its registry entry is
 	// what gates it (see dispatch), so this handler never has to remember to check -
@@ -1446,6 +1548,17 @@ export function createBot({
 					},
 				]
 			: []),
+		...(admin
+			? [
+					{
+						name: "shout",
+						admin: true,
+						desc: "broadcast into channels as they show activity",
+						usage: "!shout <message> · !shout stop · !shout (status)",
+						run: (c) => cmdShout(c),
+					},
+				]
+			: []),
 		...(admin && patrons?.configured && vault?.kind === "cashu"
 			? [
 					{
@@ -1474,7 +1587,11 @@ export function createBot({
 		if (!original.toLowerCase().startsWith("!")) return null;
 		const parts = original.split(/\s+/);
 		const token = parts[0].slice(1).toLowerCase(); // "!ToP" -> "top"
-		return { command: byToken.get(token) || null, name: token, args: parts.slice(1) };
+		// argStr keeps the raw remainder: `args` is split on whitespace, so joining it
+		// back up collapses runs of spaces and flattens newlines. A shout is a message
+		// someone composed, so it has to go out as they wrote it.
+		const argStr = original.slice(parts[0].length).trim();
+		return { command: byToken.get(token) || null, name: token, args: parts.slice(1), argStr };
 	}
 
 	// global rate budget shared across every command/channel (anti-abuse).
@@ -1503,7 +1620,7 @@ export function createBot({
 			return false;
 		}
 		promoForReply = pickPromo(meta.ev); // decided once per command, from the triggering event's client tag
-		Promise.resolve(c.run({ geo, args: parsed.args, ...meta, isAdmin: asAdmin })).catch((e) =>
+		Promise.resolve(c.run({ geo, args: parsed.args, argStr: parsed.argStr || "", ...meta, isAdmin: asAdmin })).catch((e) =>
 			console.error(`[bot] !${c.name} failed:`, e.message),
 		);
 		return true;
@@ -1544,6 +1661,11 @@ export function createBot({
 		updateChannelLanguage(geo, content);
 		noteActivePubkey(ev.pubkey, ev.created_at);
 		noteSeen(nameOf(ev), geo, ev.created_at);
+
+		// after the visibility gate and the activity tracking, before dispatch: a
+		// channel qualifies by having shown a real message, whether or not it was a
+		// command, which is exactly the signal a shout wants.
+		maybeShout(geo);
 
 		if (parsed) {
 			// any "!"-prefixed message is a command attempt - never counted as chat.

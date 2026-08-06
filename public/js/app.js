@@ -2353,6 +2353,15 @@ function appendSystem(text, ttl) {
 	pushSystem(`<span class="ts">* ${escapeHtml(text)} *</span>${timeTag(ts)}`, ttl);
 }
 
+// A system notice whose text goes through richBody, so "{{settings}}" becomes a
+// real button and a "#geohash" becomes tappable. appendSystem escapes everything,
+// which is right for a status blip but wrong for a notice whose whole point is to
+// hand you the thing it is talking about.
+function appendSystemRich(text, ttl) {
+	const ts = Date.now() / 1000;
+	pushSystem(`<span class="ts">* ${richBody(String(text))} *</span>${timeTag(ts)}`, ttl);
+}
+
 // fade an entry out and drop it from the log. No-ops if it's already gone (e.g.
 // pruned by MAX_LINES or cleared on a channel switch).
 function dismissEntry(entry) {
@@ -7562,6 +7571,56 @@ const COMMANDS = [
 			clearedBefore = Math.floor(Date.now() / 1000);
 			rerenderTerminal();
 			appendSystem(t("system.cleared"));
+		},
+	},
+	{
+		// Where you are, expressed as the four bands the location-note draft offers -
+		// so "what am I local to" and "where can I leave a note" answer with the same
+		// geography rather than two views of it. Purely local: nothing is sent, and
+		// the reply is an ephemeral system line only you ever see.
+		name: "local",
+		run() {
+			if (!getLocationServicesEnabled()) {
+				appendSystemRich(t("system.local_needs_location"), SYSTEM_TTL_LONG_MS);
+				return;
+			}
+
+			const show = (lat, lon) => {
+				// coarsest last: the list reads as zooming out from where you're stood
+				const lines = Object.keys(NOTE_SCOPE_KEYS)
+					.map(Number)
+					.sort((a, b) => b - a)
+					.map((len) => {
+						const span = formatDistance(geohashCell("0".repeat(len)).spanKm);
+						// the leading space matters: linkify only makes "#geo" tappable when
+						// something precedes it, and these become join buttons
+						return `${t(NOTE_SCOPE_KEYS[len])} · ${span} · #${encodeGeohash(lat, lon, len)}`;
+					});
+				pushSystem(
+					`<span class="ts">${richBody([`${t("system.local_header")}:`, ...lines].join("\n"))}</span>`,
+					SYSTEM_TTL_LONG_MS,
+				);
+			};
+
+			// the watch already has a recent fix most of the time; only fall back to a
+			// one-shot when it doesn't (just switched on, or indoors and still trying)
+			if (geoFix && Date.now() - geoFix.at <= GEO_FIX_TTL_MS) {
+				show(geoFix.lat, geoFix.lon);
+				return;
+			}
+			if (!navigator.geolocation) {
+				appendSystem(t("system.location_failed"));
+				return;
+			}
+			appendSystem(t("notes.locating"));
+			navigator.geolocation.getCurrentPosition(
+				(pos) => {
+					geoFix = { lat: pos.coords.latitude, lon: pos.coords.longitude, at: Date.now() };
+					show(geoFix.lat, geoFix.lon);
+				},
+				() => appendSystem(t("system.location_failed")),
+				{ enableHighAccuracy: true, timeout: 12000, maximumAge: 60000 },
+			);
 		},
 	},
 	{

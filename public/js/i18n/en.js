@@ -332,6 +332,7 @@ export default {
 	// one-line descriptions per command name; the source for both the "/" popup
 	// and /help, so command copy lives in exactly one place.
 	commands: {
+		local: "geohashes you're standing in",
 		clear: "clear the view",
 		join: "join any channel (spaces & case ok)",
 		unclear: "restore cleared messages",
@@ -400,6 +401,8 @@ export default {
 	},
 
 	system: {
+		local_header: "you are local to",
+		local_needs_location: "location services is off — turn it on in {{settings}}",
 		boot_1: "glub.chat // web client",
 		boot_2: "keys minted + stored locally. nothing leaves this device",
 		welcome: "welcome to the glub, {name}",

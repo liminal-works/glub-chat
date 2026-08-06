@@ -318,6 +318,7 @@ export default {
 	},
 
 	commands: {
+		local: "현재 위치가 속한 지오해시",
 		clear: "화면 비우기",
 		join: "아무 채널이나 입장 (띄어쓰기·대소문자 무관)",
 		unclear: "비운 메시지 되돌리기",
@@ -386,6 +387,8 @@ export default {
 	},
 
 	system: {
+		local_header: "현재 위치 기준",
+		local_needs_location: "위치 서비스가 꺼져 있습니다 — {{settings}}에서 켜세요",
 		boot_1: "glub.chat // 웹 클라이언트",
 		boot_2: "키를 만들어 로컬에 저장했습니다. 이 기기를 벗어나는 것은 없습니다",
 		welcome: "글럽에 오신 것을 환영합니다, {name}님",

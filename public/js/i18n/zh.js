@@ -314,6 +314,7 @@ export default {
 	},
 
 	commands: {
+		local: "你所在的 geohash",
 		clear: "清空当前视图",
 		join: "加入任意频道（可含空格、区分大小写）",
 		unclear: "恢复被清空的消息",
@@ -382,6 +383,8 @@ export default {
 	},
 
 	system: {
+		local_header: "你位于",
+		local_needs_location: "定位服务已关闭 — 在 {{settings}} 中开启",
 		boot_1: "glub.chat // 网页客户端",
 		boot_2: "密钥已在本地生成并保存。没有任何东西离开这台设备",
 		welcome: "欢迎来到 glub，{name}",

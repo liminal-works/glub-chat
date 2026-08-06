@@ -362,6 +362,7 @@ export default {
 	},
 
 	commands: {
+		local: "المواقع الجغرافية التي تقف فيها",
 		clear: "مسح المعروض",
 		join: "الدخول إلى أي قناة (المسافات والحالة مقبولة)",
 		unclear: "استعادة الرسائل الممسوحة",
@@ -430,6 +431,8 @@ export default {
 	},
 
 	system: {
+		local_header: "أنت محلي في",
+		local_needs_location: "خدمات الموقع متوقفة — فعّلها في {{settings}}",
 		boot_1: "glub.chat // عميل ويب",
 		boot_2: "سُكّت المفاتيح وحُفظت محليًا. لا شيء يغادر هذا الجهاز",
 		welcome: "أهلًا بك في glub يا {name}",

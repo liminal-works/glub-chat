@@ -1542,6 +1542,12 @@ export function createBot({
 			? [
 					{
 						name: "auth",
+						// Unlisted rather than admin-gated: it CANNOT be admin-only, or nobody
+						// could ever become one. `hidden` keeps it out of !help for everybody,
+						// which is the point - anyone who needs it is reading the code off the
+						// server console, and that console tells them the command. Advertising
+						// it to a public channel only invites guessing.
+						hidden: true,
 						desc: "redeem the admin code from the server console",
 						usage: "!auth <code> · !auth who · !auth revoke <pubkey> · !auth clear · !auth rotate",
 						run: (c) => cmdAuth(c),

@@ -35,6 +35,8 @@ export default {
 			"在你签名的事件上打一个值为 glub.chat 的 client 标签，让其他 nostr 应用能显示你从哪里发布。关闭则完全不添加该标签。",
 		local_description:
 			"去掉 teleport 标签，让你的事件显示为本地发送而非远程接入。保持关闭则保留 teleport —— 这才是没有定位的网页客户端的真实状态。",
+		geo_description:
+			"让浏览器替你决定 local 标签：把你的坐标与你正在发言的频道比对，所以你在真正所处的地方显示为本地，其他地方显示为传送。会覆盖上方的手动开关。不会发送任何东西 — 坐标绝不离开本设备。",
 		presence_description:
 			"定期宣告你在当前查看的频道里，让别人在用户列表和“在场”人数中看到你。关闭则隐身浏览，同时仍能看到所有人。",
 		retro_description:
@@ -55,6 +57,7 @@ export default {
 		flair_fx_label: "聊天特效",
 		client_label: "客户端标签",
 		local_label: "本地标签",
+		geo_label: "定位服务",
 		presence_label: "公开在场状态",
 		blur_label: "媒体模糊",
 		censor_label: "文字屏蔽",
@@ -417,6 +420,7 @@ export default {
 		upload_failed: "上传失败",
 		voice_unsupported: "这个浏览器不支持录音",
 		voice_denied: "麦克风权限被拒绝",
+		location_failed: "无法获取位置 — 请检查权限后重试",
 		flood_hidden: "已隐藏 #{geo} 的刷屏消息",
 		rotated: "已生成新身份（#{tag}）",
 		rotate_badhex: "靓号后缀须为 1-4 个十六进制字符（0-9, a-f）",

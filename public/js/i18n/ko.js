@@ -38,6 +38,8 @@ export default {
 			"서명한 이벤트에 glub.chat이라는 'client' 태그를 붙여, 다른 nostr 앱이 어디서 올린 글인지 표시할 수 있게 합니다. 끄면 태그를 아예 넣지 않습니다.",
 		local_description:
 			"teleport 태그를 빼서 이벤트가 순간이동이 아닌 현지 발신으로 보이게 합니다. 끄면 teleport를 유지합니다 — 위치가 없는 웹 클라이언트의 솔직한 상태입니다.",
+		geo_description:
+			"local 태그를 브라우저가 대신 정하게 합니다: 좌표를 지금 글을 올리는 채널과 대조해, 실제로 있는 곳에서는 현지로, 그 밖에서는 순간이동으로 표시됩니다. 위의 수동 스위치를 대신합니다. 아무것도 전송되지 않으며 좌표는 이 기기를 벗어나지 않습니다.",
 		presence_description:
 			"보고 있는 채널에 있다는 것을 주기적으로 알려, 다른 사람의 사용자 목록과 \"여기\" 수에 나타나게 합니다. 끄면 보이지 않게 둘러보며, 다른 사람은 그대로 다 보입니다.",
 		retro_description:
@@ -60,6 +62,7 @@ export default {
 		flair_fx_label: "채팅 효과",
 		client_label: "client 태그",
 		local_label: "local 태그",
+		geo_label: "위치 서비스",
 		presence_label: "접속 알리기",
 		blur_label: "미디어 흐리기",
 		censor_label: "텍스트 검열",
@@ -421,6 +424,7 @@ export default {
 		upload_failed: "업로드 실패",
 		voice_unsupported: "이 브라우저는 음성 녹음을 지원하지 않습니다",
 		voice_denied: "마이크 접근이 거부되었습니다",
+		location_failed: "위치를 사용할 수 없습니다 — 권한을 확인하고 다시 시도하세요",
 		flood_hidden: "#{geo}의 메시지 폭주를 숨깁니다",
 		rotated: "새 신원을 만들었습니다 (#{tag})",
 		rotate_badhex: "원하는 접미사는 hex 1-4자여야 합니다 (0-9, a-f)",

@@ -358,6 +358,8 @@ const retroToggle = document.getElementById("retroToggle");
 const flairFxToggle = document.getElementById("flairFxToggle");
 const clientToggle = document.getElementById("clientToggle");
 const localToggle = document.getElementById("localToggle");
+const localRow = document.getElementById("localRow");
+const geoToggle = document.getElementById("geoToggle");
 const blurToggle = document.getElementById("blurToggle");
 const censorToggle = document.getElementById("censorToggle");
 const presenceToggle = document.getElementById("presenceToggle");
@@ -568,8 +570,78 @@ function setLocalTagEnabled(on) {
 	localStorage.setItem(STORAGE_LOCAL_KEY, on ? "true" : "false");
 }
 
-// whether outgoing chat/presence carry the teleport tag (local tag on => omit it)
-function outgoingTeleport() {
+// --- location services -------------------------------------------------------
+// The teleport tag answers exactly one question: are you actually IN the place
+// you're posting to? The "local tag" switch answers it by hand, which means
+// answering it once and then being wrong about every channel you visit afterwards.
+// With this on, the browser answers it per message instead: your coordinate is
+// encoded to a geohash at the CHANNEL's own precision and compared to the channel.
+// Stand in #9q5cs and post to #9q5 and you're local; post to #dr5 from there and
+// you're teleporting, and neither costs you a thought.
+//
+// The fix is cached rather than fetched on demand, because outgoingTeleport() is
+// called synchronously while an event is being built - there is nowhere to await a
+// coordinate, and a message must never wait on a gps lock. A watch keeps it current
+// while the setting is on; a stale fix is treated as no fix at all, because claiming
+// to be somewhere on the strength of a five-minute-old coordinate is exactly the
+// claim this feature exists to stop making.
+const STORAGE_GEO_KEY = "glub_location_services";
+const GEO_FIX_TTL_MS = 5 * 60_000; // older than this and we don't know where you are
+
+let geoFix = null; // { lat, lon, at }
+let geoWatchId = null;
+
+function getLocationServicesEnabled() {
+	return localStorage.getItem(STORAGE_GEO_KEY) === "true"; // default off
+}
+
+function setLocationServicesEnabled(on) {
+	localStorage.setItem(STORAGE_GEO_KEY, on ? "true" : "false");
+}
+
+// A watch rather than repeated one-shot reads: it's the api built for "keep me
+// current", the browser gets to batch it against whatever else is asking, and it
+// stops costing anything the moment the setting goes off.
+function startGeoWatch() {
+	if (geoWatchId !== null || !navigator.geolocation) return;
+	geoWatchId = navigator.geolocation.watchPosition(
+		(pos) => {
+			geoFix = { lat: pos.coords.latitude, lon: pos.coords.longitude, at: Date.now() };
+		},
+		() => {
+			// permission pulled, or the device can't get a lock: forget where we thought
+			// we were rather than going on asserting it
+			geoFix = null;
+		},
+		{ enableHighAccuracy: false, timeout: 15000, maximumAge: 60000 },
+	);
+}
+
+function stopGeoWatch() {
+	if (geoWatchId === null) return;
+	navigator.geolocation.clearWatch(geoWatchId);
+	geoWatchId = null;
+	geoFix = null;
+}
+
+// are we, right now, standing inside `geo`? False for a word channel, which isn't a
+// place you can be in, and false whenever the fix is missing or stale.
+function standingIn(geo) {
+	if (!geo || !geoFix || Date.now() - geoFix.at > GEO_FIX_TTL_MS) return false;
+	const target = String(geo).toLowerCase();
+	try {
+		geohashCell(target); // throws on anything that isn't a decodable location
+	} catch {
+		return false;
+	}
+	return encodeGeohash(geoFix.lat, geoFix.lon, target.length) === target;
+}
+
+// whether outgoing chat/presence for `geo` carry the teleport tag. Teleport is the
+// honest default for a web client and stays the answer whenever we can't show
+// otherwise - no fix, a stale one, or a channel that is not a location.
+function outgoingTeleport(geo) {
+	if (getLocationServicesEnabled()) return !standingIn(geo);
 	return !getLocalTagEnabled();
 }
 
@@ -2696,6 +2768,8 @@ function openSettings() {
 	flairFxToggle.checked = getFlairFxEnabled();
 	clientToggle.checked = getClientTagEnabled();
 	localToggle.checked = getLocalTagEnabled();
+	geoToggle.checked = getLocationServicesEnabled();
+	syncLocalRow();
 	blurToggle.checked = mediaSettings.censorImages;
 	censorToggle.checked = censorMessages;
 	presenceToggle.checked = getPresenceEnabled();
@@ -5250,6 +5324,56 @@ localToggle.addEventListener("change", () => {
 	setLocalTagEnabled(localToggle.checked); // on => next events omit the teleport tag
 });
 
+// The manual switch goes inert while location services is on, because location
+// services overrides it outright - leaving it live would let you set a value that
+// silently does nothing, which is worse than not offering it. Its checkbox is
+// disabled as well as the row being dimmed: `pointer-events: none` stops a tap but
+// not a keyboard.
+function syncLocalRow() {
+	const auto = getLocationServicesEnabled();
+	localRow.classList.toggle("disabled", auto);
+	localToggle.disabled = auto;
+}
+
+geoToggle.addEventListener("change", () => {
+	const on = geoToggle.checked;
+	if (!on) {
+		setLocationServicesEnabled(false);
+		stopGeoWatch();
+		syncLocalRow();
+		return;
+	}
+	if (!navigator.geolocation) {
+		geoToggle.checked = false;
+		appendSystem(t("system.location_failed"));
+		return;
+	}
+	// Ask BEFORE storing the setting. A toggle that sits on while the browser has
+	// refused to say where you are is a lie about what the app is doing - so the
+	// permission answer decides whether it stays on, and a refusal puts it back.
+	navigator.geolocation.getCurrentPosition(
+		(pos) => {
+			geoFix = { lat: pos.coords.latitude, lon: pos.coords.longitude, at: Date.now() };
+			setLocationServicesEnabled(true);
+			startGeoWatch();
+			geoToggle.checked = true;
+			syncLocalRow();
+		},
+		() => {
+			setLocationServicesEnabled(false);
+			geoToggle.checked = false;
+			syncLocalRow();
+			appendSystem(t("system.location_failed"));
+		},
+		{ enableHighAccuracy: false, timeout: 15000, maximumAge: 60000 },
+	);
+});
+
+// a reader who left it on last session gets the watch back without being asked
+// again (the permission is already granted, or the watch quietly fails and we go on
+// tagging teleport, which is the honest fallback anyway)
+if (getLocationServicesEnabled()) startGeoWatch();
+
 presenceToggle.addEventListener("change", () => {
 	// takes effect on the next heartbeat tick; the timer keeps running so re-enabling
 	// resumes announcing without a restart. off makes you a lurker immediately.
@@ -5609,7 +5733,7 @@ async function broadcastPresence() {
 		name: name || "anon",
 		pk: identity.pk,
 		client: outgoingClient(),
-		teleport: outgoingTeleport(),
+		teleport: outgoingTeleport(geo),
 	});
 	const nonceTag = await mineNonceTag(unsigned, outgoingPow());
 	if (nonceTag) unsigned.tags.push(nonceTag);
@@ -6481,7 +6605,7 @@ async function transmit(content, geo, displayName = name) {
 	// wrapping it in a personal template would just mangle it.
 	const fmt = displayName === name ? getFormatTemplate() : "";
 	const flair = displayName === name ? getFlair() : "";
-	const unsigned = buildChatEvent({ content: plain, geohash: geo, name: displayName, pk: identity.pk, client: outgoingClient(), teleport: outgoingTeleport(), rich, fmt: fmt || undefined, flair: flair || undefined });
+	const unsigned = buildChatEvent({ content: plain, geohash: geo, name: displayName, pk: identity.pk, client: outgoingClient(), teleport: outgoingTeleport(geo), rich, fmt: fmt || undefined, flair: flair || undefined });
 	const nonceTag = await mineNonceTag(unsigned, outgoingPow());
 	if (nonceTag) {
 		unsigned.tags.push(nonceTag);

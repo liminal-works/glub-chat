@@ -31,6 +31,8 @@ export default {
 			"stamps a 'client' tag reading glub.chat onto your signed events, so other nostr apps can show where you posted from. off omits the tag entirely.",
 		local_description:
 			"drops the teleport tag so your events read as local rather than teleported in. off keeps teleport — the honest state of a location-free web client.",
+		geo_description:
+			"lets the browser decide the local tag for you: your coordinate is matched against the channel you're posting to, so you read as local where you actually are and as teleported everywhere else. overrides the manual switch above. nothing is sent — the coordinate never leaves this device.",
 		presence_description:
 			"periodically announces you're in the channel you're viewing, so others see you in their user list and \"here\" counts. off = you browse invisibly, and still see everyone else.",
 		retro_description:
@@ -53,6 +55,7 @@ export default {
 		flair_fx_label: "chat effects",
 		client_label: "client tag",
 		local_label: "local tag",
+		geo_label: "location services",
 		presence_label: "announce presence",
 		blur_label: "media blur",
 		censor_label: "text censor",
@@ -436,6 +439,7 @@ export default {
 		upload_failed: "upload failed",
 		voice_unsupported: "voice recording isn't supported on this browser",
 		voice_denied: "microphone access denied",
+		location_failed: "location unavailable — check permission and try again",
 		flood_hidden: "hiding a message flood in #{geo}",
 		rotated: "new identity minted (#{tag})",
 		rotate_badhex: "vanity suffix must be 1-4 hex chars (0-9, a-f)",

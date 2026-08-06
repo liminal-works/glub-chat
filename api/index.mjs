@@ -51,7 +51,10 @@ const PUBLIC_ORIGIN = (process.env.API_PUBLIC_ORIGIN || "").replace(/\/+$/, "");
 // off unless LNBITS_URL + LNBITS_INVOICE_KEY are set: with no backend the bot
 // simply doesn't offer the commands, rather than offering them and failing.
 const PATRON_DB = process.env.PATRON_DB || path.join(__dirname, "glub-patrons.db");
-const PATRON_SATS = Number(process.env.PATRON_SATS) || 5000;
+// A FIXED sat amount, not a live peg, so it drifts with the price and wants an
+// occasional nudge. 7760 was $5.00 at $64,424/BTC on 2026-08-06 - the date is here
+// so the staleness is visible rather than something to re-derive.
+const PATRON_SATS = Number(process.env.PATRON_SATS) || 7760;
 // An hour is long enough to find a wallet and short enough that the one-open-
 // invoice-per-pubkey rule doesn't strand anyone who wandered off mid-payment.
 const PATRON_INVOICE_TTL_SEC = Number(process.env.PATRON_INVOICE_TTL_SEC) || 3600;

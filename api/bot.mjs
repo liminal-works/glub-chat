@@ -145,6 +145,220 @@ const PROMO_RATE = (() => {
 })();
 const PROMO_TEXT = "\n\ntry https://glub.chat/";
 
+// --- !news: world headlines from public rss ----------------------------------
+// Ported from the original bitbot. Plain RSS/Atom over https: no api key, no
+// quota, nothing to bill. The cache is there to be polite to the feeds rather
+// than to save anything - one refresh an hour serves every channel this instance
+// is sitting on.
+const NEWS_CACHE_TTL_MS = 60 * 60_000; // serve cached headlines this long
+const NEWS_COUNT = 8; // headlines per reply
+const NEWS_FETCH_TIMEOUT_MS = 8000; // per feed; one slow source must not hold the rest
+const NEWS_MAX_AGE_MS = 48 * 3600_000; // ignore anything older than this
+const NEWS_TITLE_CLIP = 110;
+
+// All keyless and free. A feed that fails or disappears is skipped silently, so
+// this list can be edited without breaking the command.
+const NEWS_SOURCES = [
+	["bbc", "https://feeds.bbci.co.uk/news/world/rss.xml"],
+	["aljaz", "https://www.aljazeera.com/xml/rss/all.xml"],
+	["npr", "https://feeds.npr.org/1001/rss.xml"],
+	["guardian", "https://www.theguardian.com/world/rss"],
+	["dw", "https://rss.dw.com/rdf/rss-en-world"],
+	["cbc", "https://www.cbc.ca/webfeed/rss/rss-world"],
+];
+
+const XML_ENTITIES = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " ", "#39": "'", "#8217": "'" };
+
+function decodeXml(text) {
+	return String(text)
+		.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, "$1")
+		// markup comes off before entities are decoded: otherwise an escaped
+		// "&lt;tag&gt;" inside a headline turns into markup and gets stripped
+		.replace(/<[^>]+>/g, "")
+		.replace(/&#(\d+);/g, (_, d) => String.fromCharCode(Number(d)))
+		.replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCharCode(parseInt(h, 16)))
+		.replace(/&([a-z0-9#]+);/gi, (m, e) => XML_ENTITIES[e.toLowerCase()] ?? m)
+		.replace(/\s+/g, " ")
+		.trim();
+}
+
+function firstXmlTag(block, tag) {
+	const m = block.match(new RegExp(`<${tag}[^>]*>([\\s\\S]*?)</${tag}>`, "i"));
+	return m ? decodeXml(m[1]) : "";
+}
+
+// RSS puts the url in <link>text</link>; Atom puts it in an href attribute.
+function firstFeedLink(block) {
+	const rss = block.match(/<link[^>]*>([\s\S]*?)<\/link>/i);
+	if (rss && rss[1].trim()) return decodeXml(rss[1]);
+	const atom =
+		block.match(/<link[^>]*\srel=["']alternate["'][^>]*\shref=["']([^"']+)["']/i) ||
+		block.match(/<link[^>]*\shref=["']([^"']+)["']/i);
+	return atom ? decodeXml(atom[1]) : "";
+}
+
+// Feeds append tracking parameters and they bloat a chat line for no one's benefit.
+// Two lists, because some of these are families with a shared prefix (utm_source,
+// utm_medium, at_campaign...) and some are whole names that must match exactly - a
+// prefix rule on "ref" would eat "referendum".
+const TRACKING_PREFIXES = /^(at_|utm_|ns_|pk_|mc_)/i;
+const TRACKING_PARAMS = new Set(["cmpid", "ito", "smid", "traffic_source", "maca", "ref", "src", "source", "cid", "ncid", "fbclid", "gclid"]);
+function cleanArticleUrl(url) {
+	const raw = String(url || "").trim();
+	if (!/^https?:\/\//i.test(raw)) return "";
+	try {
+		const u = new URL(raw);
+		for (const key of [...u.searchParams.keys()]) {
+			if (TRACKING_PREFIXES.test(key) || TRACKING_PARAMS.has(key.toLowerCase())) u.searchParams.delete(key);
+		}
+		return u.toString();
+	} catch {
+		return raw;
+	}
+}
+
+// Two outlets almost never file the same story in the same words - "Volcano erupts
+// and strands travellers" and "Travellers stranded as volcano erupts" are one story -
+// so duplicates are found by how much vocabulary two headlines share rather than by
+// any exact key. Endings are clipped first so "strands" and "stranded" count as one
+// word; it is not real stemming, just enough to survive a rewrite.
+const NEWS_STOPWORDS = new Set([
+	"after", "amid", "another", "around", "been", "before", "being", "could", "does",
+	"during", "from", "have", "into", "more", "most", "over", "said", "says", "than",
+	"that", "their", "them", "then", "there", "these", "they", "this", "were", "what",
+	"when", "which", "while", "will", "with", "would", "your",
+]);
+const NEWS_DUPE_RATIO = 0.6; // shared words, as a fraction of the shorter headline
+const NEWS_DUPE_MIN = 3; // below this there is too little vocabulary to judge on
+
+function newsStem(word) {
+	const cut = word.replace(/(ings?|ed|es|s)$/, "");
+	return cut.length >= 3 ? cut : word;
+}
+
+function headlineTokens(title) {
+	return new Set(
+		String(title)
+			.toLowerCase()
+			.replace(/[^a-z0-9 ]+/g, " ")
+			.split(/\s+/)
+			.filter((w) => w.length > 3 && !NEWS_STOPWORDS.has(w))
+			.map(newsStem),
+	);
+}
+
+function sameStory(a, b) {
+	const small = a.size < b.size ? a : b;
+	if (small.size < NEWS_DUPE_MIN) return false;
+	let shared = 0;
+	for (const w of small) if (a.has(w) && b.has(w)) shared++;
+	return shared / small.size >= NEWS_DUPE_RATIO;
+}
+
+// RSS <item> and Atom <entry> parse the same way here; both carry a title and a date.
+function parseFeed(xml, source) {
+	const out = [];
+	const blocks = String(xml).match(/<(item|entry)[\s>][\s\S]*?<\/\1>/gi) || [];
+	for (const block of blocks) {
+		const title = firstXmlTag(block, "title");
+		if (!title) continue;
+		const when =
+			firstXmlTag(block, "pubDate") ||
+			firstXmlTag(block, "published") ||
+			firstXmlTag(block, "updated") ||
+			firstXmlTag(block, "dc:date");
+		const ts = when ? Date.parse(when) : NaN;
+		out.push({ title, source, url: cleanArticleUrl(firstFeedLink(block)), ts: Number.isFinite(ts) ? ts : 0 });
+	}
+	return out;
+}
+
+async function fetchFeed(name, url) {
+	const res = await fetch(url, {
+		headers: { "User-Agent": NOMINATIM_UA },
+		signal: AbortSignal.timeout(NEWS_FETCH_TIMEOUT_MS),
+	});
+	if (!res.ok) throw new Error(`HTTP ${res.status}`);
+	return parseFeed(await res.text(), name);
+}
+
+// Pull every feed at once, drop stale and duplicate stories, then INTERLEAVE the
+// sources - taking each outlet's freshest, then each outlet's second, and so on -
+// so one prolific wire service can't own the whole list.
+async function fetchHeadlines() {
+	const results = await Promise.allSettled(NEWS_SOURCES.map(([name, url]) => fetchFeed(name, url)));
+	const bySource = new Map();
+	const cutoff = Date.now() - NEWS_MAX_AGE_MS;
+	let ok = 0;
+
+	results.forEach((r, i) => {
+		const [name] = NEWS_SOURCES[i];
+		if (r.status !== "fulfilled") {
+			console.log(`[bot] news: ${name} failed: ${r.reason?.message || r.reason}`);
+			return;
+		}
+		// items with no parseable date are KEPT: a headline of unknown timing beats
+		// silently dropping a whole source over a date format
+		const fresh = r.value.filter((x) => !x.ts || x.ts >= cutoff);
+		fresh.sort((a, b) => b.ts - a.ts);
+		if (fresh.length) {
+			bySource.set(name, fresh);
+			ok++;
+		}
+	});
+	if (!ok) throw new Error("all feeds failed");
+
+	const picked = [];
+	const takenUrls = new Set();
+	const takenTokens = [];
+	const queues = [...bySource.values()];
+	for (let round = 0; picked.length < NEWS_COUNT * 2 && round < 20; round++) {
+		let advanced = false;
+		for (const q of queues) {
+			const item = q[round];
+			if (!item) continue;
+			advanced = true;
+			if (item.url && takenUrls.has(item.url)) continue; // literally the same article
+			const tokens = headlineTokens(item.title);
+			if (takenTokens.some((prev) => sameStory(prev, tokens))) continue; // same story, different outlet
+			takenTokens.push(tokens);
+			if (item.url) takenUrls.add(item.url);
+			picked.push(item);
+		}
+		if (!advanced) break;
+	}
+	console.log(`[bot] news: refreshed from ${ok}/${NEWS_SOURCES.length} feeds, ${picked.length} headlines`);
+	return picked;
+}
+
+// Module-level so every channel this instance serves shares one cache. Concurrent
+// callers share the in-flight fetch rather than each starting their own, and a
+// failed refresh keeps serving the previous headlines - stale news beats no news,
+// and the header says how old it is either way.
+const newsCache = { items: [], at: 0, pending: null };
+
+async function getHeadlines(force = false) {
+	const fresh = newsCache.items.length && Date.now() - newsCache.at < NEWS_CACHE_TTL_MS;
+	if (!force && fresh) return newsCache.items;
+	if (newsCache.pending) return newsCache.pending;
+
+	newsCache.pending = (async () => {
+		try {
+			const items = await fetchHeadlines();
+			newsCache.items = items;
+			newsCache.at = Date.now();
+			return items;
+		} catch (err) {
+			console.log("[bot] news: refresh failed:", err.message);
+			if (newsCache.items.length) return newsCache.items; // serve stale
+			throw err;
+		} finally {
+			newsCache.pending = null;
+		}
+	})();
+	return newsCache.pending;
+}
+
 // --- NIP-13 proof-of-work (ported from the client's pow.js) ------------------
 // leading-zero *bits* of a hex event id.
 function idDifficulty(idHex) {
@@ -905,6 +1119,35 @@ export function createBot({ broadcast, store, botName = process.env.GLUB_BOT_NAM
 		reply(`commands:\n\n${lines.join("\n")}\n\n!help <command> for more`, geo);
 	}
 
+	// !news: world headlines. One reply, one line per story with its url beneath,
+	// blank line between - the same layout the original bot used, which reads as a
+	// list on a phone without any markup to lean on.
+	//
+	// "!news refresh" forces past the cache. It's the escape hatch for a stale hour
+	// rather than a way to hammer the feeds: the global command budget already caps
+	// how often anything here runs.
+	async function cmdNews(geo, args) {
+		const force = String(args[0] || "").toLowerCase() === "refresh";
+		let items;
+		try {
+			items = await getHeadlines(force);
+		} catch {
+			reply("news unavailable right now", geo);
+			return;
+		}
+		if (!items.length) {
+			reply("no headlines", geo);
+			return;
+		}
+		const ageMin = newsCache.at ? Math.floor((Date.now() - newsCache.at) / 60_000) : 0;
+		const header = ageMin < 1 ? "news:" : `news (${ageMin}m ago):`;
+		const entries = items.slice(0, NEWS_COUNT).map((x) => {
+			const line = `${clipText(x.title, NEWS_TITLE_CLIP)} (${x.source})`;
+			return x.url ? `${line}\n${x.url}` : line;
+		});
+		reply(`${header}\n\n${entries.join("\n\n")}`, geo);
+	}
+
 	// the command registry: adding an entry here makes a command parse, dispatch,
 	// AND appear in !help automatically - there's no static list to keep in sync.
 	// aliases are the bang-stripped forms users learned (!t, !l, !list, !dump...).
@@ -935,6 +1178,13 @@ export function createBot({ broadcast, store, botName = process.env.GLUB_BOT_NAM
 			desc: "pull a note from nostr (with an image, or matching your tags)",
 			usage: "!nostr · !nostr <tag> [tag...] · !nostr <npub>",
 			run: (c) => cmdNostr(c.geo, c.args),
+		},
+		{
+			name: "news",
+			aliases: ["n"],
+			desc: "recent world headlines",
+			usage: "!news · !news refresh",
+			run: (c) => cmdNews(c.geo, c.args),
 		},
 		{ name: "ping", aliases: ["p"], desc: "delay + delivering relay", usage: "!ping", run: (c) => cmdPing(c) },
 		{ name: "help", aliases: ["h", "commands"], desc: "list commands", usage: "!help · !help <command>", run: (c) => cmdHelp(c.geo, c.args[0]) },

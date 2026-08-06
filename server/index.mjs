@@ -18,7 +18,7 @@ const app = express();
 
 if (API_ORIGIN) {
 	const target = new URL(API_ORIGIN);
-	app.use("/api", (req, res) => {
+	const passthrough = (req, res) => {
 		// stamp the real client address so the api's per-IP rate limits see
 		// individual users instead of one shared 127.0.0.1 bucket. OVERWRITE any
 		// inbound x-forwarded-for - this proxy is the only hop the api trusts, and
@@ -42,8 +42,16 @@ if (API_ORIGIN) {
 			if (!res.headersSent) res.status(502).end();
 		});
 		req.pipe(proxyReq);
-	});
-	console.log(`proxying /api -> ${API_ORIGIN}`);
+	};
+
+	app.use("/api", passthrough);
+	// NIP-05 is resolved from the ROOT domain by every client that checks it
+	// (https://glub.chat/.well-known/nostr.json?name=…), so this one path has to be
+	// answered here even though the api owns the data. Mounted with app.get on the
+	// exact path rather than app.use on the directory: nothing else under
+	// /.well-known is ours to forward.
+	app.get("/.well-known/nostr.json", passthrough);
+	console.log(`proxying /api + /.well-known/nostr.json -> ${API_ORIGIN}`);
 }
 
 // html/js/css: no-cache means "revalidate every load" (cheap 304s via etag),

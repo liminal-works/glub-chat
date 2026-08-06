@@ -424,7 +424,12 @@ export function createAggregator(store, { onStored, onChat } = {}) {
 	async function loadAndConnect() {
 		let relays;
 		try {
-			relays = await fetchRelayList();
+			// API_RELAY_CSV lets an operator point at their own relay set instead of
+			// bitchat's published one. It is also what makes the api bootable with no
+			// relays at all (an unreachable url leaves `managed` empty, and the fetch
+			// failure below is already non-fatal) - which is how the http surface gets
+			// tested without a test instance talking to live relays.
+			relays = await fetchRelayList(process.env.API_RELAY_CSV || undefined);
 		} catch (err) {
 			console.error(`[aggregator] could not fetch relay list: ${err.message}`);
 			return;

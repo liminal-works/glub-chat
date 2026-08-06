@@ -401,7 +401,13 @@ function isRenderable(ev, nowSec) {
 // createBot({ broadcast, botName })
 //   broadcast(signedEvent, geohash)  fan the reply out (the aggregator supplies it)
 //   botName                          the `n` tag / display handle (default "glub.bot")
-export function createBot({ broadcast, store, botName = process.env.GLUB_BOT_NAME || "glub.bot" } = {}) {
+export function createBot({
+	broadcast,
+	store,
+	patrons = null,
+	nip05Domain = "glub.chat",
+	botName = process.env.GLUB_BOT_NAME || "glub.bot",
+} = {}) {
 	// --- identity ------------------------------------------------------------
 	// bitchat-style disposable burner keys: the bot mints a fresh keypair on boot
 	// and rotates it every GLUB_BOT_ROTATE_MIN minutes (default 45; 0 disables).
@@ -776,6 +782,26 @@ export function createBot({ broadcast, store, botName = process.env.GLUB_BOT_NAM
 		console.log(`[bot] reply -> #${geohash} (${sent ?? 0} relays)${promo ? " +promo" : ""}`);
 	}
 
+	// A message nobody asked for - the background sweep noticing a donation landed,
+	// possibly minutes after the !donate that started it. Deliberately not reply():
+	// promoForReply belongs to a dispatch, and borrowing it here would staple one
+	// command's promo onto an unrelated announcement long after the fact.
+	function announce(content, geohash) {
+		if (!content || !geohash) return;
+		const ev = makeBotChatMessage(content, geohash);
+		const sent = broadcast?.(ev, geohash);
+		console.log(`[bot] announce -> #${geohash} (${sent ?? 0} relays)`);
+	}
+
+	// called by the patron sweep when an invoice settles. The thank-you goes back to
+	// the channel the donation was asked for in, which is also the channel that
+	// watched them decide to do it.
+	function announcePatron(patron, invoice) {
+		if (!patron || !invoice?.geohash) return;
+		const who = invoice.name ? `@${invoice.name} ` : "";
+		announce(`thank you ${who}· you're a patron: ${nip05Of(patron.name)} · !nip05 <name> to change it`, invoice.geohash);
+	}
+
 	// --- commands ------------------------------------------------------------
 	// !top: the most active channels, messages-per-minute over the last 60s. The
 	// layout is the original bot's: a numbered list, geohashes padded into a
@@ -1148,6 +1174,81 @@ export function createBot({ broadcast, store, botName = process.env.GLUB_BOT_NAM
 		reply(`${header}\n\n${entries.join("\n\n")}`, geo);
 	}
 
+	// --- patronage ------------------------------------------------------------
+	// Every handler below reads the pubkey off the SIGNED event. The aggregator has
+	// already verified that signature before observe() ever saw it, so `ev.pubkey`
+	// is proof of the key rather than a claim about it - which is why none of this
+	// needs a login, a session, a token, or a challenge. A !nip05 that isn't signed
+	// by the pubkey it would rename cannot reach this code.
+	const nip05Of = (name) => `${name}@${nip05Domain}`;
+	const payerOf = (c) => (c.ev && typeof c.ev.pubkey === "string" ? c.ev.pubkey : "");
+
+	async function cmdDonate(c) {
+		const pubkey = payerOf(c);
+		if (!pubkey) return; // no signed event behind it; nothing to attribute a payment to
+		let out;
+		try {
+			out = await patrons.requestInvoice({ pubkey, name: nameOf(c.ev), geo: c.geo });
+		} catch (e) {
+			console.error("[bot] !donate failed:", e.message);
+			reply("couldn't reach the lightning node - try again in a minute", c.geo);
+			return;
+		}
+		if (out.status === "unconfigured") {
+			reply("donations aren't set up on this instance", c.geo);
+			return;
+		}
+		if (out.status === "already") {
+			reply(`you're already a patron: ${nip05Of(out.patron.name)} · !nip05 <name> to change it`, c.geo);
+			return;
+		}
+		const inv = out.invoice;
+		const mins = Math.max(1, Math.round((inv.expires_at - now()) / 60));
+		const lead =
+			out.status === "reused"
+				? `your invoice is still open (${mins}m left)`
+				: `${inv.amount_sats} sats for a nip-05 on ${nip05Domain} (${mins}m)`;
+		// the bolt11 alone on its own line: glub renders a bare invoice as a tappable
+		// pay chip, and native clients get something clean to copy. Anyone in the
+		// channel can pay it, which is the point - donations can be gifts.
+		reply(`${lead}:\n\n${inv.bolt11}\n\ncredited automatically once paid · !redeem to check now`, c.geo);
+	}
+
+	async function cmdRedeem(c) {
+		const pubkey = payerOf(c);
+		if (!pubkey) return;
+		let out;
+		try {
+			out = await patrons.redeem(pubkey);
+		} catch (e) {
+			console.error("[bot] !redeem failed:", e.message);
+			reply("couldn't reach the lightning node - try again in a minute", c.geo);
+			return;
+		}
+		if (out.status === "settled") reply(`thank you · you're a patron: ${nip05Of(out.patron.name)} · !nip05 <name> to change it`, c.geo);
+		else if (out.status === "already") reply(`you're already a patron: ${nip05Of(out.patron.name)}`, c.geo);
+		else if (out.status === "pending") reply("that invoice hasn't been paid yet", c.geo);
+		else if (out.status === "none") reply("no open invoice · !donate to start one", c.geo);
+		else reply("donations aren't set up on this instance", c.geo);
+	}
+
+	function cmdNip05(c) {
+		const pubkey = payerOf(c);
+		if (!pubkey) return;
+		const requested = c.args.join(" ").trim();
+		if (!requested) {
+			reply(`usage: !nip05 <name> · your identity becomes <name>@${nip05Domain}`, c.geo);
+			return;
+		}
+		const out = patrons.rename(pubkey, requested);
+		if (out.status === "ok") reply(`renamed: ${nip05Of(out.previous)} -> ${nip05Of(out.patron.name)}`, c.geo);
+		else if (out.status === "unchanged") reply(`already yours: ${nip05Of(out.patron.name)}`, c.geo);
+		else if (out.status === "taken") reply("that name is taken", c.geo);
+		else if (out.status === "invalid") reply("nip-05 names can use a-z 0-9 - _ . only", c.geo);
+		else if (out.status === "cooldown") reply(`too soon · you can rename again in ${timeAgo(out.retryAfter, 0)}`, c.geo);
+		else reply(`not a patron yet · !donate for a nip-05 on ${nip05Domain}`, c.geo);
+	}
+
 	// the command registry: adding an entry here makes a command parse, dispatch,
 	// AND appear in !help automatically - there's no static list to keep in sync.
 	// aliases are the bang-stripped forms users learned (!t, !l, !list, !dump...).
@@ -1187,6 +1288,33 @@ export function createBot({ broadcast, store, botName = process.env.GLUB_BOT_NAM
 			run: (c) => cmdNews(c.geo, c.args),
 		},
 		{ name: "ping", aliases: ["p"], desc: "delay + delivering relay", usage: "!ping", run: (c) => cmdPing(c) },
+		// Public on purpose. A donation invoice posted in the channel is one anyone
+		// present can settle - including for someone else - and the exchange doubles
+		// as the only advertising the thing gets. A DM-only flow would hide both.
+		...(patrons?.configured
+			? [
+					{
+						name: "donate",
+						aliases: ["patron"],
+						desc: `become a patron · nip-05 on ${nip05Domain}`,
+						usage: "!donate",
+						run: (c) => cmdDonate(c),
+					},
+					{
+						name: "redeem",
+						desc: "check your donation invoice now",
+						usage: "!redeem",
+						run: (c) => cmdRedeem(c),
+					},
+					{
+						name: "nip05",
+						aliases: ["nip5"],
+						desc: "change your nip-05 name (patrons)",
+						usage: "!nip05 <name>",
+						run: (c) => cmdNip05(c),
+					},
+				]
+			: []),
 		{ name: "help", aliases: ["h", "commands"], desc: "list commands", usage: "!help · !help <command>", run: (c) => cmdHelp(c.geo, c.args[0]) },
 	];
 
@@ -1305,5 +1433,5 @@ export function createBot({ broadcast, store, botName = process.env.GLUB_BOT_NAM
 		};
 	}
 
-	return { observe, stats, get pubkey() { return pk; } };
+	return { observe, stats, announcePatron, get pubkey() { return pk; } };
 }

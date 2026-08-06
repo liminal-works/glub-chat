@@ -13,7 +13,9 @@ Thumbs.db
 dist/
 build/
 
-# api history store (sqlite + its wal/shm sidecars)
+# api sqlite stores + their wal/shm sidecars. Two very different things live here:
+# glub-history.db is a rolling cache and safe to delete, while glub-patrons.db is
+# the ONLY record of who paid - never in git, but the one file worth backing up.
 *.db
 *.db-wal
 *.db-shm

@@ -11,6 +11,8 @@ import { createMediaStore } from "./media.mjs";
 import { translateConfigured, translateText } from "./translate.mjs";
 import { geocode } from "./geocode.mjs";
 import { fetchPreview } from "./preview.mjs";
+import { createLightning } from "./lightning.mjs";
+import { createPatrons } from "./patrons.mjs";
 
 // The optional "server assist" API. Deliberately separate from the static file
 // server (server/index.mjs) so its failure modes - a wedged relay pool, a full
@@ -42,6 +44,19 @@ const MEDIA_DIR = process.env.API_MEDIA_DIR || path.join(__dirname, "media-tmp")
 // so they must be absolute). Falls back to the request's forwarded host.
 const PUBLIC_ORIGIN = (process.env.API_PUBLIC_ORIGIN || "").replace(/\/+$/, "");
 
+// --- patronage -------------------------------------------------------------
+// A lightning donation buys a NIP-05 identity under NIP05_DOMAIN. All of it is
+// off unless LNBITS_URL + LNBITS_INVOICE_KEY are set: with no backend the bot
+// simply doesn't offer the commands, rather than offering them and failing.
+const PATRON_DB = process.env.PATRON_DB || path.join(__dirname, "glub-patrons.db");
+const PATRON_SATS = Number(process.env.PATRON_SATS) || 5000;
+// An hour is long enough to find a wallet and short enough that the one-open-
+// invoice-per-pubkey rule doesn't strand anyone who wandered off mid-payment.
+const PATRON_INVOICE_TTL_SEC = Number(process.env.PATRON_INVOICE_TTL_SEC) || 3600;
+const PATRON_RENAME_COOLDOWN_SEC = Number(process.env.PATRON_RENAME_COOLDOWN_SEC) || 7 * 24 * 3600;
+const PATRON_SWEEP_MS = Number(process.env.PATRON_SWEEP_MS) || 20_000;
+const NIP05_DOMAIN = process.env.NIP05_DOMAIN || "glub.chat";
+
 const store = openStore(DB_PATH);
 
 // keep the buffer fairly bounded (per-channel depth + channel-count breadth)
@@ -68,7 +83,32 @@ const aggregator = createAggregator(store, {
 	onStored: broadcast,
 	onChat: (ev, geo, source) => bot?.observe(ev, geo, source),
 });
-bot = createBot({ store, broadcast: (ev, geo) => aggregator.broadcast(ev, geo) });
+// declared after the aggregator and before the bot: the sweep announces a settled
+// donation through the bot, and the bot serves the commands that create one.
+const patrons = createPatrons({
+	dbPath: PATRON_DB,
+	lightning: createLightning({ url: process.env.LNBITS_URL, invoiceKey: process.env.LNBITS_INVOICE_KEY }),
+	amountSats: PATRON_SATS,
+	invoiceTtlSec: PATRON_INVOICE_TTL_SEC,
+	renameCooldownSec: PATRON_RENAME_COOLDOWN_SEC,
+	domain: NIP05_DOMAIN,
+	onSettled: (patron, invoice) => bot?.announcePatron(patron, invoice),
+});
+
+if (patrons.configured) {
+	const sweep = () =>
+		patrons
+			.sweep()
+			.then(({ settled }) => settled && console.log(`[patrons] ${settled} donation(s) settled`))
+			.catch((e) => console.error("[patrons] sweep failed:", e.message));
+	setInterval(sweep, PATRON_SWEEP_MS).unref();
+	sweep(); // a restart shouldn't leave a donation paid while we were down unnoticed
+	console.log(`patrons: ${PATRON_SATS} sats -> nip-05 on ${NIP05_DOMAIN}`);
+} else {
+	console.log("patrons: disabled (set LNBITS_URL + LNBITS_INVOICE_KEY to enable)");
+}
+
+bot = createBot({ store, broadcast: (ev, geo) => aggregator.broadcast(ev, geo), patrons, nip05Domain: NIP05_DOMAIN });
 const profiles = createProfiles();
 const media = createMediaStore({ dir: MEDIA_DIR, maxItems: MEDIA_MAX_ITEMS });
 
@@ -114,7 +154,22 @@ function ipBucket({ capacity, refillPerSec }) {
 // client pings this to decide whether to lean on the api or fall back to relays,
 // and to render the assist status indicator.
 app.get("/api/health", (req, res) => {
-	res.json({ ok: true, ...store.stats(), relays: aggregator.stats(), bot: bot.stats() });
+	res.json({ ok: true, ...store.stats(), relays: aggregator.stats(), bot: bot.stats(), patrons: patrons.stats() });
+});
+
+// NIP-05 resolution: `?name=<local>` -> { names: { local: pubkey } }. Clients fetch
+// this from the ROOT domain, not from /api, so the static server forwards this one
+// path here (server/index.mjs) - the api owns the data, the domain owns the name.
+//
+// A miss is a 200 with an empty map, not a 404: NIP-05 says an unknown name simply
+// isn't there, and a 404 makes clients report the whole domain as broken instead of
+// the one name as unverified.
+app.get("/.well-known/nostr.json", ipBucket({ capacity: 60, refillPerSec: 5 }), (req, res) => {
+	const name = typeof req.query.name === "string" ? req.query.name : "";
+	// no-store: a cached miss outlives the donation that fixes it, and a patron
+	// watching their new identity fail to verify has no way to know why.
+	res.set("Cache-Control", "no-store");
+	res.json({ names: patrons.names(name) });
 });
 
 // publish a client-signed event: the api fans it out across the relays it

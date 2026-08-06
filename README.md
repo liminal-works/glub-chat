@@ -19,13 +19,31 @@ configure.
 
 - generates your identity locally and keeps it there, nothing leaves the device
 - joins channels by geohash or by name, with a live picker for what's active right now
+- opens a globe you can spin to find a channel, or to read what people left on it
 - shows who's around, colors people consistently, and surfaces real conversation over lurkers
 - blurs incoming images until you choose to reveal them
+- takes photos and voice notes, and keeps the ones you like in a private gallery
+- leaves location notes on a channel · a bulletin board that outlives the chat
 - supports optional nostr profiles · avatar, bio, zap address, nip05
 - sends encrypted direct messages between users
+- runs encrypted group chats ("guilds") that no server knows about · see below
+- tells you when someone named you in a channel you weren't reading
+- dresses your own line with color codes and ambient effects, if you want it to
 - carries a small set of local commands (help, weather, time, dice, and a few more)
 - can hand off to a lightweight global bot for shared commands like `!top` and `!notes`
 - reads and writes in your browser's language where a translation exists
+
+## guilds
+
+a guild is a frequency, and a password is the only thing that tunes you to it.
+name and password go through one slow key derivation · half the result is the
+encryption key, which never leaves the device, and the other half becomes the
+public tag the messages ride on.
+
+so there's no registry, no invite, and nothing to join · two people who type
+the same pair are in the same room, and two guilds that share a name but not a
+password don't even land on the same tag. relays carry the traffic without
+being able to read it.
 
 ## server assist (optional)
 
@@ -75,8 +93,12 @@ store uses `node:sqlite`, so the api needs node ≥ 22.5.
 server/   tiny express app, serves public/ and (optionally) proxies /api
 public/   the client · identity, relay connections, and signing all live here
   js/nostr/       identity, relay list, protocol helpers, relay pool
-  js/ui/          shared ui pieces (autocomplete, suggest popups)
+                  dm.js / guild.js / notes.js each own their own sockets
+                  pow.js mines nip-13, nip96.js uploads to nostr.build
+  js/ui/          shared ui pieces (the globe, autocomplete, suggest popups)
   js/i18n/        tiny i18n engine and per language dictionaries
+  js/format.js    the "&" color/style codes
+  js/flair.js     ambient per line effects, all css, no per frame js
   js/app.js       wires it all into the ui
 api/      optional assist service, its own process, never holds keys
   store.mjs       sqlite rolling buffer
@@ -89,7 +111,10 @@ api/      optional assist service, its own process, never holds keys
 
 user facing copy lives behind intent named keys in `public/js/i18n/`, a base
 dictionary plus per locale overrides. english is the fallback and the
-locale is auto detected from the browser.
+locale is auto detected from the browser. ships with arabic, hindi, korean,
+russian and chinese alongside english · plural forms come from
+`Intl.PluralRules`, so a locale writes as many as it actually has, and arabic
+flips the layout to rtl.
 
 to add a language, copy `en.js` to a new locale file, translate the values
 while keeping the keys and `{placeholders}` exactly, and register it in

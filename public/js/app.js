@@ -6518,11 +6518,14 @@ function updatePlaceholder() {
 	updateSendLabel();
 }
 
-// the global composer only ever joins (it's a channel picker), so the button
-// reads "join" the whole time you're in global; a focused channel and a guild are
-// both places you're already in, so both say "send".
+// the global composer is a channel picker, so the button reads "join" the whole time
+// you're in global; a focused channel and a guild are both places you're already in,
+// so both say "send". The exception is a draft that ADDRESSES a channel - "#9q5 hello"
+// - which is the one thing global mode sends, and the label flipping to "send" as you
+// type the space after the channel is the only place that's advertised.
 function updateSendLabel() {
-	sendBtn.textContent = t(focusedGeo || focusedGuild ? "composer.send" : "composer.join");
+	const sends = focusedGeo || focusedGuild || !!addressedDraft(chatInput.value);
+	sendBtn.textContent = t(sends ? "composer.send" : "composer.join");
 }
 
 function focusChannel(geo) {
@@ -6555,6 +6558,18 @@ function exitFocus() {
 	if (liveSource !== "assist") enterRelayMode();
 }
 
+// "#9q5 hello" -> { geo, content }; anything else -> null. Split out of parseDraft
+// because the send BUTTON has to ask the same question the send itself does: it reads
+// "join" throughout global mode, and a button that says join and then sends is a
+// button that lies.
+function addressedDraft(text) {
+	const m = /^#(\S+)\s+([\s\S]+)$/.exec(text.trim());
+	if (!m) return null;
+	const geo = parseChannelArg(m[1]);
+	const content = m[2].trim();
+	return geo && content ? { geo, content } : null;
+}
+
 function parseDraft(raw) {
 	const text = raw.trim();
 	if (!text) return null;
@@ -6563,9 +6578,23 @@ function parseDraft(raw) {
 		return { geo: focusedGeo, content: text };
 	}
 
-	// global mode is a channel picker, not a message box: whatever's typed is a
-	// channel to JOIN (leading "#" optional). no message is ever sent from global,
-	// so a new user can't accidentally fragment a sentence into "#firstword rest".
+	// Global mode is a channel picker first: whatever's typed is a channel to JOIN,
+	// which is what stops a newcomer fragmenting a sentence into "#firstword rest".
+	//
+	// The one exception is a line that ADDRESSES a channel explicitly - "#9q5 hello"
+	// - and the "#" is what makes it explicit. That is deliberately the only way to
+	// send from here: without it the whole line stays a channel name, so the picker
+	// keeps the property it was given this shape for.
+	//
+	// It also makes the mention button work from the global feed, which it did not.
+	// It has always prefilled "#geo @name " so the send would target the channel the
+	// message came from, but nothing here could act on that prefix - the line went
+	// off to be joined as a channel called "geo @name", which is not a channel. The
+	// reply button escaped this because it routes through pendingReply rather than
+	// through the composer text.
+	const addressed = addressedDraft(text);
+	if (addressed) return addressed;
+
 	const channel = text.replace(/^#/, "").trim();
 	if (channel) focusChannel(channel);
 	return null;
@@ -7158,11 +7187,19 @@ mediaFile.addEventListener("change", () => {
 	if (file) uploadMedia(file);
 });
 
+// Emptying the field in code fires no "input" event, so the send label - which now
+// reads the draft to decide between "join" and "send" - has to be told by hand. Left
+// alone it keeps offering to "send" over an empty composer for the rest of the session.
+function clearComposer() {
+	chatInput.value = "";
+	suggest.hide();
+	updateSendLabel();
+}
+
 function send() {
 	// intercept local slash commands before anything is parsed as a message
 	if (runCommand(chatInput.value)) {
-		chatInput.value = "";
-		suggest.hide();
+		clearComposer();
 		return;
 	}
 
@@ -7172,8 +7209,7 @@ function send() {
 	if (pendingReply) {
 		const body = chatInput.value.trim();
 		if (!body) return; // keep the banner; nothing to send yet
-		chatInput.value = "";
-		suggest.hide();
+		clearComposer();
 		const prefix = `> @${pendingReply.name}: ${pendingReply.quoted}\n\n`;
 		const geo = pendingReply.geo;
 		cancelReply();
@@ -7189,15 +7225,13 @@ function send() {
 	// parsing - a guild is a closed room, not a place you can address out of.
 	if (focusedGuild) {
 		const body = chatInput.value.trim();
-		chatInput.value = "";
-		suggest.hide();
+		clearComposer();
 		if (body) guildSend(body);
 		return;
 	}
 
 	const draft = parseDraft(chatInput.value);
-	chatInput.value = "";
-	suggest.hide();
+	clearComposer();
 	if (!draft) return;
 	transmit(draft.content, draft.geo);
 }
@@ -8131,10 +8165,8 @@ function channelProvider(value, caret) {
 
 // join a channel chosen from the picker, clearing the composer + popup.
 function joinFromSuggest(geo) {
-	chatInput.value = "";
-	suggest.hide();
+	clearComposer();
 	focusChannel(geo);
-	updateSendLabel();
 	setTimeout(() => chatInput.focus(), 0);
 }
 

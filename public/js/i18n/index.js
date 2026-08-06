@@ -16,6 +16,7 @@ const STORAGE_KEY = "glub_locale"; // optional manual override (no UI yet)
 //   es: () => import("./es.js").then((m) => m.default),
 const LOADERS = {
 	ar: () => import("./ar.js").then((m) => m.default),
+	ko: () => import("./ko.js").then((m) => m.default),
 	ru: () => import("./ru.js").then((m) => m.default),
 	hi: () => import("./hi.js").then((m) => m.default),
 	zh: () => import("./zh.js").then((m) => m.default),

@@ -14,6 +14,7 @@ import { fetchPreview } from "./preview.mjs";
 import { createLightning } from "./lightning.mjs";
 import { createCashu } from "./cashu.mjs";
 import { createPatrons } from "./patrons.mjs";
+import { createAdmin, attachConsole } from "./admin.mjs";
 
 // The optional "server assist" API. Deliberately separate from the static file
 // server (server/index.mjs) so its failure modes - a wedged relay pool, a full
@@ -63,14 +64,18 @@ const NIP05_DOMAIN = process.env.NIP05_DOMAIN || "glub.chat";
 const PATRON_PAYOUT_ADDRESS = process.env.PATRON_PAYOUT_ADDRESS || "";
 const PATRON_SWEEP_THRESHOLD_SATS = Number(process.env.PATRON_SWEEP_THRESHOLD_SATS) || 10_000;
 const PATRON_PROOFS = process.env.PATRON_PROOFS || path.join(__dirname, "glub-proofs.json");
-// admin pubkeys (hex, comma separated) for !vault. Signed nostr events mean this is
-// a real credential check, not a shared secret someone can read out of a log.
-const ADMIN_PUBKEYS = new Set(
-	(process.env.GLUB_ADMIN_PUBKEYS || "")
-		.split(",")
-		.map((s) => s.trim().toLowerCase())
-		.filter((s) => /^[0-9a-f]{64}$/.test(s)),
-);
+// Admin authorisation. The rotating code is printed on every console line and
+// redeemed in chat with !auth; GLUB_ADMIN_PUBKEYS is the optional permanent list for
+// operators who shouldn't have to redeem anything.
+const admin = createAdmin({
+	statePath: process.env.ADMIN_STATE || path.join(__dirname, "glub-admin.json"),
+	envPubkeys: (process.env.GLUB_ADMIN_PUBKEYS || "").split(","),
+	codeTtlSec: Number(process.env.ADMIN_CODE_TTL_SEC) || 420,
+	botName: process.env.GLUB_BOT_NAME || "glub.bot",
+});
+// installed immediately, so every line from here on carries the code
+attachConsole(admin);
+console.log(`[admin] code is the prefix on every line · !auth <code> in any channel`);
 
 // A cashu mint and LNbits present the same two methods, so picking between them is
 // just which one is configured. The mint wins if both are: it's the one that needs no
@@ -164,7 +169,7 @@ bot = createBot({
 	broadcast: (ev, geo) => aggregator.broadcast(ev, geo),
 	patrons,
 	vault: patronBackend,
-	adminPubkeys: ADMIN_PUBKEYS,
+	admin,
 	nip05Domain: NIP05_DOMAIN,
 });
 const profiles = createProfiles();
@@ -212,7 +217,9 @@ function ipBucket({ capacity, refillPerSec }) {
 // client pings this to decide whether to lean on the api or fall back to relays,
 // and to render the assist status indicator.
 app.get("/api/health", (req, res) => {
-	res.json({ ok: true, ...store.stats(), relays: aggregator.stats(), bot: bot.stats(), patrons: patrons.stats() });
+	// deliberately no admin code here: /api/health is public, and the code's whole
+	// security model is that reading it requires terminal access
+	res.json({ ok: true, ...store.stats(), relays: aggregator.stats(), bot: bot.stats(), patrons: patrons.stats(), admin: admin.stats() });
 });
 
 // NIP-05 resolution: `?name=<local>` -> { names: { local: pubkey } }. Clients fetch

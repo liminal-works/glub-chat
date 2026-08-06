@@ -406,7 +406,7 @@ export function createBot({
 	store,
 	patrons = null,
 	vault = null,
-	adminPubkeys = new Set(),
+	admin = null,
 	nip05Domain = "glub.chat",
 	botName = process.env.GLUB_BOT_NAME || "glub.bot",
 } = {}) {
@@ -1133,19 +1133,20 @@ export function createBot({
 	// !help: generated from the registry, so a new command shows up here for free.
 	// Kept SHORT (terse one-liners) so it doesn't wrap on mobile; the per-command
 	// !help <command> page carries the usage + optional params.
-	function cmdHelp(geo, arg) {
+	function cmdHelp(geo, arg, asAdmin = false) {
+		const visible = (c) => !c.hidden && (!c.admin || asAdmin);
 		const q = String(arg || "").trim().toLowerCase().replace(/^!/, "");
 		if (q) {
 			const c = byToken.get(q);
-			// a hidden command stays hidden even when asked for by name - otherwise
+			// an admin command stays invisible even when asked for by name - otherwise
 			// !help vault is a way to discover exactly what !vault denied you
-			if (c && !c.hidden) {
+			if (c && visible(c)) {
 				const alias = c.aliases?.length ? `\n\nalias: ${c.aliases.map((a) => "!" + a).join(" · ")}` : "";
 				reply(`!${c.name}:\n\n${c.usage || c.desc}${alias}`, geo);
 				return;
 			}
 		}
-		const lines = COMMANDS.filter((c) => !c.hidden)
+		const lines = COMMANDS.filter(visible)
 			.sort((a, b) => a.name.localeCompare(b.name))
 			.map((c) => `- !${c.name} · ${c.desc}`);
 		reply(`commands:\n\n${lines.join("\n")}\n\n!help <command> for more`, geo);
@@ -1255,22 +1256,60 @@ export function createBot({
 		else reply(`not a patron yet · !donate for a nip-05 on ${nip05Domain}`, c.geo);
 	}
 
-	// --- the vault (admin) ------------------------------------------------------
-	// Cashu proofs the bot is holding. Admin-gated on the SIGNED event's pubkey, which
-	// is the strongest credential available here and costs nothing: there is no shared
-	// secret to leak into a log, no code to intercept, and no way to replay someone
-	// else's authorisation onto a different instruction.
-	//
-	// It answers nothing at all to a non-admin - not "denied", not a usage line. A
-	// public channel is the wrong place to advertise that a balance exists or that a
-	// command to move it does.
-	const isAdmin = (c) => {
-		const pk = c.ev && typeof c.ev.pubkey === "string" ? c.ev.pubkey.toLowerCase() : "";
-		return !!pk && adminPubkeys.has(pk);
-	};
+	// --- authorisation ------------------------------------------------------------
+	// Redeem the rotating code printed on every console line. Terminal access is the
+	// root credential: whoever can read the logs can make themselves an admin once,
+	// and that redemption immediately rotates the code, so the one that just travelled
+	// through a public channel is already spent.
+	function cmdAuth(c) {
+		const pubkey = payerOf(c);
+		const [sub, ...rest] = c.args;
+		const verb = String(sub || "").toLowerCase();
 
+		if (c.isAdmin && verb === "who") {
+			const list = admin.authorized();
+			const perm = admin.permanent().length;
+			reply(`authorized: ${list.length}${perm ? ` (+${perm} permanent)` : ""}`, c.geo);
+			return;
+		}
+		if (c.isAdmin && verb === "clear") {
+			reply(`cleared ${admin.clear()} authorization(s)`, c.geo);
+			return;
+		}
+		if (c.isAdmin && verb === "revoke") {
+			const out = admin.revoke(String(rest[0] || "").trim());
+			reply(
+				out.status === "ok" ? "revoked" : out.status === "permanent" ? "that one is set in the environment" : "not authorized",
+				c.geo,
+			);
+			return;
+		}
+		if (c.isAdmin && verb === "rotate") {
+			admin.rotate("requested");
+			reply("code rotated · see the server console", c.geo);
+			return;
+		}
+
+		// Silent with no argument. !auth on its own must not answer, or it becomes a
+		// probe anyone can use to discover that there is a gate here at all.
+		if (!verb) return;
+		if (c.isAdmin) {
+			reply("already authorized", c.geo);
+			return;
+		}
+
+		const out = admin.redeem(verb, pubkey);
+		if (out.status === "ok") reply("authorized", c.geo);
+		else if (out.status === "throttled") reply("too many attempts · wait a minute", c.geo);
+		else reply("not authorized", c.geo);
+	}
+
+	// --- the vault (admin) ------------------------------------------------------
+	// Cashu proofs the bot is holding. The `admin: true` flag on its registry entry is
+	// what gates it (see dispatch), so this handler never has to remember to check -
+	// and a non-admin gets silence rather than a refusal, because a public channel is
+	// the wrong place to advertise that a balance exists.
 	async function cmdVault(c) {
-		if (!isAdmin(c)) return;
 		const [sub, ...rest] = c.args;
 		const verb = String(sub || "").toLowerCase();
 
@@ -1395,12 +1434,30 @@ export function createBot({
 					},
 				]
 			: []),
-		// Registered but hidden: `hidden` keeps it out of !help, and cmdVault answers
-		// nothing to a non-admin, so a public channel never learns it exists.
-		...(patrons?.configured && vault?.kind === "cashu" && adminPubkeys.size
-			? [{ name: "vault", hidden: true, desc: "", usage: "!vault", run: (c) => cmdVault(c) }]
+		// `admin: true` both gates dispatch and hides the entry from !help for anyone
+		// who isn't one, so a public channel never learns these exist.
+		...(admin
+			? [
+					{
+						name: "auth",
+						desc: "redeem the admin code from the server console",
+						usage: "!auth <code> · !auth who · !auth revoke <pubkey> · !auth clear · !auth rotate",
+						run: (c) => cmdAuth(c),
+					},
+				]
 			: []),
-		{ name: "help", aliases: ["h", "commands"], desc: "list commands", usage: "!help · !help <command>", run: (c) => cmdHelp(c.geo, c.args[0]) },
+		...(admin && patrons?.configured && vault?.kind === "cashu"
+			? [
+					{
+						name: "vault",
+						admin: true,
+						desc: "donation vault: balance, sweep, reconcile",
+						usage: "!vault · !vault sweep [bolt11|address] · !vault reconcile",
+						run: (c) => cmdVault(c),
+					},
+				]
+			: []),
+		{ name: "help", aliases: ["h", "commands"], desc: "list commands", usage: "!help · !help <command>", run: (c) => cmdHelp(c.geo, c.args[0], c.isAdmin) },
 	];
 
 	// name/alias -> command, built once from the registry above.
@@ -1436,8 +1493,19 @@ export function createBot({
 	function dispatch(parsed, geo, meta = {}) {
 		const c = parsed.command;
 		if (!c) return false;
+		// Admin gating happens HERE rather than inside each handler, so a command
+		// marked admin cannot be shipped with the check forgotten. A non-admin gets
+		// silence, not a refusal: a public channel is the wrong place to confirm that
+		// a privileged command exists and that you nearly reached it.
+		const asAdmin = !!admin?.isAdmin(meta.ev?.pubkey);
+		if (c.admin && !asAdmin) {
+			console.log(`[bot] !${c.name} refused (not admin) from ${String(meta.ev?.pubkey || "?").slice(0, 12)}`);
+			return false;
+		}
 		promoForReply = pickPromo(meta.ev); // decided once per command, from the triggering event's client tag
-		Promise.resolve(c.run({ geo, args: parsed.args, ...meta })).catch((e) => console.error(`[bot] !${c.name} failed:`, e.message));
+		Promise.resolve(c.run({ geo, args: parsed.args, ...meta, isAdmin: asAdmin })).catch((e) =>
+			console.error(`[bot] !${c.name} failed:`, e.message),
+		);
 		return true;
 	}
 
@@ -1511,6 +1579,7 @@ export function createBot({
 			name: botName,
 			rotateMin: ROTATE_MIN,
 			commands: COMMANDS.map((c) => c.name),
+			adminCommands: COMMANDS.filter((c) => c.admin).map((c) => c.name),
 			trackedChannels: channelActivity.size,
 			activeUsers: activePubkeys.size,
 			languages: channelLanguage.size,

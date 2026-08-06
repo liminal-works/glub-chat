@@ -27,3 +27,8 @@ glub-proofs.json
 *-proofs.json
 *-proofs.json.[0-9]
 *-proofs.json.tmp
+
+# redeemed admin pubkeys. Not secret - they're public keys - but it is per-deploy
+# state, and committing it would authorize your laptop's admins on someone else's box.
+glub-admin.json
+*-admin.json

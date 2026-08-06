@@ -1,5 +1,10 @@
 // Patronage: a lightning donation buys a NIP-05 identity under glub's domain.
 //
+// The `backend` is either lightning.mjs (LNbits) or cashu.mjs (a mint). Nothing in
+// here knows which: both mint an invoice and answer whether it was paid. A mint also
+// needs a third step - the ecash has to be ISSUED after payment - which it exposes as
+// collect(), and which is deliberately kept OFF the path that grants the identity.
+//
 // This owns its OWN sqlite file, deliberately not the history db. That one is a
 // rolling cache with a prune loop pointed at it, and is safe to delete to reclaim
 // disk; this one is the only record that someone paid. Mixing the two would put
@@ -41,7 +46,7 @@ export function sanitizeNip05Name(raw) {
 
 export function createPatrons({
 	dbPath,
-	lightning,
+	backend,
 	amountSats,
 	invoiceTtlSec,
 	renameCooldownSec,
@@ -79,6 +84,18 @@ export function createPatrons({
 		CREATE INDEX IF NOT EXISTS idx_invoices_open ON invoices (settled_at, expires_at);
 	`);
 
+	// A cashu backend has to come back and ISSUE the ecash after payment, so a settled
+	// invoice can still have money outstanding at the mint. This column tracks that
+	// second half. Added by migration rather than folded into the CREATE above,
+	// because CREATE TABLE IF NOT EXISTS silently does nothing to a table that already
+	// exists - and this is the one table where "silently did nothing" is expensive.
+	const invoiceCols = new Set(db.prepare(`PRAGMA table_info(invoices)`).all().map((c) => c.name));
+	if (!invoiceCols.has("collected_at")) {
+		db.exec(`ALTER TABLE invoices ADD COLUMN collected_at INTEGER`);
+		// nothing predates this column that could have been collected, so backfilling
+		// settled rows as collected would be a lie; they are left NULL and swept.
+	}
+
 	const q = {
 		patron: db.prepare(`SELECT * FROM patrons WHERE pubkey = ?`),
 		byName: db.prepare(`SELECT pubkey FROM patrons WHERE name = ?`),
@@ -107,6 +124,12 @@ export function createPatrons({
 			`SELECT * FROM invoices WHERE settled_at IS NULL AND expires_at > ? ORDER BY created_at ASC LIMIT ?`,
 		),
 		dropExpired: db.prepare(`DELETE FROM invoices WHERE settled_at IS NULL AND expires_at <= ?`),
+		// settled, but the ecash was never issued - money sitting at the mint
+		uncollected: db.prepare(
+			`SELECT * FROM invoices WHERE settled_at IS NOT NULL AND collected_at IS NULL ORDER BY settled_at ASC LIMIT ?`,
+		),
+		markCollected: db.prepare(`UPDATE invoices SET collected_at = ? WHERE payment_hash = ?`),
+		countUncollected: db.prepare(`SELECT COUNT(*) AS n FROM invoices WHERE settled_at IS NOT NULL AND collected_at IS NULL`),
 		countPatrons: db.prepare(`SELECT COUNT(*) AS n FROM patrons`),
 		countOpen: db.prepare(`SELECT COUNT(*) AS n FROM invoices WHERE settled_at IS NULL AND expires_at > ?`),
 		countSettled: db.prepare(`SELECT COUNT(*) AS n FROM invoices WHERE settled_at IS NOT NULL`),
@@ -151,16 +174,22 @@ export function createPatrons({
 		const open = q.openInvoice.get(pubkey, now());
 		if (open) return { status: "reused", invoice: open };
 
-		if (!lightning.configured) return { status: "unconfigured" };
+		if (!backend.configured) return { status: "unconfigured" };
 
 		const memo = `glub.chat patron${domain ? ` (${domain} nip-05)` : ""}`;
-		const { bolt11, paymentHash } = await lightning.createInvoice({
+		const { bolt11, paymentHash, expiresAt } = await backend.createInvoice({
 			amountSats,
 			memo,
 			expirySec: invoiceTtlSec,
 		});
 		const created = now();
-		const expires = created + invoiceTtlSec;
+		// A backend that CHOOSES the expiry (a cashu mint does; LNbits takes ours) is
+		// believed over our own ttl. Guessing shorter than the mint deletes the row for
+		// an invoice someone can still pay - their money arrives against a record we
+		// threw away. Guessing longer just leaves a dead row around, so when the two
+		// disagree, take whichever is sooner.
+		const ourExpiry = created + invoiceTtlSec;
+		const expires = Number.isFinite(expiresAt) && expiresAt > created ? Math.min(expiresAt, ourExpiry) : ourExpiry;
 		q.insertInvoice.run(paymentHash, pubkey, String(name || ""), String(geo || ""), bolt11, amountSats, created, expires);
 		return { status: "created", invoice: q.invoiceByHash.get(paymentHash) };
 	}
@@ -195,9 +224,9 @@ export function createPatrons({
 
 		const open = q.openInvoice.get(pubkey, now());
 		if (!open) return { status: "none" };
-		if (!lightning.configured) return { status: "unconfigured" };
+		if (!backend.configured) return { status: "unconfigured" };
 
-		const paid = await lightning.isPaid(open.payment_hash);
+		const paid = await backend.isPaid(open.payment_hash);
 		if (!paid) return { status: "pending", invoice: open };
 		return settleInvoice(open);
 	}
@@ -207,20 +236,56 @@ export function createPatrons({
 	// burst of requests at the lightning node every tick.
 	async function sweep(limit = 25) {
 		q.dropExpired.run(now()); // nobody is going to pay an expired invoice
-		if (!lightning.configured) return { checked: 0, settled: 0 };
+		if (!backend.configured) return { checked: 0, settled: 0 };
 
 		const open = q.pending.all(now(), limit);
 		let settled = 0;
 		for (const invoice of open) {
 			try {
-				if (!(await lightning.isPaid(invoice.payment_hash))) continue;
+				if (!(await backend.isPaid(invoice.payment_hash))) continue;
 				if (settleInvoice(invoice).status === "settled") settled++;
 			} catch (e) {
 				// one unreachable node must not abandon the rest of the sweep
 				console.error(`[patrons] check ${invoice.payment_hash.slice(0, 12)} failed:`, e.message);
 			}
 		}
-		return { checked: open.length, settled };
+		const collected = await collectSettled(limit);
+		return { checked: open.length, settled, ...collected };
+	}
+
+	// Claim the ecash for invoices that are already paid. Deliberately NOT part of
+	// settleInvoice: the identity is owed the moment the payment confirms, and hanging
+	// it on our ability to issue proofs would mean a mint having a bad minute leaves
+	// someone who paid with nothing. So the patron row is written first and the money
+	// is fetched afterwards, retried here until it lands.
+	//
+	// A backend with no collect step (LNbits) marks the row collected on sight - there
+	// is nothing outstanding, and leaving it NULL would grow a queue that never drains.
+	async function collectSettled(limit = 25) {
+		const rows = q.uncollected.all(limit);
+		if (!rows.length) return { collected: 0 };
+		if (typeof backend.collect !== "function") {
+			for (const r of rows) q.markCollected.run(now(), r.payment_hash);
+			return { collected: 0 };
+		}
+		let collected = 0;
+		for (const r of rows) {
+			try {
+				const out = await backend.collect(r.payment_hash, r.amount_sats);
+				// "pending" means paid but the mint isn't ready to issue - leave the row
+				// alone and try again next tick. "lost" is unrecoverable and retrying it
+				// forever would block the queue behind it, so it gets closed out.
+				if (out?.status === "collected") {
+					q.markCollected.run(now(), r.payment_hash);
+					collected++;
+				} else if (out?.status === "lost" || out?.status === "unconfigured") {
+					q.markCollected.run(now(), r.payment_hash);
+				}
+			} catch (e) {
+				console.error(`[patrons] collect ${r.payment_hash.slice(0, 12)} failed:`, e.message);
+			}
+		}
+		return { collected };
 	}
 
 	// --- renaming --------------------------------------------------------------
@@ -259,19 +324,23 @@ export function createPatrons({
 		requestInvoice,
 		redeem,
 		sweep,
+		collectSettled,
 		rename,
 		names,
 		patronOf,
 		amountSats,
 		get configured() {
-			return lightning.configured;
+			return backend.configured;
 		},
 		stats() {
 			return {
 				patrons: q.countPatrons.get().n,
 				openInvoices: q.countOpen.get(now()).n,
 				settled: q.countSettled.get().n,
-				configured: lightning.configured,
+				uncollected: q.countUncollected.get().n,
+				configured: backend.configured,
+				backend: backend.kind || "lightning",
+				...(backend.stats ? { vault: backend.stats() } : {}),
 			};
 		},
 		close: () => db.close(),

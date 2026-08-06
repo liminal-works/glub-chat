@@ -19,3 +19,11 @@ build/
 *.db
 *.db-wal
 *.db-shm
+
+# cashu proofs. Not a config file and not a cache: this is bearer ecash, so it is
+# the money itself. Never in git - a commit would publish spendable tokens - and
+# the one file here worth backing up somewhere private.
+glub-proofs.json
+*-proofs.json
+*-proofs.json.[0-9]
+*-proofs.json.tmp

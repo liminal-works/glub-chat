@@ -12,6 +12,7 @@ import { translateConfigured, translateText } from "./translate.mjs";
 import { geocode } from "./geocode.mjs";
 import { fetchPreview } from "./preview.mjs";
 import { createLightning } from "./lightning.mjs";
+import { createCashu } from "./cashu.mjs";
 import { createPatrons } from "./patrons.mjs";
 
 // The optional "server assist" API. Deliberately separate from the static file
@@ -56,6 +57,35 @@ const PATRON_INVOICE_TTL_SEC = Number(process.env.PATRON_INVOICE_TTL_SEC) || 360
 const PATRON_RENAME_COOLDOWN_SEC = Number(process.env.PATRON_RENAME_COOLDOWN_SEC) || 7 * 24 * 3600;
 const PATRON_SWEEP_MS = Number(process.env.PATRON_SWEEP_MS) || 20_000;
 const NIP05_DOMAIN = process.env.NIP05_DOMAIN || "glub.chat";
+// cashu: the ecash the bot holds is a bearer token, so the default posture is not to
+// hold it. Above the threshold the vault is emptied to PATRON_PAYOUT_ADDRESS without
+// anyone being awake; with no address set it accumulates and waits for !vault sweep.
+const PATRON_PAYOUT_ADDRESS = process.env.PATRON_PAYOUT_ADDRESS || "";
+const PATRON_SWEEP_THRESHOLD_SATS = Number(process.env.PATRON_SWEEP_THRESHOLD_SATS) || 10_000;
+const PATRON_PROOFS = process.env.PATRON_PROOFS || path.join(__dirname, "glub-proofs.json");
+// admin pubkeys (hex, comma separated) for !vault. Signed nostr events mean this is
+// a real credential check, not a shared secret someone can read out of a log.
+const ADMIN_PUBKEYS = new Set(
+	(process.env.GLUB_ADMIN_PUBKEYS || "")
+		.split(",")
+		.map((s) => s.trim().toLowerCase())
+		.filter((s) => /^[0-9a-f]{64}$/.test(s)),
+);
+
+// A cashu mint and LNbits present the same two methods, so picking between them is
+// just which one is configured. The mint wins if both are: it's the one that needs no
+// account anywhere, and running both at once would split donations across two ledgers.
+function chooseBackend() {
+	if (process.env.CASHU_MINT_URL) {
+		return createCashu({
+			mintUrl: process.env.CASHU_MINT_URL,
+			proofsPath: PATRON_PROOFS,
+			payout: PATRON_PAYOUT_ADDRESS,
+			sweepThresholdSats: PATRON_SWEEP_THRESHOLD_SATS,
+		});
+	}
+	return createLightning({ url: process.env.LNBITS_URL, invoiceKey: process.env.LNBITS_INVOICE_KEY });
+}
 
 const store = openStore(DB_PATH);
 
@@ -85,9 +115,10 @@ const aggregator = createAggregator(store, {
 });
 // declared after the aggregator and before the bot: the sweep announces a settled
 // donation through the bot, and the bot serves the commands that create one.
+const patronBackend = chooseBackend();
 const patrons = createPatrons({
 	dbPath: PATRON_DB,
-	lightning: createLightning({ url: process.env.LNBITS_URL, invoiceKey: process.env.LNBITS_INVOICE_KEY }),
+	backend: patronBackend,
 	amountSats: PATRON_SATS,
 	invoiceTtlSec: PATRON_INVOICE_TTL_SEC,
 	renameCooldownSec: PATRON_RENAME_COOLDOWN_SEC,
@@ -96,19 +127,46 @@ const patrons = createPatrons({
 });
 
 if (patrons.configured) {
-	const sweep = () =>
-		patrons
-			.sweep()
-			.then(({ settled }) => settled && console.log(`[patrons] ${settled} donation(s) settled`))
-			.catch((e) => console.error("[patrons] sweep failed:", e.message));
+	const sweep = async () => {
+		try {
+			const { settled, collected } = await patrons.sweep();
+			if (settled) console.log(`[patrons] ${settled} donation(s) settled`);
+			if (collected) console.log(`[patrons] ${collected} donation(s) collected into the vault`);
+			// Emptying the vault is separate from filling it: a mint that can issue may
+			// still be unable to pay out, and a failed sweep must not roll back a
+			// collection that already succeeded.
+			if (patronBackend.sweepToPayout) {
+				const out = await patronBackend.sweepToPayout();
+				if (out?.status === "sent") console.log(`[patrons] auto-swept ${out.amount} sats to payout`);
+			}
+		} catch (e) {
+			console.error("[patrons] sweep failed:", e.message);
+		}
+	};
 	setInterval(sweep, PATRON_SWEEP_MS).unref();
 	sweep(); // a restart shouldn't leave a donation paid while we were down unnoticed
-	console.log(`patrons: ${PATRON_SATS} sats -> nip-05 on ${NIP05_DOMAIN}`);
+	console.log(
+		`patrons: ${PATRON_SATS} sats -> nip-05 on ${NIP05_DOMAIN} (via ${patronBackend.kind || "lnbits"})` +
+			(PATRON_PAYOUT_ADDRESS ? `, auto-sweep over ${PATRON_SWEEP_THRESHOLD_SATS} sats` : ""),
+	);
+	if (patronBackend.kind === "cashu" && !PATRON_PAYOUT_ADDRESS) {
+		console.warn(
+			"[patrons] no PATRON_PAYOUT_ADDRESS: donations will accumulate as ecash on this box. " +
+				`That file is the money - set a payout address or sweep it regularly (${PATRON_PROOFS})`,
+		);
+	}
 } else {
-	console.log("patrons: disabled (set LNBITS_URL + LNBITS_INVOICE_KEY to enable)");
+	console.log("patrons: disabled (set CASHU_MINT_URL, or LNBITS_URL + LNBITS_INVOICE_KEY, to enable)");
 }
 
-bot = createBot({ store, broadcast: (ev, geo) => aggregator.broadcast(ev, geo), patrons, nip05Domain: NIP05_DOMAIN });
+bot = createBot({
+	store,
+	broadcast: (ev, geo) => aggregator.broadcast(ev, geo),
+	patrons,
+	vault: patronBackend,
+	adminPubkeys: ADMIN_PUBKEYS,
+	nip05Domain: NIP05_DOMAIN,
+});
 const profiles = createProfiles();
 const media = createMediaStore({ dir: MEDIA_DIR, maxItems: MEDIA_MAX_ITEMS });
 

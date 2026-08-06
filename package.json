@@ -12,6 +12,7 @@
     "i18n": "node scripts/i18n-check.mjs"
   },
   "dependencies": {
+    "@cashu/cashu-ts": "^4.7.2",
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
     "franc": "^6.2.0",

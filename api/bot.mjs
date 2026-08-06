@@ -405,6 +405,8 @@ export function createBot({
 	broadcast,
 	store,
 	patrons = null,
+	vault = null,
+	adminPubkeys = new Set(),
 	nip05Domain = "glub.chat",
 	botName = process.env.GLUB_BOT_NAME || "glub.bot",
 } = {}) {
@@ -1135,13 +1137,17 @@ export function createBot({
 		const q = String(arg || "").trim().toLowerCase().replace(/^!/, "");
 		if (q) {
 			const c = byToken.get(q);
-			if (c) {
+			// a hidden command stays hidden even when asked for by name - otherwise
+			// !help vault is a way to discover exactly what !vault denied you
+			if (c && !c.hidden) {
 				const alias = c.aliases?.length ? `\n\nalias: ${c.aliases.map((a) => "!" + a).join(" · ")}` : "";
 				reply(`!${c.name}:\n\n${c.usage || c.desc}${alias}`, geo);
 				return;
 			}
 		}
-		const lines = [...COMMANDS].sort((a, b) => a.name.localeCompare(b.name)).map((c) => `- !${c.name} · ${c.desc}`);
+		const lines = COMMANDS.filter((c) => !c.hidden)
+			.sort((a, b) => a.name.localeCompare(b.name))
+			.map((c) => `- !${c.name} · ${c.desc}`);
 		reply(`commands:\n\n${lines.join("\n")}\n\n!help <command> for more`, geo);
 	}
 
@@ -1249,6 +1255,80 @@ export function createBot({
 		else reply(`not a patron yet · !donate for a nip-05 on ${nip05Domain}`, c.geo);
 	}
 
+	// --- the vault (admin) ------------------------------------------------------
+	// Cashu proofs the bot is holding. Admin-gated on the SIGNED event's pubkey, which
+	// is the strongest credential available here and costs nothing: there is no shared
+	// secret to leak into a log, no code to intercept, and no way to replay someone
+	// else's authorisation onto a different instruction.
+	//
+	// It answers nothing at all to a non-admin - not "denied", not a usage line. A
+	// public channel is the wrong place to advertise that a balance exists or that a
+	// command to move it does.
+	const isAdmin = (c) => {
+		const pk = c.ev && typeof c.ev.pubkey === "string" ? c.ev.pubkey.toLowerCase() : "";
+		return !!pk && adminPubkeys.has(pk);
+	};
+
+	async function cmdVault(c) {
+		if (!isAdmin(c)) return;
+		const [sub, ...rest] = c.args;
+		const verb = String(sub || "").toLowerCase();
+
+		if (!verb || verb === "balance") {
+			const s = vault.stats ? vault.stats() : {};
+			reply(
+				`vault: ${vault.balanceSats?.() ?? 0} sats in ${vault.proofCount?.() ?? 0} proofs` +
+					`\nmint: ${s.mint || "-"}\npayout: ${s.payout || "none"}` +
+					`\nuncollected: ${patrons.stats().uncollected}`,
+				c.geo,
+			);
+			return;
+		}
+
+		if (verb === "sweep") {
+			const target = rest.join(" ").trim();
+			// Checked here rather than left to the melt: resolving an address for a zero
+			// balance fails deep inside lnurl with "amount must be positive", which is a
+			// true statement about the wrong thing.
+			if (!vault.balanceSats()) {
+				reply("vault is empty", c.geo);
+				return;
+			}
+			try {
+				// A lightning address always contains "@" and a bolt11 never does, so that
+				// is the test. Telling them apart by LENGTH would work until someone pasted
+				// a short invoice, and then it would try to resolve it as a domain.
+				const out = !target
+					? await vault.sweepToPayout()
+					: target.includes("@")
+						? await vault.sweepToAddress(target)
+						: await vault.meltTo(target);
+				if (out?.status === "sent") reply(`swept ${out.amount} sats · ${out.remaining} sats left`, c.geo);
+				else if (out?.status === "empty") reply("vault is empty", c.geo);
+				else if (out?.status === "below-threshold") reply(`below the auto-sweep threshold (${out.balance} sats)`, c.geo);
+				else if (out?.status === "no-payout") reply("no payout address set · !vault sweep <bolt11 or address>", c.geo);
+				else if (out?.status === "insufficient") reply(`not enough: need ${out.need}, have ${out.have}`, c.geo);
+				else reply(`sweep: ${out?.status || "failed"}`, c.geo);
+			} catch (e) {
+				console.error("[bot] !vault sweep failed:", e.message);
+				reply(`sweep failed: ${clipText(e.message, 80)}`, c.geo);
+			}
+			return;
+		}
+
+		if (verb === "reconcile") {
+			try {
+				const out = await vault.reconcile();
+				reply(`reconciled: dropped ${out.dropped || 0} spent proofs · ${out.total ?? 0} sats`, c.geo);
+			} catch (e) {
+				reply(`reconcile failed: ${clipText(e.message, 80)}`, c.geo);
+			}
+			return;
+		}
+
+		reply("!vault · !vault sweep [bolt11|address] · !vault reconcile", c.geo);
+	}
+
 	// the command registry: adding an entry here makes a command parse, dispatch,
 	// AND appear in !help automatically - there's no static list to keep in sync.
 	// aliases are the bang-stripped forms users learned (!t, !l, !list, !dump...).
@@ -1314,6 +1394,11 @@ export function createBot({
 						run: (c) => cmdNip05(c),
 					},
 				]
+			: []),
+		// Registered but hidden: `hidden` keeps it out of !help, and cmdVault answers
+		// nothing to a non-admin, so a public channel never learns it exists.
+		...(patrons?.configured && vault?.kind === "cashu" && adminPubkeys.size
+			? [{ name: "vault", hidden: true, desc: "", usage: "!vault", run: (c) => cmdVault(c) }]
 			: []),
 		{ name: "help", aliases: ["h", "commands"], desc: "list commands", usage: "!help · !help <command>", run: (c) => cmdHelp(c.geo, c.args[0]) },
 	];

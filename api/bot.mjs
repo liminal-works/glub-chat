@@ -1278,6 +1278,13 @@ export function createBot({
 			reply(`you're already a patron: ${nip05Of(out.patron.name)} · !nip05 <name> to change it`, c.geo);
 			return;
 		}
+		// already published under this domain, but not through a donation - an
+		// operator's own entry, or a list that predates the patrons table. Selling
+		// them a second identity would be taking money for something they have.
+		if (out.status === "identified") {
+			reply(`you already have ${nip05Of(out.name)} · nothing to buy`, c.geo);
+			return;
+		}
 		const inv = out.invoice;
 		const mins = Math.max(1, Math.round((inv.expires_at - now()) / 60));
 		const lead =

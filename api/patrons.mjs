@@ -51,6 +51,19 @@ export function createPatrons({
 	invoiceTtlSec,
 	renameCooldownSec,
 	domain = "",
+	// An EXTERNAL nip-05 document to consult before minting. The patrons table is
+	// only one of the ways a pubkey can already have an identity on this domain -
+	// an operator's own entry, or a list that predates this table, is invisible to
+	// it, and selling those people an identity takes money for something they have.
+	//
+	// Off unless set, deliberately. When THIS api serves the document it is just a
+	// view of the table two lines up, so defaulting to the domain would send the
+	// process out through dns and back into itself to re-read what it already knows.
+	// Point it at a list this api does NOT serve and the check earns its round trip.
+	nip05Url = "",
+	// how long that document is cached. Short by design: an identity added by
+	// hand should start blocking sales within the minute, not after a restart.
+	publishedTtlMs = 60_000,
 	onSettled = null,
 }) {
 	const db = new DatabaseSync(dbPath);
@@ -163,6 +176,36 @@ export function createPatrons({
 		return row;
 	}
 
+	// !donate is rate limited anyway, so this mostly turns a burst of asks into one
+	// request rather than existing for throughput.
+	let publishedCache = { at: 0, byPubkey: new Map() };
+
+	async function publishedIdentity(pubkey) {
+		if (!nip05Url) return null;
+		const pk = String(pubkey || "").toLowerCase();
+		if (Date.now() - publishedCache.at > publishedTtlMs) {
+			try {
+				const res = await fetch(nip05Url, { signal: AbortSignal.timeout(5000) });
+				if (!res.ok) throw new Error(`HTTP ${res.status}`);
+				const body = await res.json();
+				const byPubkey = new Map();
+				for (const [n, key] of Object.entries(body?.names || {})) {
+					if (typeof key === "string") byPubkey.set(key.toLowerCase(), n);
+				}
+				publishedCache = { at: Date.now(), byPubkey };
+			} catch (e) {
+				// Fail OPEN. Refusing every donation because our own web server hiccuped is a
+				// worse outcome than occasionally selling a second identity to someone who
+				// already had one - and settleInvoice still won't write a duplicate row.
+				console.error(`[patrons] could not read ${nip05Url}: ${e.message} - selling anyway`);
+				publishedCache = { at: Date.now(), byPubkey: publishedCache.byPubkey };
+				return null;
+			}
+		}
+		const found = publishedCache.byPubkey.get(pk);
+		return found ? { name: found } : null;
+	}
+
 	// --- donating ------------------------------------------------------------
 	// One open invoice per pubkey, reused until it expires. That is the anti-abuse
 	// rule and it needs no counter: a pubkey cannot hold two invoices at once, so
@@ -170,6 +213,11 @@ export function createPatrons({
 	async function requestInvoice({ pubkey, name, geo }) {
 		const existing = patronOf(pubkey);
 		if (existing) return { status: "already", patron: existing };
+
+		// ...and the same question asked of the document people actually resolve
+		// against, which can carry names this table never wrote.
+		const published = await publishedIdentity(pubkey);
+		if (published) return { status: "identified", name: published.name };
 
 		const open = q.openInvoice.get(pubkey, now());
 		if (open) return { status: "reused", invoice: open };
@@ -322,6 +370,7 @@ export function createPatrons({
 
 	return {
 		requestInvoice,
+		publishedIdentity,
 		redeem,
 		sweep,
 		collectSettled,

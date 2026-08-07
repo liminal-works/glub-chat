@@ -131,6 +131,9 @@ const patrons = createPatrons({
 	invoiceTtlSec: PATRON_INVOICE_TTL_SEC,
 	renameCooldownSec: PATRON_RENAME_COOLDOWN_SEC,
 	domain: NIP05_DOMAIN,
+	// defaults to https://<domain>/.well-known/nostr.json; override when the
+	// published list lives somewhere this api doesn't serve
+	nip05Url: process.env.PATRON_NIP05_URL || undefined,
 	onSettled: (patron, invoice) => bot?.announcePatron(patron, invoice),
 });
 

@@ -7015,9 +7015,10 @@ function mountMediaUi(inDm) {
 	// (#composerWrap out here, the DM composer itself in there); the bar replaces its
 	// row, so it has to be a sibling of it either way.
 	const menuHost = inDm ? dmInputbar : inputbar.parentNode;
+	// each host declares its own anchor offsets in css, so there is nothing to
+	// toggle on the menu when it moves
 	const barAnchor = inDm ? dmInputbar : inputbar;
 	if (mediaMenu.parentNode !== menuHost) menuHost.appendChild(mediaMenu);
-	mediaMenu.classList.toggle("inDm", inDm);
 	// the bar is left exactly where it is while a recording is on screen - moving it
 	// then would strand the composer it replaced in a hidden state, since showRecordBar
 	// restores whichever one the class says it took over.

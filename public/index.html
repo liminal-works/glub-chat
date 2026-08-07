@@ -327,16 +327,18 @@
 					</div>
 					<div id="notesList" class="notesList"></div>
 					<div class="notesComposer">
-						<!-- inside the composer, not the panel: .mediaMenu opens upward from its
-						     container's TOP edge, so anchoring it to a full-height panel put it
-						     off the top of the screen. The chat menu anchors to #composerWrap
-						     for exactly this reason. -->
-						<div id="notesMediaMenu" class="mapMenu mediaMenu" hidden>
-							<button type="button" class="mapMenuItem" data-notes-media="photo"><span data-i18n="notes.media_photo">photo upload</span></button>
-							<button type="button" class="mapMenuItem" data-notes-media="geotag"><span data-i18n="notes.media_geotag">geotag post</span></button>
-						</div>
 						<textarea id="notesInput" class="notesInput" rows="2" maxlength="500" enterkeyhint="send" spellcheck="true" autocorrect="on" autocapitalize="sentences" autocomplete="off" data-i18n-placeholder="notes.placeholder" placeholder="leave a note for this channel..."></textarea>
 						<div class="notesComposerRow">
+							<!-- in the row with the button, not the panel or the whole composer:
+							     .mediaMenu opens upward from its container's TOP edge, so a taller
+							     anchor pushes it further from the "+" that opened it - off the top
+							     of the screen entirely when that anchor was the full-height panel.
+							     The chat and dm menus anchor to their own button rows for the same
+							     reason, and all three now land in the same place. -->
+							<div id="notesMediaMenu" class="mapMenu mediaMenu" hidden>
+								<button type="button" class="mapMenuItem" data-notes-media="photo"><span data-i18n="notes.media_photo">photo upload</span></button>
+								<button type="button" class="mapMenuItem" data-notes-media="geotag"><span data-i18n="notes.media_geotag">geotag post</span></button>
+							</div>
 							<select id="notesExpiry" class="notesExpiry" aria-label="expiry">
 								<option value="0" data-i18n="notes.expiry_never">expiry: never</option>
 								<option value="86400" data-i18n="notes.expiry_1d">expiry: 1 day</option>

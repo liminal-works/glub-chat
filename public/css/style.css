@@ -2641,6 +2641,10 @@ html.retro .flairScan {
 
 #composerWrap {
 	position: relative;
+	/* the "+" menu anchors here; #inputbar's border + top padding, and its side
+	   padding, are what sit between this box's edges and the button */
+	--menuAnchorTop: 7px;
+	--menuAnchorRight: 14px;
 }
 
 /* the mirror of #newMessagesBar at the other end of the feed: a quiet strip over the
@@ -3261,13 +3265,18 @@ html.retro .flairScan {
 	margin: 4px 2px;
 }
 
-/* the "+" menu (photo / voice) pops up above the compose row, anchored to the
-   right where the + button sits, rather than the map menu's top-left. */
+/* The "+" menu, in every composer that has one: chat, dm, notes. It hangs off the
+   button that opened it - right edge flush with the row's content edge, bottom 3px
+   clear of the "+" itself - rather than the map menu's top-left.
+   The three rows are built differently (the chat one pads its inner bar, the notes
+   one is flush), so each anchor declares the chrome sitting between its own edges
+   and the button and the same two numbers then describe all three. Hardcoding the
+   result instead is what left them a few px apart from each other. */
 .mediaMenu {
 	top: auto;
 	left: auto;
-	bottom: calc(100% - 4px);
-	right: 14px;
+	bottom: calc(100% - var(--menuAnchorTop, 0px) + 3px);
+	right: var(--menuAnchorRight, 0px);
 	min-width: 150px;
 }
 
@@ -3450,8 +3459,8 @@ html.retro .flairScan {
 /* Both shared media surfaces get MOVED into the DM panel rather than duplicated
    (see mountMediaUi). Inside the panel they sit within its own padding and against
    its own background, so they drop the side padding and chrome fill that only make
-   sense out at the app floor. The menu's right offset goes with it - the DM "+" sits
-   flush to the panel edge, not 14px in from the window. */
+   sense out at the app floor. The menu follows the anchor's own vars, so its offset
+   comes along for free - the DM "+" sits flush to the panel edge, not 14px in. */
 #recordBar.inDm {
 	padding-left: 0;
 	padding-right: 0;
@@ -3459,9 +3468,6 @@ html.retro .flairScan {
 	margin-top: 8px;
 }
 
-.mediaMenu.inDm {
-	right: 0;
-}
 .recDot {
 	width: 10px;
 	height: 10px;
@@ -3669,7 +3675,6 @@ html.retro .flairScan {
 }
 
 .notesComposer {
-	position: relative; /* anchors the "+" menu, which opens upward from here */
 	display: flex;
 	flex-direction: column;
 	gap: 8px;
@@ -3696,6 +3701,10 @@ html.retro .flairScan {
 	display: flex;
 	gap: 10px;
 	align-items: center;
+	/* the "+" menu anchors to the row holding the button, same as the other two.
+	   Anchoring it to the whole composer left it floating above the textarea. */
+	position: relative;
+	/* the row is flush - no border, no padding - so there is nothing to compensate */
 }
 
 .notesExpiry {
@@ -5171,6 +5180,7 @@ html.retro .flairScan {
 	/* the relocated "+" menu anchors here, the way the main one anchors to
 	   #composerWrap - so it floats just above this row rather than the whole panel */
 	position: relative;
+	--menuAnchorTop: 7px; /* border + the padding below; no side padding to clear */
 	/* matches #inputbar: 6px top, safe-area-aware bottom so text clears the home
 	   indicator instead of clipping into the floor */
 	padding: 6px 0 calc(6px + var(--inset-b));

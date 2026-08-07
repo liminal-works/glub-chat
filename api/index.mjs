@@ -153,6 +153,26 @@ if (patrons.configured) {
 	};
 	setInterval(sweep, PATRON_SWEEP_MS).unref();
 	sweep(); // a restart shouldn't leave a donation paid while we were down unnoticed
+
+	// Prove the backend actually works, at BOOT, rather than letting the first
+	// !donate be the thing that discovers it doesn't. The chat reply for a failed
+	// donation is deliberately generic ("couldn't reach the lightning node") because
+	// a public channel is the wrong place for internals - but that means a missing
+	// dependency, an unreachable mint and a wrong url all look identical to the one
+	// person who can fix them. This is where they stop looking identical.
+	if (patronBackend.ready) {
+		patronBackend
+			.ready()
+			.then(() => console.log(`[patrons] backend ok: ${patronBackend.stats?.().mint || "configured"}`))
+			.catch((e) => {
+				console.error(`[patrons] BACKEND UNUSABLE - !donate will fail: ${e.message}`);
+				if (/Cannot find package|ERR_MODULE_NOT_FOUND/.test(e.message)) {
+					console.error("[patrons] the cashu client isn't installed here. run: npm install");
+				} else {
+					console.error(`[patrons] check CASHU_MINT_URL (${process.env.CASHU_MINT_URL || "unset"}) is reachable from this host`);
+				}
+			});
+	}
 	console.log(
 		`patrons: ${PATRON_SATS} sats -> nip-05 on ${NIP05_DOMAIN} (via ${patronBackend.kind || "lnbits"})` +
 			(PATRON_PAYOUT_ADDRESS ? `, auto-sweep over ${PATRON_SWEEP_THRESHOLD_SATS} sats` : ""),

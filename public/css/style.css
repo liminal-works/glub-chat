@@ -5289,3 +5289,61 @@ html.retro .flairScan {
 	color: var(--muted);
 	font-size: 13px;
 }
+
+/* --- geotagged post ------------------------------------------------------- */
+/* The panel reuses .notesPanel, so only the parts that have no notes equivalent
+   are styled here: the photo being read, the facts pulled out of it, and the
+   precision picker (which is a row of buttons rather than the notes dropdown -
+   the choice is the whole point of the screen, so it isn't hidden behind a tap). */
+
+.geotagBody {
+	display: flex;
+	flex-direction: column;
+	align-items: flex-start;
+	gap: 10px;
+}
+
+.geotagPreview {
+	max-width: 100%;
+	max-height: 220px;
+	border: 1px solid var(--chrome-border);
+	align-self: center;
+}
+
+.geotagFacts {
+	color: var(--muted);
+	font-size: 12px;
+	line-height: 1.6;
+	white-space: pre-wrap;
+	word-break: break-word;
+}
+
+.geotagScopes {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 6px;
+}
+
+.geotagScope {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	background: none;
+	border: 1px solid var(--chrome-border);
+	color: var(--muted);
+	font: inherit;
+	font-size: 12px;
+	padding: 4px 8px;
+	cursor: pointer;
+}
+
+.geotagScope:hover {
+	color: var(--fg);
+}
+
+/* the chosen precision is the one the post will use, so it reads as selected
+   rather than merely hovered */
+.geotagScope.on {
+	color: var(--accent);
+	border-color: var(--accent);
+}

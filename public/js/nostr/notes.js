@@ -515,6 +515,65 @@ export function createNotesClient({ getIdentity, getRelays, onChange, assist } =
 		return { ok: true, event, relays };
 	}
 
+	// Post to a geohash this client is NOT open on, with a timestamp of our choosing.
+	// That is the geotag flow: the cell and the time both come out of a photo's exif,
+	// so neither the open channel nor the wall clock is the right answer.
+	//
+	// No local echo, deliberately. `post` above inserts into the list the panel is
+	// showing; a note for somewhere else would appear under the wrong heading. The
+	// caller reports success itself, and the note arrives normally when that cell is
+	// next opened.
+	// Publish over connections opened just for this, then close them. The sockets
+	// this module keeps belong to the cell it is WATCHING, and a client that was
+	// only ever built to send one geotagged note has none at all - so borrowing
+	// them would silently send to nobody, which is exactly what it did first try.
+	function publishStandalone(event, relays) {
+		return new Promise((resolve) => {
+			const urls = (relays || []).slice(0, 5);
+			if (!urls.length) return resolve(0);
+			let sent = 0;
+			let settled = false;
+			const open = [];
+			const done = () => {
+				if (settled) return;
+				settled = true;
+				// a beat for the relay to read the frame before we hang up on it
+				setTimeout(() => { for (const ws of open) { try { ws.close(); } catch {} } }, 1500);
+				resolve(sent);
+			};
+			let pending = urls.length;
+			const settle = () => { if (--pending <= 0) done(); };
+			for (const url of urls) {
+				let ws;
+				try { ws = new WebSocket(url); } catch { settle(); continue; }
+				open.push(ws);
+				ws.addEventListener('open', () => { try { ws.send(JSON.stringify(['EVENT', event])); sent++; } catch {} settle(); });
+				ws.addEventListener('error', settle);
+				ws.addEventListener('close', settle);
+			}
+			setTimeout(done, 6000); // never hang the ui on a wedged relay
+		});
+	}
+
+	async function postTo({ content, geohash: target, name, expiresInSecs, client, createdAt }) {
+		const cell = String(target || "").toLowerCase();
+		if (!/^[0-9a-z]{1,12}$/.test(cell)) return { ok: false, relays: 0 };
+		const { sk, pk } = getIdentity();
+		const expiresAt = expiresInSecs ? nowSecs() + expiresInSecs : null;
+		const rich = hasFormat(content) ? content : undefined;
+		const plain = rich ? stripFormat(content) : content;
+		let event;
+		try {
+			event = makeNote({ content: plain, geohash: cell, name, expiresAt, sk, pk, client, rich, createdAt });
+		} catch {
+			return { ok: false, relays: 0 };
+		}
+		// the target cell's own nearest relays, not the ones we happen to be watching
+		const relays = await publishStandalone(event, getRelays(cell));
+		if (assist?.isActive?.()) assist.publish(event);
+		return { ok: relays > 0 || !!assist?.isActive?.(), event, relays };
+	}
+
 	// NIP-09 delete one of our own notes: emit a kind-5, drop it locally, and tombstone
 	// the id so nothing can hand it back - not a relay that ignored the request, not
 	// the api's own note cache, not a reload.
@@ -541,5 +600,5 @@ export function createNotesClient({ getIdentity, getRelays, onChange, assist } =
 		return { state, notes: notes.slice(), geohash };
 	}
 
-	return { open, close, post, remove, getState };
+	return { open, close, post, postTo, remove, getState };
 }

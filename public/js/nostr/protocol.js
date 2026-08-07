@@ -84,7 +84,11 @@ export const DELETE_KIND = 5;
 // (null = never expires). name goes in an `n` tag like chat. `rich` (optional)
 // is glub's "&"-code raw text, carried in a ["glub","rich",...] tag native ignores
 // and glub prioritizes over the plaintext `content` - same scheme as chat.
-export function buildNoteEvent({ content, geohash, name, pk, expiresAt = null, client, rich }) {
+// `createdAt` (unix secs) backdates the note. Only the geotag flow passes it, where
+// the timestamp is read out of a photo's exif rather than being "now" - a picture
+// taken in 2008 is a note ABOUT 2008, and stamping it with the upload time would
+// throw away the one fact that made it worth posting.
+export function buildNoteEvent({ content, geohash, name, pk, expiresAt = null, client, rich, createdAt = null }) {
 	const tags = [["g", geohash]];
 	if (name) tags.push(["n", name]);
 	if (expiresAt) tags.push(["expiration", String(Math.floor(expiresAt))]);
@@ -92,15 +96,15 @@ export function buildNoteEvent({ content, geohash, name, pk, expiresAt = null, c
 	if (rich) tags.push(["glub", "rich", rich]);
 	return {
 		kind: NOTE_KIND,
-		created_at: Math.floor(Date.now() / 1000),
+		created_at: Number.isFinite(createdAt) ? Math.floor(createdAt) : Math.floor(Date.now() / 1000),
 		tags,
 		content,
 		pubkey: pk,
 	};
 }
 
-export function makeNote({ content, geohash, name, expiresAt, sk, pk, client, rich }) {
-	return signEvent(buildNoteEvent({ content, geohash, name, pk, expiresAt, client, rich }), sk);
+export function makeNote({ content, geohash, name, expiresAt, sk, pk, client, rich, createdAt }) {
+	return signEvent(buildNoteEvent({ content, geohash, name, pk, expiresAt, client, rich, createdAt }), sk);
 }
 
 // a NIP-09 deletion request for one of your own notes (relays that honor it drop

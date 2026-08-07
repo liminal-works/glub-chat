@@ -337,8 +337,46 @@
 							</select>
 							<span id="notesUploadHint" class="notesUploadHint"></span>
 							<input id="notesFile" type="file" accept="image/*" hidden />
-							<button id="notesAttach" class="notesAttach" type="button" aria-label="attach image">+</button>
+							<button id="notesAttach" class="notesAttach" type="button" aria-haspopup="menu" aria-label="attach">+</button>
 							<button id="notesPost" class="notesPost" type="button" data-i18n="notes.post">post</button>
+						</div>
+					</div>
+					<!-- the "+" is two different things now: attach a picture to THIS note,
+					     or start a geotagged post, which reads a photo's own coordinates and
+					     capture time and belongs to whatever cell those describe. -->
+					<div id="notesMediaMenu" class="mapMenu mediaMenu" hidden>
+						<button type="button" class="mapMenuItem" data-notes-media="photo"><span data-i18n="notes.media_photo">photo upload</span></button>
+						<button type="button" class="mapMenuItem" data-notes-media="geotag"><span data-i18n="notes.media_geotag">geotag post</span></button>
+					</div>
+				</div>
+			</div>
+
+			<!-- geotagged post: the cell and the timestamp both come out of the picture,
+			     so this window has no "current channel" the way the notes panel does. -->
+			<div id="geotagGate" class="gate">
+				<div class="notesPanel">
+					<div class="usersHeader">
+						<span data-i18n="geotag.title">geotag post</span>
+						<strong id="geotagClose" class="usersExit" data-i18n="users.exit">[EXIT]</strong>
+					</div>
+					<div id="geotagBody" class="notesList geotagBody">
+						<div id="geotagStatus" class="notesStatus" data-i18n="geotag.pick">pick a photo with location data</div>
+						<img id="geotagPreview" class="geotagPreview" alt="" hidden />
+						<div id="geotagFacts" class="geotagFacts" hidden></div>
+						<div id="geotagScopes" class="geotagScopes" hidden>
+							<button type="button" class="geotagScope" data-geotag-scope="8"><span class="mmMark">◉</span><span class="gsLabel"></span></button>
+							<button type="button" class="geotagScope" data-geotag-scope="6"><span class="mmMark">◎</span><span class="gsLabel"></span></button>
+							<button type="button" class="geotagScope" data-geotag-scope="5"><span class="mmMark">○</span><span class="gsLabel"></span></button>
+							<button type="button" class="geotagScope" data-geotag-scope="4"><span class="mmMark">◌</span><span class="gsLabel"></span></button>
+						</div>
+					</div>
+					<div class="notesComposer">
+						<textarea id="geotagInput" class="notesInput" rows="2" maxlength="500" spellcheck="true" autocorrect="on" autocapitalize="sentences" autocomplete="off" data-i18n-placeholder="geotag.placeholder" placeholder="say something about this photo..."></textarea>
+						<div class="notesComposerRow">
+							<span id="geotagHint" class="notesUploadHint"></span>
+							<input id="geotagFile" type="file" accept="image/*" hidden />
+							<button id="geotagPick" class="notesAttach" type="button" aria-label="choose photo">+</button>
+							<button id="geotagPost" class="notesPost" type="button" data-i18n="geotag.post" disabled>post</button>
 						</div>
 					</div>
 				</div>

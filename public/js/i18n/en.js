@@ -218,7 +218,25 @@ export default {
 	},
 
 	// the location-notes sheet: a persistent per-channel bulletin board (kind-1)
+	geotag: {
+		title: "geotag post",
+		pick: "pick a photo with location data",
+		reading: "reading photo...",
+		no_data: "this photo has no location or date in it",
+		rejected: "rejected · nothing to derive",
+		not_image: "that isn't an image",
+		where: "where",
+		when: "when",
+		from_photo: "zone from the photo",
+		from_place: "zone from the location",
+		placeholder: "say something about this photo...",
+		post: "post",
+		failed: "couldn't post that",
+		posted: "geotagged note posted to {geo}",
+	},
 	notes: {
+		media_photo: "photo upload",
+		media_geotag: "geotag post",
 		title: "notes",
 		draft: "[DRAFT]",
 		nearby: "nearby notes",

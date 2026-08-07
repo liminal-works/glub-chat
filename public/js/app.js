@@ -15,6 +15,7 @@ import { buildChatEvent, buildPresenceEvent, signEvent, makeProfileEvent, getGeo
 import { mineNonceTag, POW_DIFFICULTY, idDifficulty, committedDifficulty } from "./nostr/pow.js";
 import { createMessageRateLimiter, createPresenceRateLimiter } from "./ratelimit.js";
 import { t, formatAgo, formatDayAgo, setLocale, detectLocale, onLocaleChange, preferredContentLanguage, getLocale } from "./i18n/index.js";
+import { readExif, exifTimestamp, parseUtcOffset } from "./exif.js";
 import { createSuggest } from "./ui/suggest.js";
 import { createMap } from "./ui/map.js";
 import { createDmClient, DM_MAX_CONTENT_BYTES } from "./nostr/dm.js";
@@ -425,6 +426,18 @@ const notesExpiry = document.getElementById("notesExpiry");
 const notesPost = document.getElementById("notesPost");
 const notesAttach = document.getElementById("notesAttach");
 const notesFile = document.getElementById("notesFile");
+const notesMediaMenu = document.getElementById("notesMediaMenu");
+const geotagGate = document.getElementById("geotagGate");
+const geotagClose = document.getElementById("geotagClose");
+const geotagStatus = document.getElementById("geotagStatus");
+const geotagPreview = document.getElementById("geotagPreview");
+const geotagFacts = document.getElementById("geotagFacts");
+const geotagScopes = document.getElementById("geotagScopes");
+const geotagInput = document.getElementById("geotagInput");
+const geotagHint = document.getElementById("geotagHint");
+const geotagFile = document.getElementById("geotagFile");
+const geotagPick = document.getElementById("geotagPick");
+const geotagPost = document.getElementById("geotagPost");
 const notesUploadHint = document.getElementById("notesUploadHint");
 const profileGate = document.getElementById("profileGate");
 const profileCard = document.getElementById("profileCard");
@@ -4198,6 +4211,210 @@ function submitNote() {
 	updateNotesPostBtn();
 }
 
+// --- geotagged post ---------------------------------------------------------
+// A note whose channel and timestamp both come out of the photo rather than out of
+// the app: the exif GPS gives the cell, DateTimeOriginal gives the moment.
+//
+// The governing rule, and the reason for most of the code below: if the picture
+// doesn't say, we don't guess. A photo with no coordinates is refused rather than
+// posted to whatever channel happened to be open, and one with no capture time is
+// refused rather than stamped "now" - either fallback would produce a geotagged
+// post that is quietly a lie, which is worse than no post at all.
+
+const GEOTAG_SCOPES = [8, 6, 5, 4]; // the note ladder; 8 is as fine as it goes
+let geotagState = null; // { file, lat, lon, takenAt, scope, url }
+let geotagBusy = false;
+
+function setGeotagHint(text, isError) {
+	geotagHint.textContent = text || "";
+	geotagHint.classList.toggle("error", !!isError);
+}
+
+function resetGeotag() {
+	geotagState = null;
+	geotagPreview.hidden = true;
+	if (geotagPreview.src) URL.revokeObjectURL(geotagPreview.src);
+	geotagPreview.removeAttribute("src");
+	geotagFacts.hidden = true;
+	geotagFacts.textContent = "";
+	geotagScopes.hidden = true;
+	geotagStatus.hidden = false;
+	geotagStatus.textContent = t("geotag.pick");
+	geotagInput.value = "";
+	geotagPost.disabled = true;
+	setGeotagHint("");
+}
+
+function openGeotag() {
+	resetGeotag();
+	closeNotes();
+	geotagGate.classList.add("show");
+}
+
+function closeGeotag() {
+	geotagGate.classList.remove("show");
+	resetGeotag();
+}
+
+// The zone the photo was taken in, so a wall-clock exif time becomes a real
+// instant. Derived from the photo's OWN coordinates - the same tz-lookup the globe
+// clock uses - rather than from the reader's device, which may be a continent away
+// from where the picture was taken.
+async function zoneOffsetAt(lat, lon, whenMs) {
+	await loadTzLookup();
+	if (!tzLookup) return null;
+	let zone = null;
+	try {
+		zone = tzLookup(lat, lon);
+	} catch {
+		return null;
+	}
+	if (!zone) return null;
+	try {
+		// Intl gives the offset as a formatted name ("GMT+2"), so read it back rather
+		// than trying to compute it - this is the only way to get DST right for a date
+		// in the past, which is exactly what an old photo is.
+		const parts = new Intl.DateTimeFormat("en-US", { timeZone: zone, timeZoneName: "longOffset" })
+			.formatToParts(new Date(whenMs))
+			.find((p) => p.type === "timeZoneName");
+		return parseUtcOffset(String(parts?.value || "").replace(/^GMT/, "")) ?? 0;
+	} catch {
+		return null;
+	}
+}
+
+function renderGeotagScopes() {
+	for (const btn of geotagScopes.querySelectorAll("[data-geotag-scope]")) {
+		const len = Number(btn.dataset.geotagScope);
+		const cell = encodeGeohash(geotagState.lat, geotagState.lon, len);
+		const span = formatDistance(geohashCell("0".repeat(len)).spanKm);
+		btn.querySelector(".gsLabel").textContent = `#${cell} · ${t(NOTE_SCOPE_KEYS[len])} · ${span}`;
+		btn.classList.toggle("on", len === geotagState.scope);
+	}
+}
+
+async function readGeotagPhoto(file) {
+	if (!file || geotagBusy) return;
+	resetGeotag();
+	if (!file.type.startsWith("image/")) {
+		setGeotagHint(t("geotag.not_image"), true);
+		return;
+	}
+	if (file.size > NOSTR_BUILD_MAX_BYTES) {
+		setGeotagHint(t("notes.too_large", { max: NOSTR_BUILD_MAX_MB }), true);
+		return;
+	}
+	geotagStatus.textContent = t("geotag.reading");
+	let exif;
+	try {
+		exif = readExif(new Uint8Array(await file.arrayBuffer()));
+	} catch {
+		exif = null;
+	}
+	// The refusal the whole feature is built around. Both facts are required: a
+	// coordinate with no time, or a time with no coordinate, is not a geotagged post.
+	if (!exif || exif.lat === null || !exif.taken) {
+		geotagStatus.textContent = t("geotag.no_data");
+		setGeotagHint(t("geotag.rejected"), true);
+		return;
+	}
+
+	const roughMs = Date.UTC(exif.taken.y, exif.taken.mo - 1, exif.taken.d, exif.taken.h, exif.taken.mi, exif.taken.s);
+	const zone = Number.isFinite(exif.offsetMinutes) ? null : await zoneOffsetAt(exif.lat, exif.lon, roughMs);
+	const takenAt = exifTimestamp(exif.taken, exif.offsetMinutes, zone);
+	if (!takenAt) {
+		geotagStatus.textContent = t("geotag.no_data");
+		setGeotagHint(t("geotag.rejected"), true);
+		return;
+	}
+
+	geotagState = { file, lat: exif.lat, lon: exif.lon, takenAt, scope: 8, url: "" };
+	geotagStatus.hidden = true;
+	geotagPreview.src = URL.createObjectURL(file);
+	geotagPreview.hidden = false;
+	const when = new Date(takenAt * 1000);
+	geotagFacts.textContent =
+		`${t("geotag.where")}: ${exif.lat.toFixed(5)}, ${exif.lon.toFixed(5)}\n` +
+		`${t("geotag.when")}: ${when.toISOString().replace("T", " ").slice(0, 19)} UTC` +
+		(Number.isFinite(exif.offsetMinutes) ? ` · ${t("geotag.from_photo")}` : ` · ${t("geotag.from_place")}`);
+	geotagFacts.hidden = false;
+	renderGeotagScopes();
+	geotagScopes.hidden = false;
+	geotagPost.disabled = false;
+	setGeotagHint("");
+}
+
+async function submitGeotag() {
+	if (!geotagState || geotagBusy) return;
+	// A geotag post belongs to a cell nobody is necessarily looking at, so the
+	// notes client may never have been created - this window can be reached without
+	// opening a channel's notes at all. Build it on demand rather than refusing.
+	const client = ensureNotesClient();
+	if (!client) return;
+	const body = geotagInput.value.trim();
+	if (NSEC_RE.test(body)) {
+		appendSystem(t("system.nsec_blocked"));
+		return;
+	}
+	geotagBusy = true;
+	geotagPost.disabled = true;
+	geotagPick.disabled = true;
+	try {
+		// the picture is the post, so it has to be hosted before the note exists -
+		// notes outlive the api's ephemeral media store, same as any other note image
+		if (!geotagState.url) {
+			setGeotagHint(t("notes.uploading"));
+			const { url } = await uploadImageToNostrBuild(geotagState.file, identity);
+			if (!url) {
+				setGeotagHint(t("notes.upload_failed"), true);
+				return;
+			}
+			geotagState.url = url;
+		}
+		const cell = encodeGeohash(geotagState.lat, geotagState.lon, geotagState.scope);
+		const content = [body, geotagState.url].filter(Boolean).join("\n\n");
+		const res = await client.postTo({
+			content,
+			geohash: cell,
+			name,
+			expiresInSecs: 0, // a dated photo is a record; expiring it defeats the point
+			client: outgoingClient(),
+			createdAt: geotagState.takenAt,
+		});
+		if (!res.ok) {
+			setGeotagHint(t("geotag.failed"), true);
+			return;
+		}
+		closeGeotag();
+		// the note is in a cell the reader isn't looking at, so say where it went -
+		// with the cell as a tappable chip so they can go and see it
+		appendSystemRich(t("geotag.posted", { geo: `#${cell}` }));
+	} catch {
+		setGeotagHint(t("geotag.failed"), true);
+	} finally {
+		geotagBusy = false;
+		geotagPick.disabled = false;
+		geotagPost.disabled = !geotagState;
+	}
+}
+
+geotagClose.addEventListener("click", closeGeotag);
+geotagPick.addEventListener("click", () => {
+	if (!geotagBusy) geotagFile.click();
+});
+geotagFile.addEventListener("change", () => {
+	const f = geotagFile.files && geotagFile.files[0];
+	geotagFile.value = ""; // let the same file be re-picked after a rejection
+	readGeotagPhoto(f);
+});
+geotagScopes.addEventListener("click", (e) => {
+	const btn = e.target.closest("[data-geotag-scope]");
+	if (!btn || !geotagState) return;
+	geotagState.scope = Number(btn.dataset.geotagScope);
+	renderGeotagScopes();
+});
+geotagPost.addEventListener("click", submitGeotag);
+
 // --- note image attach (nostr.build) ----------------------------------------
 // notes can persist forever, so their media needs a permanent host - the api's
 // media store is temporary. Uploads go straight from the browser to nostr.build
@@ -5614,8 +5831,21 @@ notesInput.addEventListener("keydown", (e) => {
 	}
 });
 notesPost.addEventListener("click", submitNote);
-notesAttach.addEventListener("click", () => {
-	if (!notesUploadBusy) notesFile.click();
+// the "+" is a menu now: attach a picture to this note, or start a geotagged post
+notesAttach.addEventListener("click", (e) => {
+	if (notesUploadBusy) return;
+	e.stopPropagation();
+	notesMediaMenu.hidden = !notesMediaMenu.hidden;
+});
+notesMediaMenu.addEventListener("click", (e) => {
+	const btn = e.target.closest("[data-notes-media]");
+	if (!btn) return;
+	notesMediaMenu.hidden = true;
+	if (btn.dataset.notesMedia === "photo") notesFile.click();
+	else openGeotag();
+});
+document.addEventListener("click", (e) => {
+	if (!notesMediaMenu.hidden && !notesMediaMenu.contains(e.target)) notesMediaMenu.hidden = true;
 });
 notesFile.addEventListener("change", () => {
 	const file = notesFile.files && notesFile.files[0];

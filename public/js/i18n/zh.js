@@ -209,6 +209,7 @@ export default {
 	},
 
 	geotag: {
+		no_relays: "没有中继接受 · 请检查网络连接",
 		title: "地理标记帖",
 		pick: "选择带位置信息的照片",
 		reading: "正在读取照片...",

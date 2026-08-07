@@ -4238,6 +4238,11 @@ function resetGeotag() {
 	geotagFacts.hidden = true;
 	geotagFacts.textContent = "";
 	geotagScopes.hidden = true;
+	// blank the labels too, not just the container. Hiding alone left the PREVIOUS
+	// photo's cells sitting in the dom, one css regression away from being shown
+	// as if they described the picture you are about to post.
+	for (const btn of geotagScopes.querySelectorAll(".gsLabel")) btn.textContent = "";
+	for (const btn of geotagScopes.querySelectorAll("[data-geotag-scope]")) btn.classList.remove("on");
 	geotagStatus.hidden = false;
 	geotagStatus.textContent = t("geotag.pick");
 	geotagInput.value = "";
@@ -4373,16 +4378,19 @@ async function submitGeotag() {
 		}
 		const cell = encodeGeohash(geotagState.lat, geotagState.lon, geotagState.scope);
 		const content = [body, geotagState.url].filter(Boolean).join("\n\n");
-		const res = await client.postTo({
+		const res = client.postTo({
 			content,
 			geohash: cell,
 			name,
 			expiresInSecs: 0, // a dated photo is a record; expiring it defeats the point
 			client: outgoingClient(),
 			createdAt: geotagState.takenAt,
+			// the chat pool: connected already, and any relay will take a note
+			publish: (ev) => pool.broadcast(ev),
 		});
 		if (!res.ok) {
-			setGeotagHint(t("geotag.failed"), true);
+			// no relay took it and assist is off: nothing is out there, so say so
+			setGeotagHint(t("geotag.no_relays"), true);
 			return;
 		}
 		closeGeotag();

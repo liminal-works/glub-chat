@@ -219,6 +219,7 @@ export default {
 
 	// the location-notes sheet: a persistent per-channel bulletin board (kind-1)
 	geotag: {
+		no_relays: "no relay accepted it · check your connection",
 		title: "geotag post",
 		pick: "pick a photo with location data",
 		reading: "reading photo...",

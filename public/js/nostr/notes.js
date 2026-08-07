@@ -523,39 +523,7 @@ export function createNotesClient({ getIdentity, getRelays, onChange, assist } =
 	// showing; a note for somewhere else would appear under the wrong heading. The
 	// caller reports success itself, and the note arrives normally when that cell is
 	// next opened.
-	// Publish over connections opened just for this, then close them. The sockets
-	// this module keeps belong to the cell it is WATCHING, and a client that was
-	// only ever built to send one geotagged note has none at all - so borrowing
-	// them would silently send to nobody, which is exactly what it did first try.
-	function publishStandalone(event, relays) {
-		return new Promise((resolve) => {
-			const urls = (relays || []).slice(0, 5);
-			if (!urls.length) return resolve(0);
-			let sent = 0;
-			let settled = false;
-			const open = [];
-			const done = () => {
-				if (settled) return;
-				settled = true;
-				// a beat for the relay to read the frame before we hang up on it
-				setTimeout(() => { for (const ws of open) { try { ws.close(); } catch {} } }, 1500);
-				resolve(sent);
-			};
-			let pending = urls.length;
-			const settle = () => { if (--pending <= 0) done(); };
-			for (const url of urls) {
-				let ws;
-				try { ws = new WebSocket(url); } catch { settle(); continue; }
-				open.push(ws);
-				ws.addEventListener('open', () => { try { ws.send(JSON.stringify(['EVENT', event])); sent++; } catch {} settle(); });
-				ws.addEventListener('error', settle);
-				ws.addEventListener('close', settle);
-			}
-			setTimeout(done, 6000); // never hang the ui on a wedged relay
-		});
-	}
-
-	async function postTo({ content, geohash: target, name, expiresInSecs, client, createdAt }) {
+	function postTo({ content, geohash: target, name, expiresInSecs, client, createdAt, publish }) {
 		const cell = String(target || "").toLowerCase();
 		if (!/^[0-9a-z]{1,12}$/.test(cell)) return { ok: false, relays: 0 };
 		const { sk, pk } = getIdentity();
@@ -568,10 +536,16 @@ export function createNotesClient({ getIdentity, getRelays, onChange, assist } =
 		} catch {
 			return { ok: false, relays: 0 };
 		}
-		// the target cell's own nearest relays, not the ones we happen to be watching
-		const relays = await publishStandalone(event, getRelays(cell));
-		if (assist?.isActive?.()) assist.publish(event);
-		return { ok: relays > 0 || !!assist?.isActive?.(), event, relays };
+		// `publish` is the app's live chat pool, already connected and already
+		// holding sockets. Opening throwaway ones for the target cell was the first
+		// attempt and it was both slower and flakier - a relay that errors fires two
+		// events, which raced the send and reported failure for notes that were fine.
+		// A note is accepted by any relay regardless of its geohash, so the pool we
+		// already have is the right place to hand it to.
+		const relays = (publish ? publish(event) : broadcast(event)) || 0;
+		const viaAssist = !!assist?.isActive?.();
+		if (viaAssist) assist.publish(event);
+		return { ok: relays > 0 || viaAssist, event, relays };
 	}
 
 	// NIP-09 delete one of our own notes: emit a kind-5, drop it locally, and tombstone

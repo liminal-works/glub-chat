@@ -213,6 +213,7 @@ export default {
 	},
 
 	geotag: {
+		no_relays: "릴레이가 받지 않았습니다 · 연결을 확인하세요",
 		title: "지오태그 게시",
 		pick: "위치 정보가 있는 사진을 선택하세요",
 		reading: "사진 읽는 중...",

@@ -200,10 +200,18 @@ export class RelayPool {
 		this.onStatusChange();
 	}
 
+	// Returns how many sockets took it. Chat fires and forgets, but a geotag post
+	// is a one-shot the user is waiting on, and it needs to know the difference
+	// between "sent" and "there was nobody to send it to".
 	broadcast(event) {
 		const payload = JSON.stringify(["EVENT", event]);
+		let sent = 0;
 		for (const ws of this.sockets.values()) {
-			if (ws.readyState === WebSocket.OPEN) ws.send(payload);
+			if (ws.readyState === WebSocket.OPEN) {
+				ws.send(payload);
+				sent++;
+			}
 		}
+		return sent;
 	}
 }

@@ -327,6 +327,14 @@
 					</div>
 					<div id="notesList" class="notesList"></div>
 					<div class="notesComposer">
+						<!-- inside the composer, not the panel: .mediaMenu opens upward from its
+						     container's TOP edge, so anchoring it to a full-height panel put it
+						     off the top of the screen. The chat menu anchors to #composerWrap
+						     for exactly this reason. -->
+						<div id="notesMediaMenu" class="mapMenu mediaMenu" hidden>
+							<button type="button" class="mapMenuItem" data-notes-media="photo"><span data-i18n="notes.media_photo">photo upload</span></button>
+							<button type="button" class="mapMenuItem" data-notes-media="geotag"><span data-i18n="notes.media_geotag">geotag post</span></button>
+						</div>
 						<textarea id="notesInput" class="notesInput" rows="2" maxlength="500" enterkeyhint="send" spellcheck="true" autocorrect="on" autocapitalize="sentences" autocomplete="off" data-i18n-placeholder="notes.placeholder" placeholder="leave a note for this channel..."></textarea>
 						<div class="notesComposerRow">
 							<select id="notesExpiry" class="notesExpiry" aria-label="expiry">
@@ -340,13 +348,6 @@
 							<button id="notesAttach" class="notesAttach" type="button" aria-haspopup="menu" aria-label="attach">+</button>
 							<button id="notesPost" class="notesPost" type="button" data-i18n="notes.post">post</button>
 						</div>
-					</div>
-					<!-- the "+" is two different things now: attach a picture to THIS note,
-					     or start a geotagged post, which reads a photo's own coordinates and
-					     capture time and belongs to whatever cell those describe. -->
-					<div id="notesMediaMenu" class="mapMenu mediaMenu" hidden>
-						<button type="button" class="mapMenuItem" data-notes-media="photo"><span data-i18n="notes.media_photo">photo upload</span></button>
-						<button type="button" class="mapMenuItem" data-notes-media="geotag"><span data-i18n="notes.media_geotag">geotag post</span></button>
 					</div>
 				</div>
 			</div>

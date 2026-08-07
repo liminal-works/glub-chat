@@ -3669,6 +3669,7 @@ html.retro .flairScan {
 }
 
 .notesComposer {
+	position: relative; /* anchors the "+" menu, which opens upward from here */
 	display: flex;
 	flex-direction: column;
 	gap: 8px;
@@ -5322,6 +5323,13 @@ html.retro .flairScan {
 	display: flex;
 	flex-wrap: wrap;
 	gap: 6px;
+}
+
+/* An explicit `display` beats the hidden attribute's UA rule, so without this the
+   picker was permanently on screen - empty before a photo was read, and still
+   showing the LAST photo's cells after one was cleared. */
+.geotagScopes[hidden] {
+	display: none;
 }
 
 .geotagScope {

@@ -38,8 +38,11 @@ export function createMediaStore({ dir, maxItems = 50 }) {
 
 	setInterval(prune, SWEEP_MS).unref();
 
-	// sanitize + store a buffer; returns the stored filename or null if the
-	// payload isn't a valid file of the declared type.
+	// sanitize + store a buffer. Returns { file, bytes, sha256 } describing what we
+	// actually host, or null if the payload isn't a valid file of the declared type.
+	// The hash is of the REBUILT bytes, not the posted ones: that is the file anyone
+	// else can fetch, so it's the one an audit trail or a hash-match has to name
+	// (medialog.mjs records the posted bytes' hash separately).
 	function put(buf, mime) {
 		const format = FORMATS[mime];
 		if (!format) return null;
@@ -55,7 +58,7 @@ export function createMediaStore({ dir, maxItems = 50 }) {
 		fs.writeFileSync(path.join(dir, file), clean);
 		items.push({ file, at: Date.now() });
 		prune(); // enforce the cap immediately, not on the next sweep
-		return file;
+		return { file, bytes: clean.length, sha256: crypto.createHash("sha256").update(clean).digest("hex") };
 	}
 
 	// resolve a stored filename to { path, mime }, or null (unknown/expired).

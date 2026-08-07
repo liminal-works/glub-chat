@@ -1,5 +1,6 @@
 import "dotenv/config";
 import express from "express";
+import crypto from "node:crypto";
 import path from "path";
 import { fileURLToPath } from "url";
 import { openStore } from "./store.mjs";
@@ -8,6 +9,7 @@ import { createBot } from "./bot.mjs";
 import { createProfiles } from "./profiles.mjs";
 import { proxyAvatar } from "./avatar.mjs";
 import { createMediaStore } from "./media.mjs";
+import { createMediaLog, sha256 } from "./medialog.mjs";
 import { translateConfigured, translateText } from "./translate.mjs";
 import { geocode } from "./geocode.mjs";
 import { fetchPreview } from "./preview.mjs";
@@ -42,6 +44,13 @@ const PRUNE_INTERVAL_MS = 60_000;
 const MEDIA_MAX_BYTES = Number(process.env.API_MEDIA_MAX_BYTES) || 10 * 1024 * 1024;
 const MEDIA_MAX_ITEMS = Number(process.env.API_MEDIA_MAX_ITEMS) || 50;
 const MEDIA_DIR = process.env.API_MEDIA_DIR || path.join(__dirname, "media-tmp");
+// The upload audit trail (medialog.mjs). Its own db, and NOT optional: hosting
+// other people's pictures means being able to answer for one, and the answer has
+// to be written when the upload happens rather than looked for afterwards. Short
+// retention on purpose - it holds IP addresses - but long enough that a report
+// arriving a week late still finds the record.
+const MEDIA_LOG_DB = process.env.API_MEDIA_LOG_DB || path.join(__dirname, "glub-medialog.db");
+const MEDIA_LOG_DAYS = Number(process.env.API_MEDIA_LOG_DAYS) || 14;
 // the public origin baked into shared media urls (they're read by other clients,
 // so they must be absolute). Falls back to the request's forwarded host.
 const PUBLIC_ORIGIN = (process.env.API_PUBLIC_ORIGIN || "").replace(/\/+$/, "");
@@ -120,6 +129,10 @@ let bot;
 const aggregator = createAggregator(store, {
 	onStored: broadcast,
 	onChat: (ev, geo, source) => bot?.observe(ev, geo, source),
+	// the audit trail's second half: which signed event carried a given upload's
+	// url. Declared later in the file, so this reads it at call time - which is
+	// after startup, since nothing is accepted before the relays connect.
+	onAccepted: (ev, geo) => mediaLog.noteEvent(ev, geo),
 });
 // declared after the aggregator and before the bot: the sweep announces a settled
 // donation through the bot, and the bot serves the commands that create one.
@@ -200,6 +213,8 @@ bot = createBot({
 });
 const profiles = createProfiles();
 const media = createMediaStore({ dir: MEDIA_DIR, maxItems: MEDIA_MAX_ITEMS });
+const mediaLog = createMediaLog({ dbPath: MEDIA_LOG_DB, retentionDays: MEDIA_LOG_DAYS });
+console.log(`[medialog] retaining upload records for ${MEDIA_LOG_DAYS} days · ${MEDIA_LOG_DB}`);
 
 const app = express();
 
@@ -405,20 +420,37 @@ app.post(
 	"/api/media",
 	express.raw({ type: ["image/jpeg", "image/png", "image/gif", "audio/webm", "audio/ogg", "audio/mp4"], limit: MEDIA_MAX_BYTES }),
 	(req, res) => {
+		const mime = (req.headers["content-type"] || "").split(";")[0];
 		if (!Buffer.isBuffer(req.body) || req.body.length === 0) {
 			res.status(415).json({ ok: false, error: "unsupported media type" });
 			return;
 		}
-		const file = media.put(req.body, (req.headers["content-type"] || "").split(";")[0]);
-		if (!file) {
+		// hashed before anything else touches it: this is what was put on the wire,
+		// and it is the only version of the file that will ever exist if the rebuild
+		// below refuses it
+		const inHash = sha256(req.body);
+		const stored = media.put(req.body, mime);
+		if (!stored) {
+			mediaLog.recordRejection({ mime, bytesIn: req.body.length, sha256In: inHash, reason: "rebuild refused", req });
 			res.status(415).json({ ok: false, error: "not a valid media file" });
 			return;
 		}
+		// Written before the url is handed back, so there is no window in which
+		// someone holds a link to something we have no record of.
+		mediaLog.recordUpload({
+			file: stored.file,
+			mime,
+			bytesIn: req.body.length,
+			bytesOut: stored.bytes,
+			sha256In: inHash,
+			sha256Out: stored.sha256,
+			req,
+		});
 		// return a relative path by default and let the client absolutize it against
 		// its own (authoritative) origin - so https just works without guessing at
 		// the scheme from proxy headers. PUBLIC_ORIGIN forces an absolute url only
 		// when media should live on a different origin than the browsing one.
-		const url = PUBLIC_ORIGIN ? `${PUBLIC_ORIGIN}/api/media/${file}` : `/api/media/${file}`;
+		const url = PUBLIC_ORIGIN ? `${PUBLIC_ORIGIN}/api/media/${stored.file}` : `/api/media/${stored.file}`;
 		res.json({ ok: true, url });
 	}
 );
@@ -432,6 +464,48 @@ app.get("/api/media/:file", (req, res) => {
 	res.set("Content-Type", item.mime);
 	res.set("Cache-Control", "public, max-age=86400, immutable");
 	res.sendFile(item.path);
+});
+
+// --- the upload audit trail, read back --------------------------------------
+// Gated on the rotating admin code, which is the same credential !auth redeems and
+// carries the same claim: you can read this server's terminal. Deliberately NOT a
+// bot command - the answers contain IP addresses, and a bot replies in a public
+// channel. Nothing here is ever reachable from a browser on another origin: the
+// CORS header is dropped and the code travels in a header, so a cross-origin read
+// fails preflight before it is ever sent.
+const adminBucket = ipBucket({ capacity: 20, refillPerSec: 0.2 });
+
+function adminCodeOk(req) {
+	const given = String(
+		req.get("x-admin-code") || (req.get("authorization") || "").replace(/^Bearer\s+/i, "") || "",
+	)
+		.trim()
+		.toUpperCase();
+	const want = admin.code;
+	// equal lengths first: timingSafeEqual throws on a mismatch, and the length of a
+	// fixed-format code is not the secret
+	if (given.length !== want.length) return false;
+	return crypto.timingSafeEqual(Buffer.from(given), Buffer.from(want));
+}
+
+app.get("/api/admin/medialog", adminBucket, (req, res) => {
+	res.removeHeader("Access-Control-Allow-Origin");
+	res.set("Cache-Control", "no-store");
+	if (!adminCodeOk(req)) {
+		console.log(`[medialog] denied medialog read from ${req.ip}`);
+		res.status(401).json({ ok: false, error: "admin code required" });
+		return;
+	}
+	const s = (k) => (typeof req.query[k] === "string" ? req.query[k] : "");
+	const limit = Number(req.query.limit) || 50;
+	// one lookup per way you might arrive at an incident: a url someone sent you, a
+	// hash from a match service, an address, an author, or the event id itself
+	if (s("file")) return void res.json({ ok: true, result: mediaLog.forFile(s("file")) });
+	if (s("hash")) return void res.json({ ok: true, results: mediaLog.byHash(s("hash")) });
+	if (s("ip")) return void res.json({ ok: true, uploads: mediaLog.byIp(s("ip"), limit) });
+	if (s("pubkey")) return void res.json({ ok: true, publications: mediaLog.byPubkey(s("pubkey"), limit) });
+	if (s("event")) return void res.json({ ok: true, publications: mediaLog.byEvent(s("event")) });
+	res.json({ ok: true, stats: mediaLog.stats(), uploads: mediaLog.recent(limit) });
 });
 
 // newest-first history, optionally scoped to a geohash and paged with `before`.

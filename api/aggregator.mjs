@@ -67,9 +67,13 @@ const MAX_PRESENCE_PER_CHANNEL = 2000; // roster memory backstop (unverified pre
 // it out to live SSE subscribers.
 // `onChat(ev, geo)` (optional) fires for each accepted LIVE chat event - the global
 // bot subscribes to it to track activity/language and serve commands.
+// `onAccepted(ev, geo)` (optional) fires for EVERY signature-verified event this
+// api takes in, of any kind, before any of the kind-specific handling. The media
+// audit trail subscribes to it: "which signed events published this url" has to be
+// answered from one funnel, not from remembering to call it on each new code path.
 const BOT_FANOUT = 16; // how many geo-nearest relays a bot reply is broadcast to
 
-export function createAggregator(store, { onStored, onChat } = {}) {
+export function createAggregator(store, { onStored, onChat, onAccepted } = {}) {
 	const sockets = new Map(); // url -> WebSocket (live attempts)
 	const managed = new Set(); // every url we're keeping connected (incl. mid-backoff)
 	const relayCoords = new Map(); // url -> { lat, lon } from the relay list (bot fan-out targeting)
@@ -140,6 +144,7 @@ export function createAggregator(store, { onStored, onChat } = {}) {
 		}
 		const inserted = store.insert(ev, geo);
 		if (inserted) metrics.stored++;
+		if (inserted && onAccepted) onAccepted(ev, geo);
 		if (inserted && onStored) onStored(ev, geo);
 		// feed the global bot every fresh live chat event (activity/language/commands).
 		// only on first insert + live, so backlog replays and cross-relay duplicates
@@ -221,7 +226,9 @@ export function createAggregator(store, { onStored, onChat } = {}) {
 			spamDrops.note++;
 			return false;
 		}
-		return store.insertNote(ev, geo.toLowerCase(), expiresAt);
+		const inserted = store.insertNote(ev, geo.toLowerCase(), expiresAt);
+		if (inserted && onAccepted) onAccepted(ev, geo);
+		return inserted;
 	}
 
 	// honor a NIP-09 deletion (kind 5): drop any cached note it references, but only
@@ -255,6 +262,7 @@ export function createAggregator(store, { onStored, onChat } = {}) {
 			if (!verifyCounted(ev)) return -1;
 			if (ev.kind === CHAT_KIND) {
 				const inserted = store.insert(ev, geo); // idempotent
+				if (inserted && onAccepted) onAccepted(ev, geo);
 				if (inserted && onStored) onStored(ev, geo);
 				// assist-mode clients send here instead of to relays, so this is the
 				// bot's only sight of their chat + commands. Gate on `inserted` so the
@@ -269,7 +277,7 @@ export function createAggregator(store, { onStored, onChat } = {}) {
 			const expiresAt = noteExpiration(ev);
 			if (expiresAt != null && expiresAt <= Math.floor(Date.now() / 1000)) return -1;
 			if (!verifyCounted(ev)) return -1;
-			store.insertNote(ev, geo.toLowerCase(), expiresAt); // idempotent
+			if (store.insertNote(ev, geo.toLowerCase(), expiresAt) && onAccepted) onAccepted(ev, geo); // idempotent
 		} else if (ev.kind === DELETE_KIND) {
 			const targets = deletionTargets(ev);
 			if (targets.length === 0) return -1;
